@@ -14,11 +14,32 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 const VERSAO = "v1";
 
 function chave(): Buffer {
-  const segredo = process.env.CREDENCIAIS_ENCRYPTION_KEY;
+  // ⚠️ `trim()` é obrigatório e precisa ser IGUAL no outro sistema que cifra
+  // com esta mesma chave. A chave é colada à mão num painel de hospedagem, e
+  // uma quebra de linha invisível no fim muda o SHA-256 — o texto cifrado de
+  // um lado deixa de abrir do outro, com um erro que fala em autenticação e
+  // não em espaço em branco.
+  const segredo = process.env.CREDENCIAIS_ENCRYPTION_KEY?.trim();
   if (!segredo || segredo.length < 32) {
     throw new Error("CREDENCIAIS_ENCRYPTION_KEY ausente ou curta (mínimo 32 caracteres): credenciais não podem ser guardadas.");
   }
   return createHash("sha256").update(segredo).digest();
+}
+
+/**
+ * Diz se dá para cifrar, sem estourar.
+ *
+ * A tela de configurações precisa saber ANTES de oferecer o campo de senha:
+ * sem chave, guardar credencial é impossível, e a pessoa que preencheu o
+ * formulário inteiro receberia um erro só no fim.
+ */
+export function cifragemDisponivel(): boolean {
+  try {
+    chave();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function cifrar(texto: string): string {
@@ -33,7 +54,13 @@ export function cifrar(texto: string): string {
 export function decifrar(cifrado: string): string {
   const [versao, iv, tag, corpo] = cifrado.split(".");
   if (versao !== VERSAO || !iv || !tag || !corpo) {
-    throw new Error("Credencial guardada num formato que este sistema não reconhece.");
+    // ⚠️ "formato desconhecido" e não "falha ao decifrar": o caso real é
+    // credencial gravada em claro por algum caminho que escapou, ou cifrada
+    // por uma versão futura. Confundir isso com chave errada mandaria quem
+    // depura procurar no lugar errado.
+    throw new Error(
+      "Credencial guardada num formato desconhecido por este sistema — nada foi decifrado."
+    );
   }
   const decipher = createDecipheriv("aes-256-gcm", chave(), Buffer.from(iv, "base64url"));
   decipher.setAuthTag(Buffer.from(tag, "base64url"));

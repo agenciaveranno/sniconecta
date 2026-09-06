@@ -9,7 +9,9 @@ import { createServerClient } from "@supabase/ssr";
 //     ninguém perceber. Endpoint chamado por máquina fica fora daqui.
 //  3. Checagem de sessão tem prazo (3 s). Estourou → trata como sem sessão.
 
-const PUBLICAS_EXATAS = new Set(["/", "/login", "/politicas"]);
+// ⚠️ `/login/sair` precisa estar aqui: sem sessão, o proxy mandaria o pedido
+// de saída para o login, e a rota que limpa o cookie nunca rodaria.
+const PUBLICAS_EXATAS = new Set(["/", "/login", "/login/sair", "/politicas"]);
 const PUBLICAS_PREFIXO = ["/e/", "/comprar", "/certificado/", "/l/", "/descadastro", "/r/"];
 
 export function rotaPublica(pathname: string): boolean {

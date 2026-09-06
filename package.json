@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "migrar": "tsx scripts/migrar-mysql.ts",
-    "amostra": "tsx scripts/exportar-amostra.ts"
+    "amostra": "tsx scripts/exportar-amostra.ts",
+    "extrair-sni": "tsx scripts/extrair-sni.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.6",

@@ -59,9 +59,16 @@ docs/                    decisões (ADR), design system, integração.
 - Tabela nova nasce com `enable row level security`, policies, GRANT
   explícito e asserção no harness de RLS. O projeto Supabase roda com
   "expose new tables" desligado: sem GRANT, a policy nem é avaliada.
-- Schema `public`: o que é comum (`pessoas`, `papeis`, `regionais`,
-  `localidades`, `auditoria`, `notificacoes`, `configuracoes`).
-  Schema `eventos`: o domínio de eventos. Outros módulos, outros schemas.
+- **Nunca um `alter default privileges` geral.** Ele concede a toda tabela
+  futura, inclusive à que ninguém revisou. GRANT é tabela a tabela, na mesma
+  migração que a cria, e o harness reprova quem sobrar sem declaração.
+- Onde a tabela mora segue o **modo de acesso** do módulo (decisão 0007):
+  quem fala pelo cliente Supabase fica em `public` com prefixo (`ciclo_*`),
+  porque o PostgREST só embute relação dentro do schema ativo e todo módulo
+  precisa embutir `pessoas`; quem fala Postgres direto ganha schema próprio
+  não exposto (`eventos.*`). O comum fica em `public` sem prefixo:
+  `pessoas`, `unidades`, `organizacoes`, `papeis`, `auditoria`,
+  `notificacoes`, `configuracoes`.
 - O módulo `eventos` acessa o Postgres **direto pelo pooler** (`src/lib/db.ts`)
   com RLS ligada e sem GRANT para `authenticated`: o navegador nunca fala
   com essas tabelas, e a autorização acontece por capacidade no servidor.
@@ -111,3 +118,13 @@ Regras completas em `docs/design-system.md`. As que mais se erram:
 ## Antes de publicar
 
 `npm run typecheck && npm test && npm run build`. Só com tudo verde.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

@@ -2,23 +2,37 @@
 
 SQL puro, um arquivo por mudança, nome `AAAAMMDDHHMMSS_o_que_muda.sql`.
 Aplicadas em ordem pelo workflow `migrations.yml` no merge para `main`.
+**Ninguém roda SQL à mão em produção.**
 
-## Ordem combinada entre os módulos
+## O que já está aqui
 
-1. **Schema comum (`public`)** vem do módulo `ciclo`: `pessoas`, `papeis`,
-   `regionais`, `localidades`, `auditoria`, `notificacoes`, `configuracoes`,
-   funções `app.*` de autorização, GRANTs padrão. A sessão do `ciclo` traz as
-   migrações dela para cá com o prefixo de data original, então elas ficam
-   naturalmente antes das demais.
-2. **Ajustes do comum decididos para a plataforma**, em migração nova:
-   `pessoas.email` anulável (obrigatório só quando `auth_user_id` existe) e
-   os tipos de papel do módulo `eventos`. Ver `docs/decisoes/0004-pessoas.md`.
-3. **Schema `eventos`**: hoje em `supabase/rascunhos/eventos_schema.sql`.
-   Vira migração quando os passos 1 e 2 estiverem na `main`.
+| Arquivo | O que traz |
+|---|---|
+| `20260906190000_fundacao_plataforma.sql` | O comum: `pessoas`, a árvore de `unidades`, `organizacoes`, vínculos, funções doutrinárias, `papeis` com catálogo, `locais`, auditoria, fila de notificações, configuração, consentimento e pedidos de exclusão — com RLS, GRANT explícito e as funções `app.*` de autorização. |
 
-Enquanto o passo 1 não chega, esta pasta fica só com este arquivo, de
-propósito: uma migração de `eventos` aplicada antes de `pessoas` existir
-derrubaria o workflow.
+## O que vem depois, e em que ordem
+
+1. **Schema `eventos`** — hoje em `supabase/rascunhos/eventos_schema.sql`.
+   Depende da fundação, porque `inscricoes.pessoa_id` aponta para `pessoas`.
+2. **Tabelas do módulo `ciclo`**, com prefixo `ciclo_` em `public` (decisão
+   0007): edições, turmas, matrículas, grade, provas, certificados.
+
+## Onde a tabela mora (decisão 0007)
+
+Segue o modo de acesso do módulo, não o gosto de quem escreve:
+
+- fala pelo cliente Supabase → `public` com prefixo (`ciclo_*`), porque o
+  PostgREST só embute relação dentro do schema ativo e todo módulo precisa
+  embutir `pessoas`;
+- fala Postgres direto pelo pooler → schema próprio, não exposto (`eventos.*`);
+- comum a todos → `public`, sem prefixo.
+
+## Toda tabela nova nasce com
+
+`enable row level security`, policies, **GRANT explícito** e asserção em
+`scripts/testar-rls.sh`. **Nunca um `alter default privileges` geral**: ele
+concede a toda tabela futura, inclusive à que ninguém revisou. O harness
+reprova qualquer tabela que ganhe privilégio sem estar declarada.
 
 ## Cada arquivo abre com um cabeçalho
 

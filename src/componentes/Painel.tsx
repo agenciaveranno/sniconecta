@@ -15,11 +15,10 @@ export default async function Painel({ titulo, acoes, children }: { titulo: stri
   const modulos = MODULOS.map((m) => ({ ...m, itens: m.itens.filter((i) => eu.pode(i.capacidade)) })).filter(
     (m) => m.itens.length > 0
   );
-  const papel = eu.papeis.some((p) => p.tipo === "sede")
-    ? "Sede"
-    : eu.papeis.length
-      ? eu.papeis.map((p) => p.tipo.replace(/_/g, " ")).join(", ")
-      : "Sem papel";
+  // O rótulo vem da matriz (NOME_PAPEL), não de `replace` no código do papel:
+  // "presidente_uap" viraria "presidente uap" na tela de quem responde pela
+  // instituição.
+  const papel = eu.rotuloPapel;
 
   return (
     <AppShell modulos={modulos} pessoa={{ nome: eu.nome, papel }} titulo={titulo} acoes={acoes}>
