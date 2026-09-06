@@ -85,6 +85,18 @@ echo "▸ seed: $n_sede sede, $n_reg regionais ($n_ja em japonês), $n_aca acade
 [ "$n_orfa" = "0" ] || { echo "  ❌ $n_orfa Regionais ficaram sem a Sede Central como pai"; exit 1; }
 echo "  ✅ estrutura publicada carregada e pendurada na Sede Central"
 
+# ── O primeiro acesso ──────────────────────────────────────────────────────
+# Sem uma pessoa que já nasça com papel nacional, ninguém entra: o RLS só
+# reconhece quem tem linha em `pessoas`, e a tela que cria pessoas exige estar
+# dentro. Ela nasce SEM conta: quem cria a conta é o convite do Auth, e o
+# gatilho amarra as duas pelo e-mail.
+n_sede_pessoa=$(conta "select count(*) from papeis p join pessoas x on x.id = p.pessoa_id where p.tipo='sede' and p.unidade_id is null and p.ativo and x.auth_user_id is null;")
+[ "$n_sede_pessoa" -ge 1 ] || { echo "  ❌ ninguém nasceu com acesso: o sistema subiria sem porta de entrada"; exit 1; }
+P -q -c "insert into auth.users (id, email) values ('c0000000-0000-0000-0000-0000000000ff','vinirocha@outlook.com');" >/dev/null
+n_ligada=$(conta "select count(*) from pessoas where email='vinirocha@outlook.com' and auth_user_id='c0000000-0000-0000-0000-0000000000ff';")
+[ "$n_ligada" = "1" ] || { echo "  ❌ a conta criada no Auth não encontrou a pessoa pelo e-mail"; exit 1; }
+echo "  ✅ primeiro acesso: pessoa da Sede existe e a conta se liga a ela pelo e-mail"
+
 # ── Cenário ────────────────────────────────────────────────────────────────
 # Sede Central
 #   ├── Regional Sul
@@ -106,6 +118,11 @@ P -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 -- APLICA já foi provado no passo anterior.
 delete from locais;
 delete from unidades;
+-- E as pessoas do primeiro acesso, pelo mesmo motivo: o cenário conta pessoas
+-- e cadastra CPFs próprios. Que o primeiro acesso NASCE já foi provado acima.
+delete from papeis;
+delete from pessoas;
+delete from auth.users;
 
 insert into auth.users (id, email) values
   ('c0000000-0000-0000-0000-000000000001','sede@x'),
@@ -267,6 +284,10 @@ leitura "ninguém lê a fila de notificações pelo cliente" $SEDE \
   "select count(*) from (select 1 from notificacoes) x;" ""
 escrita "nem a Sede escreve auditoria pelo cliente" $SEDE \
   "insert into auditoria (acao) values ('teste');" NEGADO
+# ⚠️ A merchant key da Cielo e a senha do SMTP vivem aqui. Nem a Sede alcança
+# pelo navegador: quem lê é o servidor, e devolve à tela só a parte pública.
+leitura "nem a Sede lê credencial pelo cliente" $SEDE \
+  "select count(*) from (select 1 from credenciais) x;" ""
 
 echo "── Gatilhos de integridade da árvore"
 ORG_PROSP="(select id from organizacoes where nome = 'Associação da Prosperidade')"
@@ -294,6 +315,12 @@ escrita "Academia com CNPJ de outra empresa é recusada" $SEDE \
   "insert into locais (tipo, nome, cnpj) values ('academia','Academia Errada','11222333000181');" NEGADO
 escrita "Academia com CNPJ de filial é aceita" $SEDE \
   "insert into locais (tipo, nome, cnpj) values ('academia','Academia Nova','61278388003095');" OK
+
+echo "── Organização: cadastro editável, só pela Sede"
+escrita "Sede cria organização nova" $SEDE \
+  "insert into organizacoes (nome) values ('Associação Nova');" OK
+escrita "coordenadora NÃO cria organização" $CSUL \
+  "insert into organizacoes (nome) values ('Associação Paralela');" NEGADO
 
 echo "── Organização: da Associação Local, nunca do Núcleo"
 escrita "AL sem organização é recusada" $SEDE \

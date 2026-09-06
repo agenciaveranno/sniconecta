@@ -17,6 +17,7 @@ import {
   Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
+import { listarCredenciais } from "@/lib/credenciais";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
@@ -61,7 +62,13 @@ export default async function EstruturaPage({
   searchParams: Promise<{ erro?: string }>;
 }) {
   const { erro } = await searchParams;
-  await exigirCapacidadeNaPagina("estrutura.gerir");
+  const eu = await exigirCapacidadeNaPagina("estrutura.gerir");
+
+  // Conta Cielo é segredo: quem desenha a estrutura não vê por onde entra o
+  // dinheiro se não administrar configuração também. A leitura só acontece
+  // para quem pode — e traz apenas a parte pública.
+  const podeVerCielo = eu.pode("configuracao.gerir");
+  const contas = podeVerCielo ? await listarCredenciais("cielo") : new Map();
 
   const supabase = await criarClienteServidor();
 
@@ -87,6 +94,10 @@ export default async function EstruturaPage({
   const nomeDaOrganizacao = new Map(organizacoes.map((o) => [o.id, o.nome_curto ?? o.nome]));
   const linhas = achatarArvore(unidades);
   const paraEscolha = unidades.map((u) => ({ id: u.id, nome: u.nome, tipo: u.tipo }));
+  const contaDe = (id: string) => {
+    const c = contas.get(id);
+    return c && { ...c.publico, temSegredo: c.temSegredo };
+  };
 
   return (
     <Painel titulo="Estrutura">
@@ -102,7 +113,12 @@ export default async function EstruturaPage({
             acao={criarUnidade}
             rotuloConfirmar="Cadastrar"
           >
-            <CamposUnidade tipos={tipos} unidades={paraEscolha} organizacoes={organizacoes} />
+            <CamposUnidade
+              tipos={tipos}
+              unidades={paraEscolha}
+              organizacoes={organizacoes}
+              podeVerCielo={podeVerCielo}
+            />
           </ModalCadastro>
         }
       />
@@ -159,7 +175,14 @@ export default async function EstruturaPage({
                     titulo={`Editar ${unidade.nome}`}
                     acao={editarUnidade}
                   >
-                    <CamposUnidade tipos={tipos} unidades={paraEscolha} organizacoes={organizacoes} unidade={unidade} />
+                    <CamposUnidade
+                      tipos={tipos}
+                      unidades={paraEscolha}
+                      organizacoes={organizacoes}
+                      unidade={unidade}
+                      cielo={contaDe(unidade.id)}
+                      podeVerCielo={podeVerCielo}
+                    />
                   </ModalCadastro>
                   <form action={alternarAtivo}>
                     <input type="hidden" name="id" value={unidade.id} />

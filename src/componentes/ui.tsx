@@ -460,6 +460,31 @@ export function TituloSecao({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Grupo de campos dentro de um formulário longo.
+ *
+ * `<fieldset>` e não uma `<div>` com título: o leitor de tela anuncia a legenda
+ * antes de cada campo de dentro, e é o que faz "Merchant ID" ser entendido como
+ * "Merchant ID, conta Cielo" sem repetir isso no rótulo de todos.
+ */
+export function GrupoCampos({
+  titulo,
+  descricao,
+  children,
+}: {
+  titulo: string;
+  descricao?: string;
+  children: ReactNode;
+}) {
+  return (
+    <fieldset className="sni-grupo-campos">
+      <legend className="sni-grupo-campos-legenda">{titulo}</legend>
+      {descricao && <p className="sni-hint sni-grupo-campos-apoio">{descricao}</p>}
+      {children}
+    </fieldset>
+  );
+}
+
 /** Estado vazio: Platypi no título, itálico no corpo. É a voz que fala com a pessoa. */
 export function Vazio({
   icone,

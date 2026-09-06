@@ -34,6 +34,8 @@ export type TipoLocalRow = {
   codigo: string;
   nome: string;
   plural: string;
+  /** Recebe pagamento em conta própria: o cadastro mostra o bloco da Cielo. */
+  aceita_conta_cielo: boolean;
   ordem: number;
   ativo: boolean;
 };
@@ -55,6 +57,8 @@ export type LocalRow = {
   uf: string | null;
   telefone: string | null;
   email: string | null;
+  /** A Academia é filial da Sede Central e tem CNPJ próprio, como a Regional. */
+  cnpj: string | null;
   latitude: string | null;
   longitude: string | null;
   observacoes: string | null;
@@ -68,6 +72,8 @@ export type TipoUnidadeRow = {
   /** Tipos que podem ser a unidade superior. Vazio = fica no topo. */
   pais_permitidos: string[];
   exige_organizacao: boolean;
+  /** Recebe pagamento em conta própria: o cadastro mostra o bloco da Cielo. */
+  aceita_conta_cielo: boolean;
   ordem: number;
   ativo: boolean;
 };

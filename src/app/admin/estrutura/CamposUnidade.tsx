@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import CamposCielo from "@/componentes/CamposCielo";
 import { Campo, Input, Select } from "@/componentes/ui";
 import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
 
@@ -20,11 +21,16 @@ export default function CamposUnidade({
   unidades,
   organizacoes,
   unidade,
+  cielo,
+  podeVerCielo,
 }: {
   tipos: TipoUnidadeRow[];
   unidades: Pick<UnidadeRow, "id" | "nome" | "tipo">[];
   organizacoes: OrganizacaoRow[];
   unidade?: UnidadeRow;
+  /** Parte pública da conta já cadastrada. A chave secreta nunca chega aqui. */
+  cielo?: { merchant_id: string; nome_loja: string; temSegredo: boolean };
+  podeVerCielo?: boolean;
 }) {
   const [tipo, setTipo] = useState(unidade?.tipo ?? "");
   const escolhido = tipos.find((t) => t.codigo === tipo);
@@ -139,6 +145,17 @@ export default function CamposUnidade({
           />
         </Campo>
       </div>
+
+      {/* Só o tipo que recebe em conta própria mostra o bloco — e só para quem
+          administra configuração. Quem cadastra a estrutura não precisa
+          enxergar por onde entra o dinheiro. */}
+      {podeVerCielo && escolhido?.aceita_conta_cielo && (
+        <CamposCielo
+          merchantId={cielo?.merchant_id}
+          nomeLoja={cielo?.nome_loja}
+          temChave={cielo?.temSegredo}
+        />
+      )}
     </>
   );
 }

@@ -3,7 +3,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { exigirCapacidade } from "@/lib/auth";
+import { exigirCapacidade, pessoaAtual } from "@/lib/auth";
+import { removerCredencial, salvarCredencial } from "@/lib/credenciais";
 import { cnpjValido, somenteDigitos } from "@/lib/dominio/cnpj";
 import { criarClienteServidor } from "@/lib/supabase/server";
 
@@ -37,6 +38,47 @@ const schema = z.object({
     .transform((v) => (v ? somenteDigitos(v) : null))
     .refine((v) => v === null || cnpjValido(v), "O CNPJ informado não existe. Confira os números."),
 });
+
+/**
+ * Guarda a conta Cielo da unidade, quando a tela mandou uma.
+ *
+ * Separado do `insert` da unidade porque mora em outra tabela, sem GRANT: quem
+ * escreve é o servidor com `service_role`. Merchant ID em branco significa
+ * "esta unidade não recebe por conta própria" e simplesmente não grava nada —
+ * é o caso de toda Associação Local.
+ *
+ * ⚠️ Roda DEPOIS de a unidade existir e só falha o passo dela: uma Regional
+ * cadastrada com a chave da Cielo digitada errada não pode desaparecer junto
+ * com o erro. A pessoa reabre e corrige só a conta.
+ */
+async function guardarCielo(formData: FormData, unidadeId: string) {
+  const eu = await pessoaAtual();
+  if (!eu?.pode("configuracao.gerir")) return;
+
+  const merchantId = String(formData.get("cielo_merchant_id") ?? "").trim();
+  // ⚠️ Merchant ID em branco APAGA a conta. É o único jeito de a entidade
+  // parar de receber: se apenas ignorasse o campo vazio, quem limpou o
+  // cadastro sairia da tela achando que desligou a venda, e o dinheiro
+  // continuaria caindo na conta antiga. Vale também quando o tipo muda para
+  // um que não recebe em conta própria — o bloco some e o campo vem vazio.
+  if (!merchantId) {
+    await removerCredencial("cielo", { unidade: unidadeId });
+    return;
+  }
+
+  await salvarCredencial(
+    "cielo",
+    { unidade: unidadeId },
+    {
+      publico: {
+        merchant_id: merchantId,
+        nome_loja: String(formData.get("cielo_nome_loja") ?? "").trim(),
+      },
+      segredo: String(formData.get("cielo_merchant_key") ?? ""),
+    },
+    eu.id
+  );
+}
 
 function falhar(mensagem: string): never {
   redirect(`${ROTA}?erro=${encodeURIComponent(mensagem)}`);
@@ -81,19 +123,25 @@ export async function criarUnidade(formData: FormData) {
   if (!dados.success) falhar(dados.error.issues[0].message);
 
   const supabase = await criarClienteServidor();
-  const { error } = await supabase.from("unidades").insert({
-    tipo: dados.data.tipo,
-    pai_id: dados.data.pai,
-    organizacao_id: dados.data.organizacao,
-    nome: dados.data.nome,
-    codigo: dados.data.codigo,
-    slug: dados.data.slug,
-    cidade: dados.data.cidade,
-    uf: dados.data.uf,
-    idioma: dados.data.idioma,
-    cnpj: dados.data.cnpj,
-  });
+  const { data: criada, error } = await supabase
+    .from("unidades")
+    .insert({
+      tipo: dados.data.tipo,
+      pai_id: dados.data.pai,
+      organizacao_id: dados.data.organizacao,
+      nome: dados.data.nome,
+      codigo: dados.data.codigo,
+      slug: dados.data.slug,
+      cidade: dados.data.cidade,
+      uf: dados.data.uf,
+      idioma: dados.data.idioma,
+      cnpj: dados.data.cnpj,
+    })
+    .select("id")
+    .single();
   if (error) falhar(traduzirErro(error.message));
+
+  if (criada) await guardarCielo(formData, criada.id);
 
   revalidatePath(ROTA);
 }
@@ -124,6 +172,8 @@ export async function editarUnidade(formData: FormData) {
     })
     .eq("id", id);
   if (error) falhar(traduzirErro(error.message));
+
+  await guardarCielo(formData, id);
 
   revalidatePath(ROTA);
 }

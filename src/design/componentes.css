@@ -658,6 +658,19 @@
 
 /* Título de seção com régua: a régua ocupa o vão restante e separa
    sem desenhar uma caixa. */
+/* Grupo de campos: separa blocos de um formulário longo sem abrir um card
+   dentro do modal — vidro sobre vidro é proibido, e caixa dentro de caixa
+   confunde o que é conteúdo e o que é moldura. Uma régua acima basta. */
+.sni-grupo-campos {
+  border: none; padding: 0; margin: 8px 0 0;
+  border-top: 1px solid var(--line-soft); padding-top: 20px;
+  display: grid; gap: 16px;
+}
+.sni-grupo-campos-legenda {
+  padding: 0; font-size: 15px; font-weight: 700; color: var(--txt-2);
+}
+.sni-grupo-campos-apoio { margin-top: -8px; }
+
 .sni-section-head { display: flex; align-items: center; gap: 12px; margin: 32px 0 16px; }
 .sni-section-head:first-child { margin-top: 0; }
 .sni-section-rule { flex: 1; height: 1px; background: var(--line-soft); }
