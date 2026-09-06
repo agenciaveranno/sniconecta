@@ -18,6 +18,7 @@ const ROTA = "/admin/estrutura";
 const schema = z.object({
   tipo: z.string().min(1, "Escolha o tipo da unidade."),
   pai: z.string().optional().transform((v) => (v && v.length > 0 ? v : null)),
+  organizacao: z.string().optional().transform((v) => (v && v.length > 0 ? v : null)),
   nome: z.string().trim().min(2, "Informe o nome da unidade."),
   codigo: z.string().trim().optional().transform((v) => v || null),
   slug: z.string().trim().optional().transform((v) => v || null),
@@ -37,6 +38,12 @@ function falhar(mensagem: string): never {
 function traduzirErro(mensagem: string): string {
   if (mensagem.includes("não pode ficar dentro")) {
     return "Essa unidade não pode ficar dentro da que você escolheu. Confira o tipo e a unidade superior.";
+  }
+  if (mensagem.includes("precisa de uma organização")) {
+    return "Toda Associação Local pertence a uma Organização. Escolha qual.";
+  }
+  if (mensagem.includes("não tem organização")) {
+    return "Só a Associação Local tem Organização — o Núcleo é a união das Associações Locais de um mesmo endereço.";
   }
   if (mensagem.includes("precisa estar dentro")) {
     return "Só a Sede Central fica no topo. Escolha a unidade superior.";
@@ -62,6 +69,7 @@ export async function criarUnidade(formData: FormData) {
   const { error } = await supabase.from("unidades").insert({
     tipo: dados.data.tipo,
     pai_id: dados.data.pai,
+    organizacao_id: dados.data.organizacao,
     nome: dados.data.nome,
     codigo: dados.data.codigo,
     slug: dados.data.slug,
@@ -88,6 +96,7 @@ export async function editarUnidade(formData: FormData) {
     .update({
       tipo: dados.data.tipo,
       pai_id: dados.data.pai,
+      organizacao_id: dados.data.organizacao,
       nome: dados.data.nome,
       codigo: dados.data.codigo,
       slug: dados.data.slug,

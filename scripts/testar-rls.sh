@@ -69,28 +69,40 @@ echo "  $(ls "$RAIZ"/supabase/migrations/*.sql | wc -l) migração(ões) aplicad
 
 # ── Cenário ────────────────────────────────────────────────────────────────
 # Sede Central
-#   ├── Regional Sul ──── AL Curitiba
-#   │                └── AL Londrina
-#   └── Regional Sudeste ─ AL Campinas
+#   ├── Regional Sul
+#   │     ├── Núcleo Curitiba              (une duas ALs do mesmo endereço)
+#   │     │     ├── AL Curitiba Prosperidade
+#   │     │     └── AL Curitiba Jovens
+#   │     └── AL Londrina Fraternidade     (direto na Regional: Núcleo é opcional)
+#   └── Regional Sudeste
+#         └── AL Campinas Prosperidade
 #
-# Coordenadora da Regional Sul deve alcançar Curitiba E Londrina.
-# Coordenadora de Campinas não alcança nada do Sul, nem sobe para a Regional.
-echo "▸ cenário: duas regionais, três associações locais"
+# O cenário existe para provar as duas formas ao mesmo tempo: a Associação
+# Local que pende de um Núcleo e a que pende direto da Regional. Contar saltos
+# daria a Regional errada para uma das duas.
+echo "▸ cenário: núcleo com duas associações, e uma associação sem núcleo"
 P -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 insert into auth.users (id, email) values
   ('c0000000-0000-0000-0000-000000000001','sede@x'),
   ('c0000000-0000-0000-0000-000000000002','coord.sul@x'),
   ('c0000000-0000-0000-0000-000000000003','coord.campinas@x'),
   ('c0000000-0000-0000-0000-000000000004','orientador.sul@x'),
-  ('c0000000-0000-0000-0000-000000000005','aluna.curitiba@x');
+  ('c0000000-0000-0000-0000-000000000005','aluna.curitiba@x'),
+  ('c0000000-0000-0000-0000-000000000006','coord.nucleo@x');
 
-insert into unidades (id, tipo, pai_id, nome, slug) values
-  ('11110000-0000-0000-0000-000000000001','sede_central',     null,                                   'Sede Central','sede-central'),
-  ('22220000-0000-0000-0000-000000000001','regional',         '11110000-0000-0000-0000-000000000001','Regional Sul','regional-sul'),
-  ('22220000-0000-0000-0000-000000000002','regional',         '11110000-0000-0000-0000-000000000001','Regional Sudeste','regional-sudeste'),
-  ('33330000-0000-0000-0000-000000000001','associacao_local', '22220000-0000-0000-0000-000000000001','AL Curitiba','al-curitiba'),
-  ('33330000-0000-0000-0000-000000000002','associacao_local', '22220000-0000-0000-0000-000000000001','AL Londrina','al-londrina'),
-  ('33330000-0000-0000-0000-000000000003','associacao_local', '22220000-0000-0000-0000-000000000002','AL Campinas','al-campinas');
+insert into unidades (id, tipo, pai_id, organizacao_id, nome, slug)
+select v.id, v.tipo, v.pai, o.id, v.nome, v.slug
+  from (values
+    ('11110000-0000-0000-0000-000000000001'::uuid,'sede_central',     null::uuid,                             null,                        'Sede Central','sede-central'),
+    ('22220000-0000-0000-0000-000000000001','regional',         '11110000-0000-0000-0000-000000000001', null,                        'Regional Sul','regional-sul'),
+    ('22220000-0000-0000-0000-000000000002','regional',         '11110000-0000-0000-0000-000000000001', null,                        'Regional Sudeste','regional-sudeste'),
+    ('44440000-0000-0000-0000-000000000001','nucleo',           '22220000-0000-0000-0000-000000000001', null,                        'Núcleo Curitiba','nucleo-curitiba'),
+    ('33330000-0000-0000-0000-000000000001','associacao_local', '44440000-0000-0000-0000-000000000001', 'Associação da Prosperidade','AL Curitiba Prosperidade','al-curitiba-prosperidade'),
+    ('33330000-0000-0000-0000-000000000004','associacao_local', '44440000-0000-0000-0000-000000000001', 'Associação dos Jovens',     'AL Curitiba Jovens','al-curitiba-jovens'),
+    ('33330000-0000-0000-0000-000000000002','associacao_local', '22220000-0000-0000-0000-000000000001', 'Associação Fraternidade',   'AL Londrina','al-londrina'),
+    ('33330000-0000-0000-0000-000000000003','associacao_local', '22220000-0000-0000-0000-000000000002', 'Associação da Prosperidade','AL Campinas','al-campinas')
+  ) as v(id, tipo, pai, org, nome, slug)
+  left join organizacoes o on o.nome = v.org;
 
 insert into pessoas (id, cpf, cod_sni, nome, email, auth_user_id) values
   ('d0000000-0000-0000-0000-000000000001','52998224725','1','Sede','sede@x','c0000000-0000-0000-0000-000000000001'),
@@ -99,7 +111,8 @@ insert into pessoas (id, cpf, cod_sni, nome, email, auth_user_id) values
   ('d0000000-0000-0000-0000-000000000004','19551244768','4','Orientador Sul','orientador.sul@x','c0000000-0000-0000-0000-000000000004'),
   ('d0000000-0000-0000-0000-000000000005','40364045884','5','Aluna Curitiba','aluna.curitiba@x','c0000000-0000-0000-0000-000000000005'),
   ('d0000000-0000-0000-0000-000000000006','12345678909','6','Aluna Londrina',null,null),
-  ('d0000000-0000-0000-0000-000000000007','98765432100','7','Aluna Campinas',null,null);
+  ('d0000000-0000-0000-0000-000000000007','98765432100','7','Aluna Campinas',null,null),
+  ('d0000000-0000-0000-0000-000000000008','15350946056','8','Coord Núcleo','coord.nucleo@x','c0000000-0000-0000-0000-000000000006');
 
 insert into pessoa_unidade_vinculos (pessoa_id, unidade_id) values
   ('d0000000-0000-0000-0000-000000000005','33330000-0000-0000-0000-000000000001'),
@@ -110,7 +123,8 @@ insert into papeis (pessoa_id, tipo, unidade_id) values
   ('d0000000-0000-0000-0000-000000000001','sede',        null),
   ('d0000000-0000-0000-0000-000000000002','coordenador', '22220000-0000-0000-0000-000000000001'),
   ('d0000000-0000-0000-0000-000000000003','coordenador', '33330000-0000-0000-0000-000000000003'),
-  ('d0000000-0000-0000-0000-000000000004','orientador',  '22220000-0000-0000-0000-000000000001');
+  ('d0000000-0000-0000-0000-000000000004','orientador',  '22220000-0000-0000-0000-000000000001'),
+  ('d0000000-0000-0000-0000-000000000008','coordenador', '44440000-0000-0000-0000-000000000001');
 SQL
 
 SEDE=c0000000-0000-0000-0000-000000000001
@@ -118,6 +132,7 @@ CSUL=c0000000-0000-0000-0000-000000000002
 CCAMP=c0000000-0000-0000-0000-000000000003
 OSUL=c0000000-0000-0000-0000-000000000004
 ALUNA=c0000000-0000-0000-0000-000000000005
+CNUC=c0000000-0000-0000-0000-000000000006
 
 falhas=0
 
@@ -170,15 +185,21 @@ SQL
 
 echo
 echo "── Herança na árvore (decisão 0008: papel desce, nunca sobe)"
-leitura "coordenadora da Regional Sul alcança as 2 ALs dela" $CSUL \
+# Regional Sul + Núcleo Curitiba + 2 ALs do núcleo + AL Londrina = 5.
+leitura "coordenadora da Regional Sul alcança tudo abaixo, com e sem núcleo" $CSUL \
+  "select count(*) from app.unidades_administradas();" 5
+# Núcleo + as 2 ALs dele. Londrina, que pende da Regional, fica de fora.
+leitura "coordenador do Núcleo alcança só as ALs do núcleo" $CNUC \
   "select count(*) from app.unidades_administradas();" 3
+leitura "coordenador do Núcleo NÃO alcança a AL fora dele" $CNUC \
+  "select count(*) from app.unidades_administradas() where unidade_id = '33330000-0000-0000-0000-000000000002';" 0
 leitura "coordenadora de uma AL alcança só a própria" $CCAMP \
   "select count(*) from app.unidades_administradas();" 1
 leitura "orientador não administra unidade (administra_unidade = false)" $OSUL \
   "select count(*) from app.unidades_administradas();" 0
 
 echo "── Pessoas: quem vê quem"
-leitura "Sede vê as 7 pessoas" $SEDE "select count(*) from pessoas;" 7
+leitura "Sede vê as 8 pessoas" $SEDE "select count(*) from pessoas;" 8
 # Coord Sul: as 2 alunas do Sul + ela mesma. Coord Campinas e as outras não.
 leitura "coordenadora do Sul vê as 2 alunas do Sul e ela mesma" $CSUL \
   "select count(*) from pessoas;" 3
@@ -198,7 +219,7 @@ escrita "orientador NÃO altera ninguém"                       $OSUL  "$ALTERA_
 escrita "Sede altera qualquer uma"                            $SEDE  "$ALTERA_CAMPINAS" OK
 
 echo "── Estrutura: só a Sede mexe"
-CRIA_AL="insert into unidades (tipo, pai_id, nome) values ('associacao_local','22220000-0000-0000-0000-000000000001','AL Nova');"
+CRIA_AL="insert into unidades (tipo, pai_id, organizacao_id, nome) values ('associacao_local','22220000-0000-0000-0000-000000000001',(select id from organizacoes where nome = 'Associação Fraternidade'),'AL Nova');"
 escrita "Sede cria unidade"                       $SEDE  "$CRIA_AL" OK
 escrita "coordenadora de regional NÃO cria"       $CSUL  "$CRIA_AL" NEGADO
 escrita "coordenadora de AL NÃO renomeia a sua"   $CCAMP \
@@ -217,10 +238,35 @@ escrita "nem a Sede escreve auditoria pelo cliente" $SEDE \
   "insert into auditoria (acao) values ('teste');" NEGADO
 
 echo "── Gatilhos de integridade da árvore"
+ORG_PROSP="(select id from organizacoes where nome = 'Associação da Prosperidade')"
 escrita "regional dentro de AL é recusada" $SEDE \
   "insert into unidades (tipo, pai_id, nome) values ('regional','33330000-0000-0000-0000-000000000001','Errada');" NEGADO
+escrita "AL dentro de AL é recusada" $SEDE \
+  "insert into unidades (tipo, pai_id, organizacao_id, nome) values ('associacao_local','33330000-0000-0000-0000-000000000001',$ORG_PROSP,'Errada');" NEGADO
+escrita "núcleo dentro de núcleo é recusado" $SEDE \
+  "insert into unidades (tipo, pai_id, nome) values ('nucleo','44440000-0000-0000-0000-000000000001','Errado');" NEGADO
+escrita "AL direto na Regional é aceita (núcleo é opcional)" $SEDE \
+  "insert into unidades (tipo, pai_id, organizacao_id, nome) values ('associacao_local','22220000-0000-0000-0000-000000000002',$ORG_PROSP,'AL Nova');" OK
 escrita "unidade raiz que não é sede central é recusada" $SEDE \
   "insert into unidades (tipo, nome) values ('regional','Sem pai');" NEGADO
+
+echo "── Organização: da Associação Local, nunca do Núcleo"
+escrita "AL sem organização é recusada" $SEDE \
+  "insert into unidades (tipo, pai_id, nome) values ('associacao_local','22220000-0000-0000-0000-000000000001','Sem org');" NEGADO
+escrita "núcleo com organização é recusado" $SEDE \
+  "insert into unidades (tipo, pai_id, organizacao_id, nome) values ('nucleo','22220000-0000-0000-0000-000000000001',$ORG_PROSP,'Com org');" NEGADO
+escrita "regional com organização é recusada" $SEDE \
+  "insert into unidades (tipo, pai_id, organizacao_id, nome) values ('regional','11110000-0000-0000-0000-000000000001',$ORG_PROSP,'Com org');" NEGADO
+
+echo "── Vínculo: uma Regional, uma Organização, uma Associação Local"
+leitura "a Regional é achada mesmo com um Núcleo no meio" $SEDE \
+  "select count(*) from pessoa_vinculo_atual where pessoa_id='d0000000-0000-0000-0000-000000000005' and regional_id='22220000-0000-0000-0000-000000000001';" 1
+leitura "e também quando a AL pende direto da Regional" $SEDE \
+  "select count(*) from pessoa_vinculo_atual where pessoa_id='d0000000-0000-0000-0000-000000000006' and regional_id='22220000-0000-0000-0000-000000000001';" 1
+leitura "a organização vem da Associação Local, sem cadastro à parte" $SEDE \
+  "select count(*) from pessoa_vinculo_atual v join organizacoes o on o.id=v.organizacao_id where v.pessoa_id='d0000000-0000-0000-0000-000000000005' and o.nome='Associação da Prosperidade';" 1
+leitura "cada pessoa aparece uma única vez" $SEDE \
+  "select count(*) from pessoa_vinculo_atual where pessoa_id='d0000000-0000-0000-0000-000000000005';" 1
 escrita "papel nacional com unidade é recusado" $SEDE \
   "insert into papeis (pessoa_id, tipo, unidade_id) values ('d0000000-0000-0000-0000-000000000005','eventos_admin','33330000-0000-0000-0000-000000000001');" NEGADO
 escrita "papel de unidade sem unidade é recusado" $SEDE \
@@ -243,7 +289,10 @@ escrita "dois vínculos ativos para a mesma pessoa são recusados" $SEDE \
 # reprova. É isto que substitui, mecanicamente, o isolamento de um schema.
 echo
 echo "── Superfície de GRANT"
-PERMITIDAS="configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,organizacoes,papeis,pessoa_funcao_hist,pessoa_organizacoes,pessoa_unidade_vinculos,pessoas,solicitacoes_exclusao,tipos_papel,tipos_unidade,unidades,auditoria"
+# Tabelas e visões que PODEM ser lidas ou escritas pelo navegador. Toda a
+# lista é decisão registrada: quem entrar aqui sem estar no arquivo da
+# migração reprova.
+PERMITIDAS="auditoria,configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,organizacoes,papeis,pessoa_funcao_atual,pessoa_funcao_hist,pessoa_unidade_vinculos,pessoa_vinculo_atual,pessoas,solicitacoes_exclusao,tipos_papel,tipos_unidade,unidades"
 inesperadas=$(P -t -A <<SQL
 select string_agg(distinct table_name, ', ' order by table_name)
   from information_schema.role_table_grants

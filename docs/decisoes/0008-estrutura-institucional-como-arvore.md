@@ -3,7 +3,18 @@
 **Situação.** A Sede descreveu a instituição assim: Sede Internacional acima
 de todos, sem ingerência nossa; Sede Central no Brasil, que cuida também de
 países ibero-americanos e da África latina; Regionais Doutrinárias; Núcleos e
-Associações Locais. As Organizações atravessam todas as esferas.
+Associações Locais.
+
+E, ao ser perguntada, precisou três coisas que mudam o esquema:
+
+- **O Núcleo fica entre a Regional e a Associação Local, e é opcional.** É a
+  união de duas ou mais Associações Locais do mesmo endereço, que passam a ter
+  caixa e estoque unificados. Onde ele não existe, a Associação Local pende
+  direto da Regional.
+- **Cada Associação Local pertence a uma Organização; o Núcleo não tem** —
+  justamente porque une Associações Locais de organizações diferentes.
+- **Uma pessoa pertence a uma única Regional, uma única Organização e uma
+  única Associação Local**, e isso vale em todos os módulos.
 
 Nenhum dos quatro sistemas existentes modela isso inteiro. O Ciclo tem
 Regional e Localidade; o de eventos guarda regional, organização e associação
@@ -13,8 +24,26 @@ pendurada na AL. Núcleo e Sede Internacional não existem como entidade em
 lugar nenhum. Ver `docs/estudo/estrutura-organizacional.md`.
 
 **Decisão.** Uma tabela `unidades` com `tipo` e `pai_id` — árvore recursiva —
-e `tipos_unidade` como catálogo com `nivel`. Organizações ficam **fora** da
-árvore, numa dimensão transversal.
+e `tipos_unidade` como catálogo. A organização é **coluna da unidade**,
+obrigatória em quem o catálogo diz que exige.
+
+```
+Sede Central → Regional → [Núcleo] → Associação Local (tem Organização)
+                       └───────────→ Associação Local (tem Organização)
+```
+
+**O catálogo guarda os tipos que podem ser o pai, não um número de nível.**
+Contar degraus daria a resposta errada em metade dos casos, porque o Núcleo é
+opcional: a Associação Local está a dois saltos da Regional onde ele existe e
+a um salto onde não existe. Pela mesma razão, "de que Regional é esta
+Associação Local?" se responde subindo a árvore até achar o tipo `regional`
+(`app.ancestral_do_tipo`), nunca contando saltos.
+
+**A organização da pessoa se deriva da Associação Local dela**, e não é
+guardada em `pessoa`. Guardar nos dois lugares deixaria a pessoa dizer que é
+da Fraternidade enquanto a Associação Local dela é da Prosperidade, sem nada
+no banco perceber. A visão `pessoa_vinculo_atual` devolve as três respostas —
+Regional, Organização e Associação Local — numa leitura só.
 
 **Por que árvore e não uma tabela por nível.** Porque a altura da instituição
 não é conhecida, e três sinais dizem isso antes de qualquer resposta: Núcleo
@@ -40,9 +69,9 @@ por gatilho — e a regra do projeto é medir antes de otimizar.
 
 **Duas condições para a árvore não virar bagunça.**
 
-1. `tipos_unidade` tem `nivel`, e um gatilho recusa `pai_id` cujo tipo não
-   seja o nível imediatamente acima. Sem isso, nada no tipo impede pendurar
-   uma Regional dentro de uma Associação Local.
+1. `tipos_unidade` declara `pais_permitidos`, e um gatilho recusa `pai_id` de
+   tipo fora da lista. Sem isso, nada impede pendurar uma Regional dentro de
+   uma Associação Local — e todo cálculo de escopo passa a mentir.
 2. `locais` (hotel, salão, espaço) **fica fora da árvore**. Local é recurso
    físico, não unidade institucional. O Conecta antigo tentou juntar os dois
    num enum `regional | al | outro` e teve de acrescentar `academia` numa
@@ -55,15 +84,19 @@ O esquema nasce com estas, todas baratas de reverter porque são dado ou
 
 | Suposição | Base | Como se reverte |
 |---|---|---|
-| Níveis: Sede Central → Regional → {Núcleo, Associação Local} | a própria frase da Sede põe Núcleo e AL no mesmo degrau | linha em `tipos_unidade` |
 | Sede Internacional fora da árvore | "não temos ingerência sobre nada" | uma linha de tipo e uma unidade raiz |
-| Pessoa tem **um** vínculo de unidade ativo por vez | é o modelo do Conecta antigo, e é o que torna "minha AL" uma pergunta com resposta | remover um índice único parcial |
-| Organização é vínculo **da pessoa**, N:N com vigência | "as Organizações transpassam todas as esferas" descreve a pessoa atravessando a hierarquia, não a unidade | acrescentar `unidade_organizacoes` |
 | Funções doutrinárias: as 11 do Ciclo | é a lista validada com a Sede na especificação do Ciclo | é dado numa tabela com `ordem` |
-| Organizações: os quatro nomes que estão em produção no sistema de eventos | são os que classificam mais de 16 mil pessoas hoje | é dado, editável em tela |
+| Só a Associação Local exige organização | a Sede citou a AL e negou o Núcleo; sobre Regional não disse | `exige_organizacao` no catálogo |
+
+Já **confirmadas** pela Sede e implementadas: o Núcleo entre Regional e
+Associação Local e opcional; a organização na Associação Local e ausente no
+Núcleo; um vínculo por pessoa; e as quatro organizações — Pomba Branca,
+Fraternidade, Jovens e Prosperidade — como ponto de partida de um cadastro
+editável em tela, não como lista fechada.
 
 **Consequência.** `unidades` substitui `regionais` do Ciclo e as três colunas
-de texto do sistema de eventos. A `localidade` do Ciclo — que reúne uma ou
+de texto do sistema de eventos — e a coluna `organizacao` do participante
+deixa de existir, porque a organização passa a vir da Associação Local dele. A `localidade` do Ciclo — que reúne uma ou
 mais Regionais e é onde a turma acontece — continua existindo como tabela do
 módulo (`ciclo_localidades`), apontando para `unidades`: ela é um agrupamento
 operacional do curso, não um degrau da instituição. `slug` entra em `unidades`

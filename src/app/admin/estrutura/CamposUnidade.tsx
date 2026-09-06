@@ -1,58 +1,99 @@
+"use client";
+
+import { useState } from "react";
 import { Campo, Input, Select } from "@/componentes/ui";
-import type { TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
+import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
 
 /**
  * Campos da unidade, um componente só para o modal de criar e o de editar.
  *
  * Extraído justamente para as duas telas nunca divergirem: quando o cadastro
  * ganha um campo, ele nasce nos dois lugares ou em nenhum.
+ *
+ * É cliente porque dois campos dependem do tipo escolhido: a lista de
+ * unidades superiores e a organização. Deixar os dois sempre visíveis faria a
+ * pessoa escolher uma organização para um Núcleo — que não tem — e só
+ * descobrir no erro ao salvar.
  */
 export default function CamposUnidade({
   tipos,
   unidades,
+  organizacoes,
   unidade,
-  paiSugerido,
 }: {
   tipos: TipoUnidadeRow[];
   unidades: Pick<UnidadeRow, "id" | "nome" | "tipo">[];
+  organizacoes: OrganizacaoRow[];
   unidade?: UnidadeRow;
-  /** Pré-seleciona a unidade superior ao criar a partir de uma linha. */
-  paiSugerido?: string;
 }) {
+  const [tipo, setTipo] = useState(unidade?.tipo ?? "");
+  const escolhido = tipos.find((t) => t.codigo === tipo);
+
+  const permitidos = escolhido?.pais_permitidos ?? [];
+  const superiores = unidades.filter(
+    (u) => u.id !== unidade?.id && permitidos.includes(u.tipo)
+  );
+  const nomeDoTipo = new Map(tipos.map((t) => [t.codigo, t.nome]));
+
   return (
     <>
       {unidade && <input type="hidden" name="id" value={unidade.id} />}
 
-      <div className="sni-form-grid">
-        <Campo label="Tipo" obrigatorio>
-          <Select name="tipo" defaultValue={unidade?.tipo ?? ""} required>
+      <Campo label="Tipo" obrigatorio>
+        <Select name="tipo" value={tipo} onChange={(e) => setTipo(e.target.value)} required>
+          <option value="" disabled>
+            Escolha…
+          </option>
+          {tipos.map((t) => (
+            <option key={t.codigo} value={t.codigo}>
+              {t.nome}
+            </option>
+          ))}
+        </Select>
+      </Campo>
+
+      {/* Sem tipo escolhido não há o que oferecer: as opções mudam conforme
+          ele, e uma lista com tudo convidaria ao erro. */}
+      {escolhido && permitidos.length > 0 && (
+        <Campo
+          label="Dentro de"
+          obrigatorio
+          dica={`Só ${permitidos.map((p) => nomeDoTipo.get(p) ?? p).join(" ou ")} pode receber ${escolhido.nome.toLowerCase()}.`}
+        >
+          <Select name="pai" defaultValue={unidade?.pai_id ?? ""} required>
             <option value="" disabled>
               Escolha…
             </option>
-            {tipos.map((t) => (
-              <option key={t.codigo} value={t.codigo}>
-                {t.nome}
+            {superiores.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.nome}
               </option>
             ))}
           </Select>
         </Campo>
+      )}
+      {escolhido && permitidos.length === 0 && (
+        <input type="hidden" name="pai" value="" />
+      )}
 
+      {escolhido?.exige_organizacao && (
         <Campo
-          label="Dentro de"
-          dica="A Sede Central é a única que fica no topo, sem unidade superior."
+          label="Organização"
+          obrigatorio
+          dica="O Núcleo não tem organização: ele é justamente a união de Associações Locais de organizações diferentes no mesmo endereço."
         >
-          <Select name="pai" defaultValue={unidade?.pai_id ?? paiSugerido ?? ""}>
-            <option value="">— nenhuma (topo) —</option>
-            {unidades
-              .filter((u) => u.id !== unidade?.id)
-              .map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.nome}
-                </option>
-              ))}
+          <Select name="organizacao" defaultValue={unidade?.organizacao_id ?? ""} required>
+            <option value="" disabled>
+              Escolha…
+            </option>
+            {organizacoes.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.nome}
+              </option>
+            ))}
           </Select>
         </Campo>
-      </div>
+      )}
 
       <Campo label="Nome" obrigatorio>
         <Input name="nome" defaultValue={unidade?.nome ?? ""} required maxLength={150} />

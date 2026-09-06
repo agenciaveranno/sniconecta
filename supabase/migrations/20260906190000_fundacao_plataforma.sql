@@ -48,6 +48,35 @@ returns text language sql immutable parallel safe as $$
 $$;
 
 -- ───────────────────────────────────────────────────────────────────────────
+-- ORGANIZAÇÕES
+--
+-- Cada Associação Local pertence a uma Organização (Sede, set/2026). O Núcleo
+-- não tem: ele é a união de Associações Locais de organizações DIFERENTES no
+-- mesmo endereço, que passam a compartilhar caixa e estoque.
+--
+-- Por isso a organização é atributo da UNIDADE, e a da pessoa se deriva da
+-- Associação Local dela. Guardar nos dois lugares deixaria a pessoa dizer que
+-- é da Fraternidade enquanto a AL dela é da Prosperidade, e nada no banco
+-- perceberia.
+--
+-- Vem antes da árvore porque `unidades` aponta para cá.
+-- ───────────────────────────────────────────────────────────────────────────
+
+create table organizacoes (
+  id         uuid primary key default gen_random_uuid(),
+  codigo     text unique,
+  nome       text not null unique,
+  nome_curto text,
+  ordem      smallint not null default 0,
+  ativo      boolean not null default true,
+  criado_em  timestamptz not null default now()
+);
+
+comment on table organizacoes is
+  'Organizações doutrinárias. Cadastro editável em tela: a Sede cria novas '
+  'sem migração.';
+
+-- ───────────────────────────────────────────────────────────────────────────
 -- ESTRUTURA INSTITUCIONAL (decisão 0008)
 --
 -- Árvore única em vez de uma tabela por nível, porque a altura da instituição
@@ -60,23 +89,38 @@ $$;
 create table tipos_unidade (
   codigo    text primary key,
   nome      text not null,
-  -- Profundidade na árvore. O gatilho de `unidades` recusa pai que não esteja
-  -- exatamente um nível acima. É por aqui que se acrescenta um degrau.
-  nivel     smallint not null check (nivel >= 1),
   -- Plural para a tela de estrutura não escrever "2 Regionals".
   plural    text not null,
+
+  -- Quais tipos podem ser a unidade superior. Lista vazia = fica no topo.
+  --
+  -- ⚠️ É lista, e não um número de nível, porque o NÚCLEO É OPCIONAL: uma
+  -- Associação Local pende direto da Regional ou de dentro de um Núcleo, e as
+  -- duas formas são corretas. Com profundidade fixa, metade das Associações
+  -- Locais do país seria recusada no cadastro.
+  pais_permitidos text[] not null default '{}',
+
+  -- A Associação Local pertence a uma Organização; o Núcleo não tem, porque é
+  -- justamente a união de Associações Locais de organizações diferentes no
+  -- mesmo endereço. Fica no catálogo, e não num `if`, para o dia em que a
+  -- Sede decidir que outro degrau também tem.
+  exige_organizacao boolean not null default false,
+
   ordem     smallint not null default 0,
   ativo     boolean not null default true
 );
 
 comment on table tipos_unidade is
-  'Catálogo dos degraus da instituição. Nível novo entra com INSERT, não com '
+  'Catálogo dos degraus da instituição. Degrau novo entra com INSERT, não com '
   'migração — ver decisão 0008.';
 
 create table unidades (
   id            uuid primary key default gen_random_uuid(),
   tipo          text not null references tipos_unidade(codigo) on delete restrict,
   pai_id        uuid references unidades(id) on delete restrict,
+  -- Obrigatória na Associação Local, proibida no Núcleo — o gatilho abaixo
+  -- lê a regra do catálogo, não daqui.
+  organizacao_id uuid references organizacoes(id) on delete restrict,
   nome          text not null,
   nome_curto    text,
   -- Código próprio da instituição (a numeração das Regionais, por exemplo).
@@ -115,69 +159,115 @@ create table unidades (
 
 create index idx_unidades_pai on unidades(pai_id);
 create index idx_unidades_tipo on unidades(tipo);
+create index idx_unidades_organizacao on unidades(organizacao_id);
 -- Busca por nome sem acento e sem diferença de caixa, que é como a secretaria
 -- digita: "sao paulo" precisa achar "São Paulo".
 create index idx_unidades_nome_busca on unidades(app.sem_acento(nome));
 
 comment on table unidades is
-  'Árvore institucional: Sede Central → Regional → {Núcleo, Associação Local}. '
-  'Local físico (hotel, salão) NÃO entra aqui — ver tabela `locais`.';
+  'Árvore institucional: Sede Central → Regional → [Núcleo] → Associação '
+  'Local. O Núcleo é opcional. Local físico (hotel, salão) NÃO entra aqui — '
+  'ver tabela `locais`.';
 
--- Um pai do nível errado quebra todo cálculo de escopo, e nada no tipo da
--- coluna impede pendurar uma Regional dentro de uma Associação Local.
-create or replace function app.validar_pai_unidade()
+-- Pai do tipo errado quebra todo cálculo de escopo, e nada no tipo da coluna
+-- impede pendurar uma Regional dentro de uma Associação Local. A regra vem do
+-- catálogo: assim, acrescentar um degrau é INSERT, não migração.
+create or replace function app.validar_unidade()
 returns trigger language plpgsql as $$
 declare
-  nivel_proprio smallint;
-  nivel_pai     smallint;
+  permitidos text[];
+  exige      boolean;
+  tipo_pai   text;
 begin
-  select nivel into nivel_proprio from tipos_unidade where codigo = new.tipo;
+  select pais_permitidos, exige_organizacao
+    into permitidos, exige
+    from tipos_unidade where codigo = new.tipo;
 
+  if permitidos is null then
+    raise exception 'Tipo de unidade desconhecido: %.', new.tipo;
+  end if;
+
+  -- Quem pode ter pai, precisa ter.
   if new.pai_id is null then
-    if nivel_proprio <> 1 then
+    if array_length(permitidos, 1) is not null then
       raise exception 'Unidade do tipo % precisa estar dentro de outra.', new.tipo;
     end if;
-    return new;
+  else
+    select tipo into tipo_pai from unidades where id = new.pai_id;
+    if not (tipo_pai = any (permitidos)) then
+      raise exception
+        'Unidade do tipo % não pode ficar dentro de unidade do tipo %.',
+        new.tipo, tipo_pai;
+    end if;
   end if;
 
-  select t.nivel into nivel_pai
-    from unidades u join tipos_unidade t on t.codigo = u.tipo
-   where u.id = new.pai_id;
-
-  if nivel_pai is distinct from nivel_proprio - 1 then
-    raise exception
-      'Unidade do tipo % não pode ficar dentro de unidade de nível %.',
-      new.tipo, nivel_pai;
+  if exige and new.organizacao_id is null then
+    raise exception 'Unidade do tipo % precisa de uma organização.', new.tipo;
   end if;
+  if not exige and new.organizacao_id is not null then
+    raise exception 'Unidade do tipo % não tem organização.', new.tipo;
+  end if;
+
   return new;
 end $$;
 
-create trigger trg_unidades_valida_pai
-  before insert or update of tipo, pai_id on unidades
-  for each row execute function app.validar_pai_unidade();
+create trigger trg_unidades_valida
+  before insert or update of tipo, pai_id, organizacao_id on unidades
+  for each row execute function app.validar_unidade();
 
--- ───────────────────────────────────────────────────────────────────────────
--- ORGANIZAÇÕES — a dimensão que atravessa a hierarquia
---
--- "As Organizações transpassam todas as esferas" (Sede, set/2026). Por isso
--- ficam FORA da árvore: uma pessoa participa de uma organização
--- independentemente de qual unidade a abriga.
--- ───────────────────────────────────────────────────────────────────────────
+/**
+ * A unidade e todos os ancestrais dela, da folha até a raiz.
+ *
+ * É o caminho inverso de `unidades_administradas`, e serve à autorização na
+ * aplicação: para saber se alguém pode agir numa Associação Local, pergunta-se
+ * se ela tem o papel NELA ou em qualquer unidade acima. Subir a partir do alvo
+ * custa a profundidade da árvore (três ou quatro saltos); descer a partir do
+ * papel custaria a subárvore inteira.
+ */
+create or replace function app.ancestrais(alvo uuid)
+returns table (unidade_id uuid)
+language sql stable security definer set search_path = public as $$
+  with recursive subida as (
+    select id, pai_id from unidades where id = alvo
+    union all
+    select u.id, u.pai_id from unidades u join subida s on u.id = s.pai_id
+  )
+  select id from subida
+$$;
 
-create table organizacoes (
-  id         uuid primary key default gen_random_uuid(),
-  codigo     text unique,
-  nome       text not null unique,
-  nome_curto text,
-  ordem      smallint not null default 0,
-  ativo      boolean not null default true,
-  criado_em  timestamptz not null default now()
-);
 
-comment on table organizacoes is
-  'Organizações doutrinárias. Os nomes divergem entre os sistemas de origem; '
-  'o seed usa os que estão em produção no módulo eventos e a Sede corrige em '
-  'tela — é dado, não esquema.';
+/**
+ * O ancestral de um tipo, subindo a partir da unidade.
+ *
+ * É como se responde "de que Regional é esta Associação Local?" sem que a
+ * consulta precise saber se existe um Núcleo no meio — e o Núcleo é opcional,
+ * então contar saltos daria a resposta errada em metade dos casos.
+ */
+create or replace function app.ancestral_do_tipo(alvo uuid, tipo_alvo text)
+returns uuid language sql stable security definer set search_path = public as $$
+  select u.id
+    from app.ancestrais(alvo) a
+    join unidades u on u.id = a.unidade_id
+   where u.tipo = tipo_alvo
+   limit 1
+$$;
+
+/**
+ * Invólucro público de `app.ancestrais`, para a aplicação poder chamar.
+ *
+ * ⚠️ O PostgREST só enxerga o schema exposto, e `app` não é exposto de
+ * propósito — é lá que moram as funções que ignoram o RLS. Este invólucro é a
+ * única porta, e não vaza nada: devolve só identificadores de unidade, que
+ * qualquer pessoa autenticada já lê em `unidades`.
+ */
+create or replace function public.ancestrais(alvo uuid)
+returns table (unidade_id uuid)
+language sql stable security definer set search_path = public as $$
+  select unidade_id from app.ancestrais(alvo)
+$$;
+
+revoke execute on function public.ancestrais(uuid) from public;
+grant execute on function public.ancestrais(uuid) to authenticated, service_role;
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- LOCAIS — recurso físico, deliberadamente fora da árvore
@@ -296,11 +386,16 @@ create trigger trg_unidades_atualizado before update on unidades
   for each row execute function app.tocar_atualizado_em();
 
 -- ───────────────────────────────────────────────────────────────────────────
--- VÍNCULOS DA PESSOA
+-- VÍNCULO DA PESSOA COM A ESTRUTURA
 --
--- Com a unidade: histórico, porque transferência é fato datado e o relatório
--- de ontem não pode mudar quando alguém muda de cidade hoje.
--- Com a organização: N:N, porque a organização atravessa a hierarquia.
+-- UM vínculo ativo, e só um: a pessoa pertence a uma única Regional, uma
+-- única Organização e uma única Associação Local (Sede, set/2026). Como a AL
+-- já carrega a organização e pende da Regional, o vínculo com a AL responde
+-- as três — e não há como os três discordarem entre si.
+--
+-- Histórico, e não uma coluna em `pessoas`, porque transferência é fato
+-- datado: o relatório do ano passado não pode mudar quando alguém muda de
+-- cidade hoje.
 -- ───────────────────────────────────────────────────────────────────────────
 
 create table pessoa_unidade_vinculos (
@@ -321,14 +416,6 @@ create table pessoa_unidade_vinculos (
 create unique index uq_vinculo_ativo
   on pessoa_unidade_vinculos(pessoa_id) where data_fim is null;
 create index idx_vinculos_unidade on pessoa_unidade_vinculos(unidade_id);
-
-create table pessoa_organizacoes (
-  pessoa_id      uuid not null references pessoas(id) on delete cascade,
-  organizacao_id uuid not null references organizacoes(id) on delete restrict,
-  desde          date,
-  ate            date,
-  primary key (pessoa_id, organizacao_id)
-);
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- FUNÇÃO DOUTRINÁRIA — progressão, com histórico datado
@@ -367,6 +454,31 @@ select distinct on (h.pessoa_id)
   from pessoa_funcao_hist h
   join funcoes_doutrinarias f on f.id = h.funcao_id
  order by h.pessoa_id, h.vigencia_inicio desc, h.criado_em desc;
+
+/**
+ * Onde a pessoa está HOJE, com as três respostas que todo módulo precisa.
+ *
+ * "Uma pessoa pertence a uma única Regional, Organização e Associação Local"
+ * (Sede, set/2026) — e isso vale em todos os módulos, então a resposta mora
+ * num lugar só. A Regional é encontrada subindo a árvore, e não contando
+ * saltos, porque o Núcleo entre ela e a Associação Local é opcional.
+ *
+ * `security_invoker`: a visão respeita o RLS de quem consulta, não o de quem
+ * a criou.
+ */
+create view pessoa_vinculo_atual with (security_invoker = true) as
+select v.pessoa_id,
+       v.unidade_id,
+       u.tipo            as unidade_tipo,
+       u.nome            as unidade_nome,
+       u.organizacao_id,
+       o.nome            as organizacao_nome,
+       app.ancestral_do_tipo(v.unidade_id, 'regional') as regional_id,
+       v.data_inicio
+  from pessoa_unidade_vinculos v
+  join unidades u      on u.id = v.unidade_id
+  left join organizacoes o on o.id = u.organizacao_id
+ where v.data_fim is null;
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- PAPÉIS (decisão 0009)
@@ -587,43 +699,6 @@ returns boolean language sql stable security definer set search_path = public as
   )
 $$;
 
-/**
- * A unidade e todos os ancestrais dela, da folha até a raiz.
- *
- * É o caminho inverso de `unidades_administradas`, e serve à autorização na
- * aplicação: para saber se alguém pode agir numa Associação Local, pergunta-se
- * se ela tem o papel NELA ou em qualquer unidade acima. Subir a partir do alvo
- * custa a profundidade da árvore (três ou quatro saltos); descer a partir do
- * papel custaria a subárvore inteira.
- */
-create or replace function app.ancestrais(alvo uuid)
-returns table (unidade_id uuid)
-language sql stable security definer set search_path = public as $$
-  with recursive subida as (
-    select id, pai_id from unidades where id = alvo
-    union all
-    select u.id, u.pai_id from unidades u join subida s on u.id = s.pai_id
-  )
-  select id from subida
-$$;
-
-/**
- * Invólucro público de `app.ancestrais`, para a aplicação poder chamar.
- *
- * ⚠️ O PostgREST só enxerga o schema exposto, e `app` não é exposto de
- * propósito — é lá que moram as funções que ignoram o RLS. Este invólucro é a
- * única porta, e não vaza nada: devolve só identificadores de unidade, que
- * qualquer pessoa autenticada já lê em `unidades`.
- */
-create or replace function public.ancestrais(alvo uuid)
-returns table (unidade_id uuid)
-language sql stable security definer set search_path = public as $$
-  select unidade_id from app.ancestrais(alvo)
-$$;
-
-revoke execute on function public.ancestrais(uuid) from public;
-grant execute on function public.ancestrais(uuid) to authenticated, service_role;
-
 /** Unidade do vínculo ativo da pessoa — o "onde ela está" de hoje. */
 create or replace function app.unidade_da_pessoa(alvo uuid)
 returns uuid language sql stable security definer set search_path = public as $$
@@ -637,12 +712,14 @@ $$;
 -- serem SECURITY DEFINER, então a concessão é explícita e restrita.
 revoke execute on function
   app.pessoa_atual(), app.e_sede(), app.unidades_administradas(),
-  app.administra(uuid), app.ancestrais(uuid), app.unidade_da_pessoa(uuid)
+  app.administra(uuid), app.ancestrais(uuid), app.ancestral_do_tipo(uuid, text),
+  app.unidade_da_pessoa(uuid)
   from public;
 grant usage on schema app to authenticated, service_role;
 grant execute on function
   app.pessoa_atual(), app.e_sede(), app.unidades_administradas(),
-  app.administra(uuid), app.ancestrais(uuid), app.unidade_da_pessoa(uuid)
+  app.administra(uuid), app.ancestrais(uuid), app.ancestral_do_tipo(uuid, text),
+  app.unidade_da_pessoa(uuid)
   to authenticated, service_role;
 
 -- ───────────────────────────────────────────────────────────────────────────
@@ -659,7 +736,6 @@ alter table organizacoes           enable row level security;
 alter table locais                 enable row level security;
 alter table pessoas                enable row level security;
 alter table pessoa_unidade_vinculos enable row level security;
-alter table pessoa_organizacoes    enable row level security;
 alter table funcoes_doutrinarias   enable row level security;
 alter table pessoa_funcao_hist     enable row level security;
 alter table tipos_papel            enable row level security;
@@ -677,6 +753,9 @@ grant usage on schema public to anon, authenticated;
 -- ── Referência: todo autenticado lê, só a Sede escreve ─────────────────────
 grant select on tipos_unidade, unidades, organizacoes, locais,
                 funcoes_doutrinarias, tipos_papel to authenticated;
+-- A visão não tem RLS própria: `security_invoker` faz valer o RLS das tabelas
+-- de baixo, que é onde a regra está escrita.
+grant select on pessoa_vinculo_atual, pessoa_funcao_atual to authenticated;
 
 create policy ref_le_tipos_unidade on tipos_unidade for select to authenticated using (true);
 create policy ref_le_unidades      on unidades      for select to authenticated using (true);
@@ -723,23 +802,13 @@ create policy pessoas_atualiza on pessoas for update to authenticated
 -- linha levaria junto certificado emitido e ingresso comprado.
 
 -- ── Vínculos, organizações e função ────────────────────────────────────────
-grant select, insert, update on pessoa_unidade_vinculos, pessoa_organizacoes,
-                                pessoa_funcao_hist to authenticated;
+grant select, insert, update on pessoa_unidade_vinculos, pessoa_funcao_hist
+  to authenticated;
 
 create policy vinculos_le on pessoa_unidade_vinculos for select to authenticated
   using (pessoa_id = app.pessoa_atual() or app.administra(unidade_id));
 create policy vinculos_escreve on pessoa_unidade_vinculos for all to authenticated
   using (app.administra(unidade_id)) with check (app.administra(unidade_id));
-
-create policy pessoa_org_le on pessoa_organizacoes for select to authenticated
-  using (
-    pessoa_id = app.pessoa_atual()
-    or app.e_sede()
-    or app.unidade_da_pessoa(pessoa_id) in (select unidade_id from app.unidades_administradas())
-  );
-create policy pessoa_org_escreve on pessoa_organizacoes for all to authenticated
-  using (app.administra(app.unidade_da_pessoa(pessoa_id)))
-  with check (app.administra(app.unidade_da_pessoa(pessoa_id)));
 
 create policy funcao_hist_le on pessoa_funcao_hist for select to authenticated
   using (
@@ -806,21 +875,24 @@ grant usage, select on all sequences in schema public to service_role;
 -- A Sede descreveu "Regionais Doutrinárias; Núcleos e Associações Locais",
 -- o que põe Núcleo e AL no mesmo degrau. Sede Internacional fica fora da
 -- árvore: "não temos ingerência sobre nada".
-insert into tipos_unidade (codigo, nome, plural, nivel, ordem) values
-  ('sede_central',     'Sede Central',      'Sedes Centrais',      1, 1),
-  ('regional',         'Regional',          'Regionais',           2, 2),
-  ('nucleo',           'Núcleo',            'Núcleos',             3, 3),
-  ('associacao_local', 'Associação Local',  'Associações Locais',  3, 4)
+-- A instituição, como a Sede descreveu: a Associação Local pende da Regional
+-- ou de um Núcleo, e o Núcleo é opcional — existe onde duas ou mais
+-- Associações Locais do mesmo endereço unificam caixa e estoque.
+-- A Sede Internacional fica fora: "não temos ingerência sobre nada".
+insert into tipos_unidade (codigo, nome, plural, pais_permitidos, exige_organizacao, ordem) values
+  ('sede_central',     'Sede Central',     'Sedes Centrais',     '{}',                             false, 1),
+  ('regional',         'Regional',         'Regionais',          '{sede_central}',                 false, 2),
+  ('nucleo',           'Núcleo',           'Núcleos',            '{regional}',                     false, 3),
+  ('associacao_local', 'Associação Local', 'Associações Locais', '{regional,nucleo}',              true,  4)
 on conflict (codigo) do nothing;
 
--- Os quatro nomes que classificam as mais de 16 mil pessoas hoje em produção
--- no módulo eventos. O outro sistema usa outro vocabulário para as mesmas
--- quatro; só um par é seguro, então o de-para fica pendente com a Sede.
+-- As quatro que existem hoje (Sede, set/2026). É ponto de partida, não lista
+-- fechada: o cadastro é editável em tela e a Sede cria novas sem migração.
 insert into organizacoes (nome, ordem) values
-  ('Associação da Prosperidade', 1),
+  ('Associação Pomba Branca',    1),
   ('Associação Fraternidade',    2),
-  ('Associação Pomba Branca',    3),
-  ('Associação dos Jovens',      4)
+  ('Associação dos Jovens',      3),
+  ('Associação da Prosperidade', 4)
 on conflict (nome) do nothing;
 
 -- As 11 da especificação do Ciclo, validadas com a Sede naquele projeto.

@@ -12,6 +12,8 @@ export type UnidadeRow = {
   id: string;
   tipo: string;
   pai_id: string | null;
+  /** Obrigatória na Associação Local, nula nos demais degraus. */
+  organizacao_id: string | null;
   nome: string;
   nome_curto: string | null;
   codigo: string | null;
@@ -28,9 +30,23 @@ export type TipoUnidadeRow = {
   codigo: string;
   nome: string;
   plural: string;
-  nivel: number;
+  /** Tipos que podem ser a unidade superior. Vazio = fica no topo. */
+  pais_permitidos: string[];
+  exige_organizacao: boolean;
   ordem: number;
   ativo: boolean;
+};
+
+/** Onde a pessoa está hoje: a Regional, a Organização e a Associação Local. */
+export type VinculoAtualRow = {
+  pessoa_id: string;
+  unidade_id: string;
+  unidade_tipo: string;
+  unidade_nome: string;
+  organizacao_id: string | null;
+  organizacao_nome: string | null;
+  regional_id: string | null;
+  data_inicio: string;
 };
 
 export type OrganizacaoRow = {
@@ -108,7 +124,9 @@ export interface Database {
       pessoa_unidade_vinculos: Tabela<VinculoRow>;
       funcoes_doutrinarias: Tabela<FuncaoDoutrinariaRow>;
     };
-    Views: { [_ in never]: never };
+    Views: {
+      pessoa_vinculo_atual: { Row: VinculoAtualRow; Relationships: [] };
+    };
     Functions: {
       /** A unidade e todos os ancestrais dela, da folha até a raiz. */
       ancestrais: {

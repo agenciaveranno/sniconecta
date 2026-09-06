@@ -19,7 +19,7 @@ import {
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
-import type { TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
+import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
 import CamposUnidade from "./CamposUnidade";
 import { alternarAtivo, criarUnidade, editarUnidade } from "./actions";
 
@@ -69,7 +69,7 @@ export default async function EstruturaPage({
   // faria banco fora do ar virar "a instituição não tem nenhuma unidade" — e
   // alguém cadastraria a Sede Central pela segunda vez.
   const tipos = exigir(
-    await supabase.from("tipos_unidade").select("*").eq("ativo", true).order("nivel").order("ordem"),
+    await supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
     "os tipos de unidade"
   ) as TipoUnidadeRow[];
 
@@ -78,7 +78,13 @@ export default async function EstruturaPage({
     "as unidades"
   ) as UnidadeRow[];
 
+  const organizacoes = exigir(
+    await supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
+    "as organizações"
+  ) as OrganizacaoRow[];
+
   const nomeDoTipo = new Map(tipos.map((t) => [t.codigo, t.nome]));
+  const nomeDaOrganizacao = new Map(organizacoes.map((o) => [o.id, o.nome_curto ?? o.nome]));
   const linhas = achatarArvore(unidades);
   const paraEscolha = unidades.map((u) => ({ id: u.id, nome: u.nome, tipo: u.tipo }));
 
@@ -86,7 +92,7 @@ export default async function EstruturaPage({
     <Painel titulo="Estrutura">
       <TituloPagina
         titulo="Estrutura institucional"
-        descricao="Sede Central, Regionais, Núcleos e Associações Locais. É esta árvore que decide o alcance de cada papel: quem coordena uma Regional alcança as unidades abaixo dela."
+        descricao="Sede Central, Regionais, Núcleos e Associações Locais. O Núcleo é opcional: existe onde duas ou mais Associações Locais do mesmo endereço unificam caixa e estoque. É esta árvore que decide o alcance de cada papel."
         acao={
           <ModalCadastro
             rotulo="Nova unidade"
@@ -96,7 +102,7 @@ export default async function EstruturaPage({
             acao={criarUnidade}
             rotuloConfirmar="Cadastrar"
           >
-            <CamposUnidade tipos={tipos} unidades={paraEscolha} />
+            <CamposUnidade tipos={tipos} unidades={paraEscolha} organizacoes={organizacoes} />
           </ModalCadastro>
         }
       />
@@ -115,10 +121,11 @@ export default async function EstruturaPage({
           titulo="A instituição ainda não foi desenhada"
         >
           Comece pela Sede Central, no topo. Depois as Regionais dentro dela, e
-          as Associações Locais dentro de cada Regional.
+          as Associações Locais dentro de cada Regional — ou dentro de um
+          Núcleo, onde ele existir.
         </Vazio>
       ) : (
-        <Tabela cabecalho={["Unidade", "Tipo", "Cidade", "Código", "Situação", ""]}>
+        <Tabela cabecalho={["Unidade", "Tipo", "Organização", "Cidade", "Situação", ""]}>
           {linhas.map(({ unidade, profundidade }) => (
             <Linha key={unidade.id}>
               <Celula forte>
@@ -137,10 +144,10 @@ export default async function EstruturaPage({
                   {nomeDoTipo.get(unidade.tipo) ?? unidade.tipo}
                 </Badge>
               </Celula>
+              <Celula>{nomeDaOrganizacao.get(unidade.organizacao_id ?? "") ?? "—"}</Celula>
               <Celula>
                 {unidade.cidade ? `${unidade.cidade}${unidade.uf ? `/${unidade.uf}` : ""}` : "—"}
               </Celula>
-              <Celula dado>{unidade.codigo ?? "—"}</Celula>
               <Celula>
                 <Etiqueta ativo={unidade.ativo} />
               </Celula>
@@ -152,7 +159,7 @@ export default async function EstruturaPage({
                     titulo={`Editar ${unidade.nome}`}
                     acao={editarUnidade}
                   >
-                    <CamposUnidade tipos={tipos} unidades={paraEscolha} unidade={unidade} />
+                    <CamposUnidade tipos={tipos} unidades={paraEscolha} organizacoes={organizacoes} unidade={unidade} />
                   </ModalCadastro>
                   <form action={alternarAtivo}>
                     <input type="hidden" name="id" value={unidade.id} />
