@@ -12,12 +12,12 @@ já foi concluído e por onde a próxima sessão continua.
 | `ciclo-plataforma.md` | pronto (93 KB) | `sistema-ciclo` em `70f61d6`: auth, permissões, acesso, fila, configuração, diagnóstico |
 | `ciclo-modulo.md` | pronto (92 KB) | `sistema-ciclo` em `70f61d6`: rotas, actions, regras de negócio, checklist de porte |
 | `ui-design-system.md` | pronto (71 KB) | Ciclo × esqueleto × eventos: primitivos, tokens, modal, tema, AppShell |
-| `eventos-esquema.md` | em produção ao fim da sessão | `sni-ciclo/src/app/api/migrate/route.ts` (31 tabelas) × `supabase/rascunhos/eventos_schema.sql` |
+| `eventos-esquema.md` | pronto | `sni-ciclo/src/app/api/migrate/route.ts` (31 tabelas) × `supabase/rascunhos/eventos_schema.sql` |
 | `eventos-identidade.md` | pronto (75 KB) | User/Perfil/permissões, participantes, dedup, regional/organização, magic link |
 | `eventos-compra.md` | pronto (60 KB) | checkout, pedidos, inscrições, Cielo, cupons, combos, voucher, estornos |
 | `eventos-operacao.md` | pronto (94 KB) | balcão, check-in, relatórios, comissão, e-mails, WhatsApp, configurações |
-| `estrutura-organizacional.md` | em produção | hierarquia institucional nos quatro sistemas + esboço de modelo unificado |
-| `esqueleto-main.md` | em produção | auditoria do commit `8cd93fa` (typecheck, testes, contradições, qualidade) |
+| `estrutura-organizacional.md` | pronto | hierarquia institucional nos quatro sistemas + esboço de modelo unificado |
+| `esqueleto-main.md` | pronto | auditoria do commit `8cd93fa` (typecheck, testes, contradições, qualidade) |
 | seção "Delta para 2f07f6a" nos 4 docs do Ciclo | em produção | diferença entre `70f61d6` e a versão nova do Ciclo |
 
 Se um documento "em produção" não estiver aqui, o agente não terminou antes
