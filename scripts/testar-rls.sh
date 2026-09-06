@@ -67,6 +67,24 @@ for m in "$RAIZ"/supabase/migrations/*.sql; do
 done
 echo "  $(ls "$RAIZ"/supabase/migrations/*.sql | wc -l) migração(ões) aplicada(s)"
 
+# ── O seed da estrutura publicada ──────────────────────────────────────────
+# Confere o que a carga trouxe ANTES de o cenário limpar a base. Sem isto, um
+# seed que parasse de trazer as Regionais passaria despercebido: as migrações
+# aplicariam sem erro e o banco nasceria vazio.
+conta() { P -t -A -c "$1" | tr -d ' \n'; }
+n_sede=$(conta "select count(*) from unidades where tipo='sede_central';")
+n_reg=$(conta "select count(*) from unidades where tipo='regional';")
+n_ja=$(conta "select count(*) from unidades where tipo='regional' and idioma='ja';")
+n_aca=$(conta "select count(*) from locais where tipo='academia';")
+n_orfa=$(conta "select count(*) from unidades where tipo='regional' and pai_id is null;")
+echo "▸ seed: $n_sede sede, $n_reg regionais ($n_ja em japonês), $n_aca academias"
+[ "$n_sede" = "1" ] || { echo "  ❌ esperava 1 Sede Central"; exit 1; }
+[ "$n_reg" -ge 100 ] || { echo "  ❌ esperava ao menos 100 Regionais, veio $n_reg"; exit 1; }
+[ "$n_ja" -ge 20 ] || { echo "  ❌ esperava ao menos 20 Regionais em japonês, veio $n_ja"; exit 1; }
+[ "$n_aca" = "7" ] || { echo "  ❌ esperava 7 Academias, veio $n_aca"; exit 1; }
+[ "$n_orfa" = "0" ] || { echo "  ❌ $n_orfa Regionais ficaram sem a Sede Central como pai"; exit 1; }
+echo "  ✅ estrutura publicada carregada e pendurada na Sede Central"
+
 # ── Cenário ────────────────────────────────────────────────────────────────
 # Sede Central
 #   ├── Regional Sul
@@ -82,6 +100,13 @@ echo "  $(ls "$RAIZ"/supabase/migrations/*.sql | wc -l) migração(ões) aplicad
 # daria a Regional errada para uma das duas.
 echo "▸ cenário: núcleo com duas associações, e uma associação sem núcleo"
 P -q -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+-- ⚠️ Limpa a estrutura que o seed carregou. As asserções contam unidades, e
+-- contagem não pode depender de quantas Regionais o site publica hoje — a
+-- suíte passaria a quebrar sozinha quando a instituição crescer. Que o seed
+-- APLICA já foi provado no passo anterior.
+delete from locais;
+delete from unidades;
+
 insert into auth.users (id, email) values
   ('c0000000-0000-0000-0000-000000000001','sede@x'),
   ('c0000000-0000-0000-0000-000000000002','coord.sul@x'),
