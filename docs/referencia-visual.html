@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SNI Conecta — Design System v2.1</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.11.0/dist/tabler-icons.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&family=Platypi:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500;1,600;1,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+/* ══════════════════════════════════════════════════════
+   1. TOKENS
+   ══════════════════════════════════════════════════════ */
+:root{
+  /* ── AZUL INSTITUCIONAL — amostrado do logo Seicho-No-Ie ── */
+  --navy-900:#0D1A4E;
+  --navy-800:#101E58;
+  --navy-700:#132460;   /* cor de referência */
+  --navy-600:#1B2E6E;
+
+  /* ── Azul de interface, herdado do v1 ── */
+  --sni-blue-50:#EEF3FC; --sni-blue-100:#D0DFFA; --sni-blue-200:#A3BFF4;
+  --sni-blue-300:#6B94EC; --sni-blue-400:#3A6FE0; --sni-blue-500:#1C4CC7;
+  --sni-blue-600:#163BA3; --sni-blue-700:#0F2B7A; --sni-blue-800:#091D57;
+  --sni-blue-900:#050F30;
+
+  --sni-gray-50:#F8F9FB; --sni-gray-100:#EFF1F5; --sni-gray-200:#D9DDE6;
+  --sni-gray-300:#B8BFD0; --sni-gray-400:#8E97AE; --sni-gray-500:#616B84;
+  --sni-gray-600:#424B63; --sni-gray-700:#2C3348; --sni-gray-800:#1A1F2E;
+  --sni-gray-900:#0F1219;
+
+  --sni-success:#15803D; --sni-success-bg:#DCFCE7;
+  --sni-warning:#B45309; --sni-warning-bg:#FEF3C7;
+  --sni-danger:#B91C1C;  --sni-danger-bg:#FEE2E2;
+  --sni-info:#0369A1;    --sni-info-bg:#E0F2FE;
+  --font:'Figtree',system-ui,-apple-system,sans-serif;
+  --font-serif:'Platypi',Georgia,'Times New Roman',serif;
+  --font-num:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+
+  /* ── RAIOS ── */
+  --r-pill:999px;
+  --r-field:12px;
+  --r-tile:14px;
+  --r-card:18px;
+  --r-panel:24px;
+
+  /* ── MATERIAL — duas variantes, só isso ── */
+  --lg-frost:20px;
+  --lg-sat:150%;
+  --lg-surface:rgba(255,255,255,.86);   /* padrão: quase opaco */
+  --lg-hover:rgba(255,255,255,.96);
+  --lg-tint:rgba(22,59,163,.90);        /* ação primária, uma por tela */
+  --lg-edge:rgba(255,255,255,.70);
+  --lg-line:rgba(13,26,78,.12);
+  --lg-spec:inset 0 1px 0 rgba(255,255,255,.95);
+  --lg-spec-dark:inset 0 1px 0 rgba(255,255,255,.14);
+  /* reflexo de controle sólido — luz, não listra. Vale para todas as variantes. */
+  --btn-spec:inset 0 1px 0 rgba(255,255,255,.22),inset 0 -1px 1px rgba(0,0,0,.10);
+  --btn-sheen:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,0) 58%);
+  --sh-1:0 1px 3px rgba(13,26,78,.07);
+  --sh-2:0 8px 24px rgba(13,26,78,.09),0 1px 3px rgba(13,26,78,.05);
+  --sh-3:0 20px 48px rgba(13,26,78,.16),0 3px 8px rgba(13,26,78,.07);
+  --dim:rgba(13,26,78,.48);
+
+  /* ── TEXTO — um degrau mais escuro que o v1, para leitura confortável ── */
+  --txt-1:var(--sni-gray-900);
+  --txt-2:var(--sni-gray-700);
+  --txt-3:var(--sni-gray-600);
+  --txt-4:var(--sni-gray-500);
+  --surface:#FFFFFF;
+  --line:var(--sni-gray-200);
+  --line-soft:rgba(217,221,230,.6);
+
+  /* ── FUNDO — lavado, quase liso. Dá luz ao vidro sem virar papel de parede ── */
+  --bg:
+    radial-gradient(900px 620px at 12% 0%, rgba(27,46,110,.10), transparent 60%),
+    radial-gradient(760px 560px at 92% 14%, rgba(58,111,224,.08), transparent 58%),
+    #F4F6FB;
+
+  --accent:var(--sni-blue-600);
+  --accent-hover:var(--sni-blue-700);
+
+  --dur:.18s; --ease:cubic-bezier(.32,.72,0,1);
+  --tap:44px;   /* alvo mínimo de toque */
+}
+
+/* Tema escuro: grafite neutro com um traço mínimo de azul na temperatura.
+   O azul não veste o fundo — ele aparece só na sidebar institucional e na
+   ação primária. Fundo saturado em tela cheia rouba a leitura do conteúdo. */
+[data-theme="dark"]{
+  --ink-900:#0E1013;   /* fundo da aplicação */
+  --ink-800:#14161A;   /* superfície de conteúdo */
+  --ink-700:#1A1D22;   /* superfície elevada */
+  --ink-600:#23272E;   /* superfície de hover */
+
+  --lg-surface:rgba(26,29,34,.82);
+  --lg-hover:rgba(35,39,46,.92);
+  --lg-tint:rgba(58,111,224,.86);
+  --lg-edge:rgba(255,255,255,.09);
+  --lg-line:rgba(255,255,255,.08);
+  --lg-spec:inset 0 1px 0 rgba(255,255,255,.06);
+  --lg-spec-dark:inset 0 1px 0 rgba(255,255,255,.08);
+  --btn-spec:inset 0 1px 0 rgba(255,255,255,.16),
+             inset 0 -1px 1px rgba(0,0,0,.22);
+  --sh-1:0 1px 3px rgba(0,0,0,.50);
+  --sh-2:0 8px 24px rgba(0,0,0,.48),0 1px 3px rgba(0,0,0,.38);
+  --sh-3:0 20px 48px rgba(0,0,0,.60),0 3px 8px rgba(0,0,0,.42);
+  --dim:rgba(0,0,0,.68);
+  --txt-1:#F2F3F5;
+  --txt-2:rgba(255,255,255,.80);
+  --txt-3:rgba(255,255,255,.64);
+  --txt-4:rgba(255,255,255,.46);
+  --surface:var(--ink-800);
+  --line:rgba(255,255,255,.10);
+  --line-soft:rgba(255,255,255,.06);
+  --accent:#3A6FE0;        /* azul clareia no escuro para manter contraste */
+  --accent-hover:#5583E8;
+  --bg:
+    radial-gradient(1200px 760px at 14% 0%, rgba(58,111,224,.055), transparent 60%),
+    var(--ink-900);
+}
+
+/* ══════════════════════════════════════════════════════
+   2. MATERIAL
+   ══════════════════════════════════════════════════════ */
+.lg{
+  background:var(--lg-surface);
+  backdrop-filter:blur(var(--lg-frost)) saturate(var(--lg-sat));
+  -webkit-backdrop-filter:blur(var(--lg-frost)) saturate(var(--lg-sat));
+  border:1px solid var(--lg-edge);
+  box-shadow:var(--lg-spec),var(--sh-2);
+}
+.solid{background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh-1)}
+.navy{
+  background:linear-gradient(180deg,var(--navy-800),var(--navy-600));
+  color:#fff;box-shadow:var(--lg-spec-dark),var(--sh-2);
+}
+
+/* ══════════════════════════════════════════════════════
+   3. DOC
+   ══════════════════════════════════════════════════════ */
+html{-webkit-font-smoothing:antialiased}
+body{
+  font-family:var(--font);color:var(--txt-2);line-height:1.6;font-size:15px;
+  background:var(--bg);background-attachment:fixed;min-height:100vh;
+  padding:20px 16px 80px;
+}
+.wrap{max-width:920px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.sec{border-radius:var(--r-panel);padding:26px}
+.sec-h{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.sec-h i{width:20px;height:20px}
+.sec-h i{font-size:20px;color:var(--sni-blue-600)}
+[data-theme="dark"] .sec-h i{color:#7FA3EE}
+.sec-h h2{font-family:var(--font-serif);font-size:18px;font-weight:700;color:var(--txt-1);
+  text-transform:uppercase;letter-spacing:0;line-height:1.15;text-wrap:balance}
+
+/* ── PLATYPI — voz institucional. Nunca em dado, rótulo ou controle. ── */
+.serif{font-family:var(--font-serif);font-weight:700;letter-spacing:-.01em}
+/* Nome da entidade: sempre em caixa alta, sempre em uma linha só.
+   A caixa alta vem escrita no conteúdo — a classe só impede a quebra
+   e blinda contra qualquer text-transform que tente minusculizar. */
+.entidade{text-transform:uppercase;white-space:nowrap}
+
+.serif-cap{font-family:var(--font-serif);font-weight:700;text-transform:uppercase;
+  letter-spacing:0;line-height:1.15;text-wrap:balance}
+
+/* ── ALINHAMENTO ÓPTICO DE ÍCONE ──
+   O glifo do ícone é centrado na sua própria caixa em; o texto é centrado na
+   caixa de linha. Fixar a caixa do ícone e apertar o line-height do texto
+   faz os dois centros coincidirem sem números mágicos. */
+.ti{display:inline-flex;align-items:center;justify-content:center;line-height:1;flex-shrink:0}
+
+/* ── EQUILÍBRIO DE LINHAS ── */
+.balance{text-wrap:balance}
+.pretty{text-wrap:pretty}
+.serif-i{font-family:var(--font-serif);font-style:italic;font-weight:400}
+.empty{text-align:center;padding:36px 24px;border-radius:var(--r-card);
+  background:var(--surface);border:1px dashed var(--line)}
+.empty i{font-size:34px;color:var(--sni-blue-300);display:block;margin-bottom:12px}
+.empty h4{font-family:var(--font-serif);font-size:21px;font-weight:700;color:var(--txt-1);margin-bottom:6px;
+  text-wrap:balance}
+.empty p{font-family:var(--font-serif);font-style:italic;font-size:16px;color:var(--txt-3);
+  max-width:44ch;margin:0 auto 18px;text-wrap:balance}
+.pull{font-family:var(--font-serif);font-style:italic;font-weight:400;font-size:19px;text-wrap:balance;
+  line-height:1.5;color:var(--txt-2);padding-left:18px;border-left:3px solid var(--sni-blue-300);
+  max-width:52ch}
+.sec-h .n{margin-left:auto;font-family:var(--font-num);font-size:13px;font-weight:500;color:var(--txt-4)}
+.lede{font-size:15px;color:var(--txt-3);max-width:68ch;margin-bottom:20px;text-wrap:pretty}
+.sub{font-size:14px;font-weight:700;color:var(--txt-2);margin:24px 0 12px;
+  display:flex;align-items:center;gap:10px}
+.sub::after{content:'';flex:1;height:1px;background:var(--line-soft)}
+.sub:first-of-type{margin-top:0}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;
+  background:rgba(19,36,96,.08);color:var(--sni-blue-700);padding:2px 7px;border-radius:6px}
+[data-theme="dark"] code{background:rgba(255,255,255,.07);color:#A9C2F2}
+p.body{font-size:15px;color:var(--txt-3);max-width:68ch;text-wrap:pretty}
+
+.hero{border-radius:var(--r-panel);padding:28px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.hero-m{width:56px;height:56px;border-radius:var(--r-tile);display:flex;align-items:center;
+  justify-content:center;font-size:26px;color:#fff;background:rgba(255,255,255,.16);
+  border:1px solid rgba(255,255,255,.26)}
+.hero h1{font-family:var(--font-serif);font-size:26px;font-weight:700;letter-spacing:-.01em;color:#fff;
+  line-height:1.2;text-wrap:balance}
+.hero p{font-size:15px;color:rgba(255,255,255,.74);margin-top:2px}
+.hero-a{margin-left:auto;display:flex;gap:10px;align-items:center}
+
+/* ── CONTROLES ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;line-height:1.2;
+  font-family:var(--font);font-weight:600;border-radius:var(--r-pill);border:1px solid transparent;
+  cursor:pointer;white-space:nowrap;min-height:var(--tap);
+  transition:background var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+.btn:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.btn i{font-size:18px;width:18px;height:18px}
+.btn-lg{font-size:16px;padding:13px 26px}
+.btn-md{font-size:15px;padding:11px 22px}
+.btn-sm{font-size:14px;padding:8px 18px;min-height:38px}
+.btn-icon{padding:0;width:var(--tap);height:var(--tap)}
+.btn-icon.btn-sm{width:38px;height:38px}
+.btn-primary,.btn-danger,.btn-success{
+  color:#fff;background-image:var(--btn-sheen);
+  box-shadow:var(--btn-spec),0 2px 6px rgba(13,26,78,.14)}
+.btn-primary{background-color:var(--accent)}
+.btn-primary:hover{background-color:var(--accent-hover)}
+.btn-glass{background:var(--lg-surface);color:var(--sni-blue-700);
+  backdrop-filter:blur(var(--lg-frost)) saturate(var(--lg-sat));
+  -webkit-backdrop-filter:blur(var(--lg-frost)) saturate(var(--lg-sat));
+  border-color:var(--lg-edge);box-shadow:var(--lg-spec),var(--sh-1)}
+[data-theme="dark"] .btn-glass{color:#fff}
+.btn-glass:hover{background:var(--lg-hover)}
+.btn-ghost{background:transparent;color:var(--txt-2);border-color:var(--lg-line)}
+.btn-ghost:hover{background:var(--lg-surface)}
+.btn-danger{background-color:var(--sni-danger)}
+.btn-danger:hover{background-color:#991B1B}
+.btn-success{background-color:var(--sni-success)}
+.btn-success:hover{background-color:#166534}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+
+.seg{display:inline-flex;padding:4px;border-radius:var(--r-pill);gap:2px;
+  background:var(--lg-surface);border:1px solid var(--lg-edge);box-shadow:var(--lg-spec)}
+.seg button{border:none;background:transparent;font-family:var(--font);font-size:14px;
+  font-weight:600;color:var(--txt-3);padding:8px 18px;border-radius:var(--r-pill);cursor:pointer;
+  min-height:36px;transition:all var(--dur) var(--ease)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.seg button:focus-visible{outline:3px solid var(--sni-blue-400);outline-offset:1px}
+
+.sw{width:52px;height:30px;border-radius:var(--r-pill);border:1px solid var(--lg-line);
+  background:var(--sni-gray-200);cursor:pointer;position:relative;flex-shrink:0;
+  transition:background var(--dur) var(--ease)}
+.sw::after{content:'';position:absolute;top:2px;left:2px;width:24px;height:24px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 4px rgba(13,26,78,.32);transition:transform var(--dur) var(--ease)}
+.sw[aria-pressed="true"]{background:var(--accent);border-color:transparent}
+.sw[aria-pressed="true"]::after{transform:translateX(22px)}
+.sw:focus-visible{outline:3px solid var(--sni-blue-400);outline-offset:2px}
+
+.field{display:flex;flex-direction:column;gap:7px}
+.field label{font-size:15px;font-weight:600;color:var(--txt-2)}
+.inp{font-family:var(--font);font-size:15px;padding:12px 15px;border-radius:var(--r-field);
+  background:var(--surface);border:1.5px solid var(--line);color:var(--txt-1);
+  width:100%;outline:none;min-height:var(--tap)}
+.inp::placeholder{color:var(--txt-4)}
+.inp:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(58,111,224,.28)}
+.inp.err{border-color:var(--sni-danger)}
+.hint{font-size:13.5px;color:var(--txt-4)}
+.hint.err{color:var(--sni-danger);font-weight:600}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+
+.bg{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;
+  padding:5px 13px;border-radius:var(--r-pill)}
+.bg .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.bg-blue{background:var(--sni-blue-50);color:var(--sni-blue-700)}
+.bg-ok{background:var(--sni-success-bg);color:var(--sni-success)}
+.bg-warn{background:var(--sni-warning-bg);color:var(--sni-warning)}
+.bg-dang{background:var(--sni-danger-bg);color:var(--sni-danger)}
+.bg-gray{background:var(--sni-gray-100);color:var(--sni-gray-600)}
+[data-theme="dark"] .bg-blue{background:rgba(58,111,224,.18);color:#A9C2F2}
+[data-theme="dark"] .bg-gray{background:rgba(255,255,255,.08);color:rgba(255,255,255,.72)}
+[data-theme="dark"] .bg-ok{background:rgba(21,128,61,.22);color:#8EDCA8}
+[data-theme="dark"] .bg-warn{background:rgba(180,83,9,.24);color:#E8B75C}
+[data-theme="dark"] .bg-dang{background:rgba(185,28,28,.24);color:#EE9A9A}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+.card{border-radius:var(--r-card);padding:18px}
+.card-h{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.card-i{width:42px;height:42px;border-radius:var(--r-tile);display:flex;align-items:center;
+  justify-content:center;font-size:20px;flex-shrink:0;
+  background:var(--sni-blue-50);color:var(--sni-blue-600)}
+[data-theme="dark"] .card-i{background:rgba(255,255,255,.07);color:#7FA3EE}
+.card-t{font-size:15px;font-weight:700;color:var(--txt-1);text-wrap:balance}
+.card-s{font-size:13.5px;color:var(--txt-4)}
+.kpi-v{font-family:var(--font-num);font-size:31px;font-weight:600;letter-spacing:-.02em;color:var(--txt-1);line-height:1.15;
+  font-variant-numeric:tabular-nums}
+.kpi-d{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-num);font-size:13.5px;font-weight:500;margin-top:8px;
+  color:var(--sni-success)}
+[data-theme="dark"] .kpi-d{color:#8EDCA8}
+
+.sheet{border-radius:var(--r-card);overflow:hidden;background:var(--surface);
+  border:1px solid var(--line);box-shadow:var(--sh-1)}
+table{width:100%;border-collapse:collapse;font-size:14.5px}
+th{font-size:13.5px;font-weight:700;color:var(--txt-2);text-align:left;padding:13px 18px;
+  border-bottom:1.5px solid var(--line);background:var(--sni-gray-50)}
+[data-theme="dark"] th{background:rgba(255,255,255,.05)}
+td{padding:13px 18px;border-bottom:1px solid var(--line-soft);color:var(--txt-2)}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--txt-1);font-weight:600}
+.num{font-family:var(--font-num);font-weight:500;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+
+/* ── NAVEGAÇÃO ── */
+.demo{border-radius:var(--r-panel);overflow:hidden;position:relative;min-height:400px;display:flex;
+  border:1px solid var(--lg-edge);box-shadow:var(--sh-3);background:var(--sni-gray-50)}
+[data-theme="dark"] .demo{background:var(--ink-900)}
+.side{width:236px;flex-shrink:0;display:flex;flex-direction:column;padding:16px 12px;
+  background:linear-gradient(180deg,var(--navy-800),var(--navy-600))}
+.brand{display:flex;align-items:center;gap:12px;padding:4px 8px 18px}
+.brand-m{width:40px;height:40px;border-radius:var(--r-field);display:flex;align-items:center;
+  justify-content:center;font-size:20px;color:#fff;background:rgba(255,255,255,.14);
+  border:1px solid rgba(255,255,255,.22);flex-shrink:0}
+.brand-n{font-size:16px;font-weight:700;color:#fff;letter-spacing:-.01em;line-height:1.25}
+.brand-s{font-size:12.5px;color:rgba(255,255,255,.60)}
+.nav-l{font-size:13px;font-weight:600;color:rgba(255,255,255,.58);padding:16px 10px 8px}
+.nav-i{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:var(--r-field);
+  font-size:15px;font-weight:500;color:rgba(255,255,255,.86);cursor:pointer;margin-bottom:3px;
+  min-height:var(--tap);transition:background var(--dur) var(--ease)}
+.nav-i i{font-size:20px;width:20px;height:20px}
+.nav-i:hover{background:rgba(255,255,255,.10)}
+.nav-i.on{color:#fff;font-weight:600;background:rgba(255,255,255,.16);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.16)}
+.nav-tag{margin-left:auto;font-family:var(--font-num);font-size:12.5px;font-weight:600;padding:2px 9px;border-radius:var(--r-pill);
+  background:#fff;color:var(--navy-700)}
+.side-f{margin-top:auto;display:flex;align-items:center;gap:11px;padding:14px 8px 4px;
+  border-top:1px solid rgba(255,255,255,.16)}
+.av{width:36px;height:36px;border-radius:50%;background:var(--sni-blue-400);display:flex;
+  align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0}
+.side-f .who{font-size:14px;font-weight:600;color:#fff;line-height:1.3}
+.side-f .rl{font-size:12.5px;color:rgba(255,255,255,.62)}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative;
+  background:
+    radial-gradient(420px 260px at 82% 0%, rgba(58,111,224,.12), transparent 62%),
+    var(--sni-gray-50)}
+[data-theme="dark"] .main{background:var(--ink-900)}
+.top{height:62px;flex-shrink:0;display:flex;align-items:center;gap:10px;padding:0 18px;
+  background:var(--lg-surface);
+  backdrop-filter:blur(var(--lg-frost)) saturate(var(--lg-sat));
+  -webkit-backdrop-filter:blur(var(--lg-frost)) saturate(var(--lg-sat));
+  border-bottom:1px solid var(--lg-edge);box-shadow:var(--lg-spec)}
+.top h3{font-size:17px;font-weight:700;color:var(--txt-1)}
+.top .r{margin-left:auto;display:flex;align-items:center;gap:9px}
+.ibtn{width:var(--tap);height:var(--tap);border-radius:var(--r-pill);display:inline-flex;align-items:center;
+  justify-content:center;font-size:19px;color:var(--txt-2);background:transparent;
+  border:1px solid var(--lg-line);cursor:pointer;transition:background var(--dur) var(--ease)}
+.ibtn:hover{background:var(--lg-hover)}
+.stage{flex:1;padding:18px;display:flex;flex-direction:column;gap:14px}
+
+.menu{width:266px;padding:8px;border-radius:var(--r-card)}
+.menu-h{display:flex;align-items:center;gap:11px;padding:10px 11px 13px;
+  border-bottom:1px solid var(--lg-line);margin-bottom:6px}
+.mi{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:var(--r-field);
+  font-size:15px;font-weight:500;color:var(--txt-2);cursor:pointer;min-height:var(--tap)}
+.mi:hover{background:var(--lg-hover)}
+.mi i{font-size:19px;width:19px;height:19px;color:var(--sni-blue-600)}
+[data-theme="dark"] .mi i{color:#7FA3EE}
+.msep{height:1px;background:var(--lg-line);margin:6px 11px}
+
+.modal-stage{position:relative;min-height:300px;border-radius:var(--r-card);overflow:hidden;
+  display:flex;align-items:center;justify-content:center;padding:22px;
+  background:linear-gradient(140deg,var(--navy-800),var(--navy-600))}
+[data-theme="dark"] .modal-stage{background:linear-gradient(140deg,#101216,#1A1D22)}
+.dimlayer{position:absolute;inset:0;background:var(--dim)}
+.modal{position:relative;width:100%;max-width:390px;border-radius:var(--r-panel);padding:24px;
+  background:var(--surface);border:1px solid var(--lg-edge);box-shadow:var(--sh-3)}
+.modal h4{font-family:var(--font-serif);font-size:21px;font-weight:700;color:var(--txt-1);
+  letter-spacing:-.005em;line-height:1.3;text-wrap:balance}
+.modal p{font-size:15px;color:var(--txt-3);margin:8px 0 18px}
+
+.ramp{display:flex;border-radius:var(--r-tile);overflow:hidden;gap:2px}
+.chip{flex:1;height:58px;display:flex;align-items:flex-end;padding:6px;font-size:11.5px;
+  font-weight:700;color:rgba(255,255,255,.86)}
+.swgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.sw-card{border-radius:var(--r-tile);overflow:hidden;border:1px solid var(--line);background:var(--surface)}
+.sw-top{height:60px}
+.sw-i{padding:10px 12px}
+.sw-i b{font-size:14px;font-weight:600;color:var(--txt-1);display:block}
+.sw-i span{font-size:12.5px;color:var(--txt-4);font-family:ui-monospace,monospace}
+
+.type-r{display:flex;align-items:baseline;gap:20px;padding:14px 0;
+  border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
+.type-r:last-child{border-bottom:none}
+.type-m{min-width:150px;flex-shrink:0}
+.type-m b{font-size:14px;font-weight:700;color:var(--txt-1);display:block}
+.type-m span{font-size:12.5px;color:var(--txt-4)}
+
+.rad-row{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end}
+.rad-b{background:var(--sni-blue-50);border:1.5px solid var(--sni-blue-300)}
+[data-theme="dark"] .rad-b{background:rgba(255,255,255,.10)}
+.rad-l{font-size:13px;color:var(--txt-3);text-align:center;margin-top:8px;line-height:1.45}
+
+.rules{display:grid;gap:10px}
+.rule{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-radius:var(--r-tile);text-wrap:pretty;
+  background:var(--lg-surface);border:1px solid var(--lg-edge);
+  font-size:15px;line-height:1.55;color:var(--txt-2)}
+.rule i{font-size:20px;width:20px;height:20px;margin-top:1px}
+.r-do i{color:var(--sni-success)}
+.r-dont i{color:var(--sni-danger)}
+.r-note i{color:var(--sni-blue-600)}
+[data-theme="dark"] .r-note i{color:#7FA3EE}
+
+pre{background:rgba(19,36,96,.06);border:1px solid var(--lg-line);border-radius:var(--r-tile);
+  padding:16px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:13px;line-height:1.7;color:var(--txt-2)}
+[data-theme="dark"] pre{background:rgba(0,0,0,.30)}
+
+/* ── ACESSIBILIDADE ── */
+@media (prefers-reduced-transparency:reduce){
+  .lg,.btn-glass,.top,.menu{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+  :root{--lg-surface:#fff;--lg-hover:#fff}
+  [data-theme="dark"]{--lg-surface:var(--ink-700);--lg-hover:var(--ink-600)}
+}
+@media (prefers-contrast:more){
+  :root{--lg-surface:#fff;--lg-edge:var(--sni-gray-600);--txt-3:var(--sni-gray-800)}
+  .inp{border-width:2px}
+}
+@media (prefers-reduced-motion:reduce){*{transition-duration:.01ms!important}}
+@supports not (backdrop-filter:blur(1px)){.lg,.top,.menu{background:var(--surface)}}
+
+@media (max-width:720px){
+  .sec,.hero{padding:20px;border-radius:var(--r-card)}
+  .side{width:64px;padding:16px 8px;align-items:center}
+  .brand-tx,.nav-l,.nav-i span,.nav-tag,.side-f .meta{display:none}
+  .brand{justify-content:center;padding-bottom:14px}
+  .nav-i{justify-content:center;padding:11px 0}
+  .side-f{justify-content:center}
+  .type-m{min-width:100%}
+  .hero-a{margin-left:0;width:100%}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero navy">
+    <div class="hero-m"><i class="ti ti-building-community" aria-hidden="true"></i></div>
+    <div>
+      <h1>SNI Conecta — Design System</h1>
+      <p><span class="entidade">SEICHO-NO-IE DO BRASIL</span> · versão 2.7</p>
+    </div>
+    <div class="hero-a">
+      <button class="btn btn-sm" id="theme" style="background:rgba(255,255,255,.16);color:#fff;border-color:rgba(255,255,255,.24)">
+        <i class="ti ti-moon" aria-hidden="true"></i> <span id="theme-l">Tema escuro</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 01 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-compass" aria-hidden="true"></i><h2>Como este sistema pensa</h2><span class="n">01</span></div>
+    <p class="lede">O SNI Conecta é usado por coordenadores e voluntários de várias idades, muitos em telas pequenas e em ambientes com luz difícil. O sistema tem que ser legível antes de ser bonito. O vidro entra como acabamento discreto de superfície, não como assunto.</p>
+    <div class="rules">
+      <div class="rule r-note"><i class="ti ti-stack-2" aria-hidden="true"></i><div><b>Duas camadas, uma fronteira.</b> Conteúdo — tabelas, formulários, texto, números — é sempre opaco. Só a moldura que flutua por cima recebe material: barra superior, menus e modais.</div></div>
+      <div class="rule r-note"><i class="ti ti-eye" aria-hidden="true"></i><div><b>Legibilidade vence estilo.</b> Nenhum texto abaixo de 13px na interface. Corpo em 15px. Alvos de toque de 44px. Cinza secundário no 600, não no 400.</div></div>
+      <div class="rule r-note"><i class="ti ti-circle-dot" aria-hidden="true"></i><div><b>Um destaque por tela.</b> Uma ação primária azul. O resto em vidro neutro ou contorno. Interface com três botões coloridos não tem hierarquia, tem confusão.</div></div>
+      <div class="rule r-dont"><i class="ti ti-x" aria-hidden="true"></i><div><b>O que ficou de fora.</b> Refração por filtro SVG, aberração cromática e vidro transparente sobre foto. São efeitos que chamam atenção para si e custam legibilidade. Não entram no produto.</div></div>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-palette" aria-hidden="true"></i><h2>Cores</h2><span class="n">02</span></div>
+    <p class="lede">O azul institucional foi amostrado direto do logo e passa a ser um token próprio, separado do azul de interface. Ele veste a sidebar e superfícies de marca. O azul de interface continua sendo o do v1 e veste botões, links e estados.</p>
+
+    <div class="sub">Azul institucional Seicho-No-Ie</div>
+    <div class="swgrid">
+      <div class="sw-card"><div class="sw-top" style="background:var(--navy-900)"></div><div class="sw-i"><b>navy-900</b><span>#0D1A4E</span></div></div>
+      <div class="sw-card"><div class="sw-top" style="background:var(--navy-800)"></div><div class="sw-i"><b>navy-800</b><span>#101E58</span></div></div>
+      <div class="sw-card"><div class="sw-top" style="background:var(--navy-700)"></div><div class="sw-i"><b>navy-700</b><span>#132460</span></div></div>
+      <div class="sw-card"><div class="sw-top" style="background:var(--navy-600)"></div><div class="sw-i"><b>navy-600</b><span>#1B2E6E</span></div></div>
+      <div class="sw-card"><div class="sw-top" style="background:linear-gradient(180deg,#101E58,#1B2E6E)"></div><div class="sw-i"><b>Sidebar</b><span>800 → 600</span></div></div>
+    </div>
+    <p class="body" style="margin-top:12px">Branco sobre navy-700 dá 13,8:1 de contraste. É o que sustenta a leitura da navegação sem esforço.</p>
+
+    <div class="sub">Azul de interface</div>
+    <div class="ramp">
+      <div class="chip" style="background:var(--sni-blue-50);color:var(--sni-blue-600)">50</div>
+      <div class="chip" style="background:var(--sni-blue-100);color:var(--sni-blue-600)">100</div>
+      <div class="chip" style="background:var(--sni-blue-200);color:var(--sni-blue-700)">200</div>
+      <div class="chip" style="background:var(--sni-blue-300)">300</div>
+      <div class="chip" style="background:var(--sni-blue-400)">400</div>
+      <div class="chip" style="background:var(--sni-blue-500)">500</div>
+      <div class="chip" style="background:var(--sni-blue-600)">600</div>
+      <div class="chip" style="background:var(--sni-blue-700)">700</div>
+      <div class="chip" style="background:var(--sni-blue-800)">800</div>
+      <div class="chip" style="background:var(--sni-blue-900)">900</div>
+    </div>
+
+    <div class="sub">Neutros</div>
+    <div class="ramp">
+      <div class="chip" style="background:var(--sni-gray-50);color:var(--sni-gray-500)">50</div>
+      <div class="chip" style="background:var(--sni-gray-100);color:var(--sni-gray-500)">100</div>
+      <div class="chip" style="background:var(--sni-gray-200);color:var(--sni-gray-600)">200</div>
+      <div class="chip" style="background:var(--sni-gray-300)">300</div>
+      <div class="chip" style="background:var(--sni-gray-400)">400</div>
+      <div class="chip" style="background:var(--sni-gray-500)">500</div>
+      <div class="chip" style="background:var(--sni-gray-600)">600</div>
+      <div class="chip" style="background:var(--sni-gray-700)">700</div>
+      <div class="chip" style="background:var(--sni-gray-800)">800</div>
+      <div class="chip" style="background:var(--sni-gray-900)">900</div>
+    </div>
+
+    <div class="sub">Tema escuro</div>
+    <p class="body" style="margin-bottom:14px">O escuro não é o azul institucional escurecido. É grafite neutro, com um traço quase imperceptível de azul só na temperatura do fundo. A razão é de leitura: um azul saturado ocupando a tela inteira compete com o conteúdo e cansa em jornada longa. No escuro o azul vira acento — aparece na barra lateral, na ação primária e nos ícones de apoio, e some do resto.</p>
+    <div class="swgrid">
+      <div class="sw-card"><div class="sw-top" style="background:#0E1013"></div><div class="sw-i"><b>ink-900</b><span>#0E1013 · fundo</span></div></div>
+      <div class="sw-card"><div class="sw-top" style="background:#14161A"></div><div class="sw-i"><b>ink-800</b><span>#14161A · conteúdo</span></div></div>
+      <div class="sw-card"><div class="sw-top" style="background:#1A1D22"></div><div class="sw-i"><b>ink-700</b><span>#1A1D22 · elevado</span></div></div>
+      <div class="sw-card"><div class="sw-top" style="background:#23272E"></div><div class="sw-i"><b>ink-600</b><span>#23272E · hover</span></div></div>
+      <div class="sw-card"><div class="sw-top" style="background:#3A6FE0"></div><div class="sw-i"><b>acento escuro</b><span>#3A6FE0</span></div></div>
+    </div>
+    <div class="rules" style="margin-top:14px">
+      <div class="rule r-note"><i class="ti ti-color-swatch" aria-hidden="true"></i><div>O azul de ação clareia no escuro, do 600 para o 400. O 600 sobre grafite tem separação insuficiente do fundo e o botão deixa de se destacar.</div></div>
+      <div class="rule r-note"><i class="ti ti-sun-moon" aria-hidden="true"></i><div>A barra lateral mantém o azul institucional nos dois temas. É o único bloco de cor cheia do escuro, e é justamente por isso que ele funciona.</div></div>
+      <div class="rule r-do"><i class="ti ti-check" aria-hidden="true"></i><div>Texto principal em <code>#F2F3F5</code>, não em branco puro. Branco absoluto sobre grafite gera halo e cansa a vista.</div></div>
+    </div>
+
+    <div class="sub">Semânticas</div>
+    <p class="body" style="margin-bottom:12px">Escurecidas em relação ao v1 para fechar 4,5:1 sobre fundo claro, inclusive em texto pequeno.</p>
+    <div class="swgrid">
+      <div class="sw-card"><div class="sw-top" style="background:var(--sni-success)"></div><div class="sw-i"><b>Sucesso</b><span>#15803D</span></div></div>
+      <div class="sw-card"><div class="sw-top" style="background:var(--sni-warning)"></div><div class="sw-i"><b>Atenção</b><span>#B45309</span></div></div>
+      <div class="sw-card"><div class="sw-top" style="background:var(--sni-danger)"></div><div class="sw-i"><b>Erro</b><span>#B91C1C</span></div></div>
+      <div class="sw-card"><div class="sw-top" style="background:var(--sni-info)"></div><div class="sw-i"><b>Informação</b><span>#0369A1</span></div></div>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-diamond" aria-hidden="true"></i><h2>Material</h2><span class="n">03</span></div>
+    <p class="lede">Uma variante de vidro, não quatro. Preenchimento a 86%, desfoque de 20px, saturação de 150%. Ele deixa passar a luz e a cor do que está atrás sem que se leia o que está atrás — que é exatamente o ponto.</p>
+    <div class="cards">
+      <div class="card lg">
+        <div class="card-h"><div class="card-i"><i class="ti ti-square-rounded" aria-hidden="true"></i></div>
+          <div><div class="card-t">Vidro</div><div class="card-s">Fill 86% · blur 20</div></div></div>
+        <p style="font-size:14.5px;color:var(--txt-3)">Barra superior, menus, popovers, modais. Tudo que flutua.</p>
+      </div>
+      <div class="card solid">
+        <div class="card-h"><div class="card-i"><i class="ti ti-square" aria-hidden="true"></i></div>
+          <div><div class="card-t">Sólido</div><div class="card-s">Branco puro</div></div></div>
+        <p style="font-size:14.5px;color:var(--txt-3)">Tabelas, campos, cards de conteúdo. Onde se lê e se digita.</p>
+      </div>
+      <div class="card navy" style="border-radius:var(--r-card)">
+        <div class="card-h"><div class="card-i" style="background:rgba(255,255,255,.16);color:#fff"><i class="ti ti-shield" aria-hidden="true"></i></div>
+          <div><div class="card-t" style="color:#fff">Institucional</div><div class="card-s" style="color:rgba(255,255,255,.68)">Navy 800 → 600</div></div></div>
+        <p style="font-size:14.5px;color:rgba(255,255,255,.86)">Sidebar, cabeçalhos de marca, fundos de modal de confirmação.</p>
+      </div>
+    </div>
+    <div class="rules" style="margin-top:16px">
+      <div class="rule r-do"><i class="ti ti-check" aria-hidden="true"></i><div>Todo vidro leva <code>saturate(150%)</code> junto do blur. Sem isso o azul do fundo vira cinza.</div></div>
+      <div class="rule r-dont"><i class="ti ti-x" aria-hidden="true"></i><div>Nunca vidro sobre vidro. Um menu aberto sobre a barra superior usa preenchimento sólido no ponto de contato.</div></div>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-typography" aria-hidden="true"></i><h2>Tipografia</h2><span class="n">04</span></div>
+    <p class="lede">Três famílias com funções separadas. Platypi é a voz da instituição: títulos e textos que falam com a pessoa. Figtree é a voz da ferramenta: rótulos, botões, tabelas, texto corrido. IBM Plex Mono é a voz do dado: todo número que se lê, se compara ou se confere.</p>
+
+    <div class="sub">Platypi — voz institucional</div>
+    <p class="body" style="margin-bottom:14px">Wedge serif de seis pesos com itálicos. Usamos o 700, onde as serifas triangulares ganham massa e a tensão entre traço fino e serifa pesada aparece de verdade. Títulos pequenos vão em caixa alta com 5,5% de entreletra — a forma da serifa fica mais evidente em caixa alta, e o bloco ganha ar de cabeçalho institucional.</p>
+    <div>
+      <div class="type-r"><div class="type-m"><b>Título de página</b><span>Platypi 700 · 26px</span></div>
+        <div class="serif" style="font-size:26px;color:var(--txt-1)">Painel de contatos</div></div>
+      <div class="type-r"><div class="type-m"><b>Título de seção</b><span>Platypi 700 caixa alta · 18px</span></div>
+        <div class="serif-cap" style="font-size:18px;color:var(--txt-1)">Campanhas do mês</div></div>
+      <div class="type-r"><div class="type-m"><b>Rótulo de bloco</b><span>Platypi 700 caixa alta · 16px</span></div>
+        <div class="serif-cap" style="font-size:16px;color:var(--txt-2)">Resumo do período</div></div>
+      <div class="type-r"><div class="type-m"><b>Voz de acolhimento</b><span>Platypi itálico 400 · 16px</span></div>
+        <div class="serif-i" style="font-size:16px;color:var(--txt-3);max-width:46ch">Nenhuma campanha por aqui ainda. Quando você criar a primeira, ela aparece nesta lista.</div></div>
+    </div>
+
+    <div class="sub">IBM Plex Mono — voz do dado</div>
+    <p class="body" style="margin-bottom:14px">Monoespaçada, zero cortado por diagonal, largura fixa em todos os algarismos. Colunas de valor alinham sozinhas e o 0 nunca se confunde com o O. Usamos nos pesos 500 e 600, nunca acima — em peso alto a monoespaçada fecha as contraformas.</p>
+    <div>
+      <div class="type-r"><div class="type-m"><b>Métrica destacada</b><span>Plex Mono 600 · 31px</span></div>
+        <div style="font-family:var(--font-num);font-size:31px;font-weight:600;letter-spacing:-.02em;color:var(--txt-1)">1052.12</div></div>
+      <div class="type-r"><div class="type-m"><b>Dado em tabela</b><span>Plex Mono 500 · 14,5px</span></div>
+        <div class="num" style="font-size:14.5px;color:var(--txt-2)">+55 51 99123-4567</div></div>
+      <div class="type-r"><div class="type-m"><b>Variação</b><span>Plex Mono 500 · 13,5px</span></div>
+        <div class="num" style="font-size:13.5px;color:var(--sni-success)">8,4%</div></div>
+    </div>
+
+    <div class="sub">Figtree — voz da ferramenta</div>
+    <p class="body" style="margin-bottom:14px">Escala subida em relação ao v1. O corpo saiu de 14 para 15px e o mínimo absoluto é 13px. Rótulos em caixa alta minúscula foram eliminados: cansam a leitura e desaparecem para olhos com presbiopia.</p>
+    <div>
+      <div class="type-r"><div class="type-m"><b>Título de tela</b><span>17px · 700</span></div>
+        <div style="font-size:17px;font-weight:700;color:var(--txt-1)">Dashboard</div></div>
+      <div class="type-r"><div class="type-m"><b>Card</b><span>16px · 700</span></div>
+        <div style="font-size:16px;font-weight:700;color:var(--txt-1)">Campanhas ativas</div></div>
+      <div class="type-r"><div class="type-m"><b>Corpo</b><span>15px · 400</span></div>
+        <div style="font-size:15px;color:var(--txt-2);max-width:50ch">Texto principal de parágrafos, descrições e conteúdo da interface.</div></div>
+      <div class="type-r"><div class="type-m"><b>Apoio</b><span>13,5px · 400</span></div>
+        <div style="font-size:13.5px;color:var(--txt-3)">Dicas de campo, metadados e legendas</div></div>
+      <div class="type-r"><div class="type-m"><b>Métrica</b><span>32px · 800 · tabular</span></div>
+        <div style="font-size:32px;font-weight:800;letter-spacing:-.03em;color:var(--txt-1)" class="num">1.482</div></div>
+    </div>
+
+    <div class="sub">Onde cada uma entra</div>
+    <div class="rules">
+      <div class="rule r-do"><i class="ti ti-check" aria-hidden="true"></i><div><b>Platypi 700:</b> título de página, título de seção, título de modal, estado vazio, boas-vindas, cabeçalho de relatório impresso. A partir de 16px.</div></div>
+      <div class="rule r-do"><i class="ti ti-check" aria-hidden="true"></i><div><b>Plex Mono:</b> métricas, valores em tabela, telefones, percentuais, datas, contadores, IDs. Todo número que a pessoa lê para conferir.</div></div>
+      <div class="rule r-do"><i class="ti ti-check" aria-hidden="true"></i><div><b>Figtree:</b> navegação, botões, rótulos de campo, cabeçalho de tabela, marcadores, dicas, erros e texto corrido.</div></div>
+      <div class="rule r-note"><i class="ti ti-letter-case-upper" aria-hidden="true"></i><div>Caixa alta é permitida só na Platypi 700, de 16px para cima, com 5,5% de entreletra. Continua proibida em rótulo pequeno de interface, que foi justamente o que saiu do v1.</div></div>
+      <div class="rule r-dont"><i class="ti ti-x" aria-hidden="true"></i><div>Plex Mono nunca em texto corrido nem em rótulo. Ela existe para alinhar coluna, não para ler frase.</div></div>
+      <div class="rule r-dont"><i class="ti ti-x" aria-hidden="true"></i><div>Platypi nunca em número, em rótulo de campo ou dentro de botão. E nunca abaixo de 16px.</div></div>
+      <div class="rule r-note"><i class="ti ti-quote" aria-hidden="true"></i><div>O itálico da Platypi é reservado à voz que fala com a pessoa — estados vazios, primeiro acesso, conclusão. Nunca para ênfase dentro de frase, que continua sendo negrito da Figtree.</div></div>
+    </div>
+
+    <div class="sub">Estado vazio — as duas juntas</div>
+    <div class="empty">
+      <i class="ti ti-speakerphone" aria-hidden="true"></i>
+      <h4>Nenhuma campanha ainda</h4>
+      <p>Quando você enviar a primeira mensagem para um grupo de contatos, ela aparece aqui com os números de entrega.</p>
+      <button class="btn btn-primary btn-md"><i class="ti ti-plus" aria-hidden="true"></i> Criar campanha</button>
+    </div>
+
+    <div class="sub">Equilíbrio de linhas</div>
+    <p class="body" style="margin-bottom:14px">Texto alinhado à esquerda sem justificar tende a produzir uma bandeira irregular, com uma última linha curta que deixa o bloco com cara de inacabado. O navegador tem duas propriedades que resolvem isso, e são o equivalente ao que o InDesign faz ao balancear linhas irregulares.</p>
+    <div class="grid2" style="align-items:start">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--txt-3);margin-bottom:8px">Padrão do navegador</div>
+        <div style="padding:16px;border-radius:var(--r-tile);background:var(--surface);border:1px solid var(--line)">
+          <div class="serif" style="font-size:19px;color:var(--txt-1);text-wrap:wrap;line-height:1.3">Sua campanha foi enviada para todos os contatos</div>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--sni-blue-600);margin-bottom:8px">Com equilíbrio</div>
+        <div style="padding:16px;border-radius:var(--r-tile);background:var(--surface);border:1px solid var(--sni-blue-300)">
+          <div class="serif" style="font-size:19px;color:var(--txt-1);text-wrap:balance;line-height:1.3">Sua campanha foi enviada para todos os contatos</div>
+        </div>
+      </div>
+    </div>
+    <div class="rules" style="margin-top:14px">
+      <div class="rule r-do"><i class="ti ti-align-center" aria-hidden="true"></i><div><code>text-wrap: balance</code> em títulos, citações, estados vazios e legendas. Distribui o texto para que as linhas fiquem com largura parecida.</div></div>
+      <div class="rule r-do"><i class="ti ti-align-left" aria-hidden="true"></i><div><code>text-wrap: pretty</code> em parágrafos e textos de apoio. Não equaliza as linhas, mas impede que a última fique com uma palavra sozinha.</div></div>
+      <div class="rule r-note"><i class="ti ti-info-circle" aria-hidden="true"></i><div>Por custo de processamento os navegadores só balanceiam blocos de até seis linhas. Aplicar em parágrafo longo não faz efeito e ainda cobra o cálculo — por isso a divisão entre as duas propriedades.</div></div>
+      <div class="rule r-note"><i class="ti ti-browser" aria-hidden="true"></i><div>Enriquecimento progressivo: onde não houver suporte, o texto quebra normalmente. Nada se desalinha.</div></div>
+    </div>
+
+    <div class="sub">Alinhamento de ícone</div>
+    <p class="body">O glifo do ícone é centrado na caixa em da fonte de ícones; o texto é centrado na caixa de linha. Como as duas caixas têm alturas diferentes, o resultado desalinha em um ou dois pixels — pouco, mas visível quando se repete. A solução no sistema é dar ao ícone uma caixa quadrada de tamanho fixo com centralização própria e apertar o <code>line-height</code> do texto ao lado. Sem deslocamentos manuais, que quebram assim que o tamanho da fonte muda.</p>
+
+    <div class="sub">Citação institucional</div>
+    <blockquote class="pull">A comunicação com nossos membros começa pelo cuidado com quem está do outro lado da tela.</blockquote>
+  </section>
+
+  <!-- 05 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-border-radius" aria-hidden="true"></i><h2>Forma</h2><span class="n">05</span></div>
+    <p class="lede">Cápsula em controle, raio moderado em superfície. Reduzi os raios do v2 em alguns pontos: cantos muito arredondados encolhem a área útil e afastam o sistema do tom institucional.</p>
+    <div class="rad-row">
+      <div><div class="rad-b" style="border-radius:var(--r-pill);width:104px;height:44px"></div><div class="rad-l">pill · 999<br>botões, badges</div></div>
+      <div><div class="rad-b" style="border-radius:var(--r-field);width:56px;height:56px"></div><div class="rad-l">field · 12<br>campos</div></div>
+      <div><div class="rad-b" style="border-radius:var(--r-tile);width:60px;height:60px"></div><div class="rad-l">tile · 14<br>itens, ícones</div></div>
+      <div><div class="rad-b" style="border-radius:var(--r-card);width:68px;height:68px"></div><div class="rad-l">card · 18<br>cards, tabelas</div></div>
+      <div><div class="rad-b" style="border-radius:var(--r-panel);width:76px;height:76px"></div><div class="rad-l">panel · 24<br>modais</div></div>
+    </div>
+    <p class="body" style="margin-top:16px">Aninhamento: raio interno igual ao externo menos o padding. Painel de 24px com 12px de padding pede card interno de 12px.</p>
+  </section>
+
+  <!-- 06 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-hand-click" aria-hidden="true"></i><h2>Botões e controles</h2><span class="n">06</span></div>
+    <p class="lede">Altura mínima de 44px em todos os tamanhos padrão, texto a partir de 14px e foco visível com contorno de 3px. Rótulo sempre em verbo — o botão diz o que acontece.</p>
+    <div class="sub">Variantes</div>
+    <div class="row">
+      <button class="btn btn-primary btn-md"><i class="ti ti-send" aria-hidden="true"></i> Enviar campanha</button>
+      <button class="btn btn-glass btn-md"><i class="ti ti-plus" aria-hidden="true"></i> Adicionar contato</button>
+      <button class="btn btn-ghost btn-md">Cancelar</button>
+      <button class="btn btn-danger btn-md"><i class="ti ti-trash" aria-hidden="true"></i> Excluir</button>
+    </div>
+    <div class="sub">Tamanhos e ícones</div>
+    <div class="row">
+      <button class="btn btn-primary btn-lg">Grande</button>
+      <button class="btn btn-primary btn-md">Padrão</button>
+      <button class="btn btn-primary btn-sm">Pequeno</button>
+      <button class="btn btn-glass btn-icon" aria-label="Editar"><i class="ti ti-edit" aria-hidden="true"></i></button>
+      <button class="btn btn-glass btn-icon" aria-label="Filtrar"><i class="ti ti-filter" aria-hidden="true"></i></button>
+    </div>
+    <div class="sub">Seleção e chaves</div>
+    <div class="row">
+      <div class="seg" role="group" aria-label="Período"><button aria-pressed="true">Dia</button><button aria-pressed="false">Semana</button><button aria-pressed="false">Mês</button></div>
+      <button class="sw" aria-pressed="true" aria-label="Receber notificações"></button>
+      <span style="font-size:15px;color:var(--txt-2)">Receber notificações</span>
+    </div>
+  </section>
+
+  <!-- 07 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-forms" aria-hidden="true"></i><h2>Campos</h2><span class="n">07</span></div>
+    <p class="lede">Campos são sempre sólidos, com borda de 1,5px. Formulário translúcido é o erro mais caro do glassmorphism: o usuário não identifica onde clicar.</p>
+    <div class="grid2">
+      <div class="field"><label for="f1">Nome do contato</label>
+        <input class="inp" id="f1" placeholder="Ana Souza"><span class="hint">Como aparece nas campanhas</span></div>
+      <div class="field"><label for="f2">WhatsApp</label>
+        <input class="inp" id="f2" value="+55 51 99123-4567"><span class="hint">Com código do país</span></div>
+      <div class="field"><label for="f3">E-mail</label>
+        <input class="inp err" id="f3" value="ana@" aria-describedby="e3"><span class="hint err" id="e3">Falta o domínio depois do @</span></div>
+      <div class="field"><label for="f4">Tag</label>
+        <select class="inp" id="f4"><option>Membro</option><option>Visitante</option><option>Liderança</option></select>
+        <span class="hint">Usada para segmentar envios</span></div>
+    </div>
+  </section>
+
+  <!-- 08 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-layout-cards" aria-hidden="true"></i><h2>Dados</h2><span class="n">08</span></div>
+    <p class="lede">Números grandes, rótulos legíveis, linhas de tabela com 13px de respiro vertical. Cabeçalho de tabela com fundo cinza para ancorar a leitura em telas largas.</p>
+    <div class="cards">
+      <div class="card solid">
+        <div class="card-h"><div class="card-i"><i class="ti ti-users" aria-hidden="true"></i></div>
+          <div><div class="card-t">Contatos</div><div class="card-s">Base ativa</div></div></div>
+        <div class="kpi-v">1.482</div><div class="kpi-d"><i class="ti ti-trending-up" aria-hidden="true"></i> 8,4% no mês</div>
+      </div>
+      <div class="card solid">
+        <div class="card-h"><div class="card-i"><i class="ti ti-send" aria-hidden="true"></i></div>
+          <div><div class="card-t">Entregues</div><div class="card-s">Últimos 30 dias</div></div></div>
+        <div class="kpi-v">96,2%</div><div class="kpi-d"><i class="ti ti-trending-up" aria-hidden="true"></i> 1,1%</div>
+      </div>
+      <div class="card solid">
+        <div class="card-h"><div class="card-i"><i class="ti ti-message-circle" aria-hidden="true"></i></div>
+          <div><div class="card-t">Respostas</div><div class="card-s">Inbox aberta</div></div></div>
+        <div class="kpi-v">318</div><div class="kpi-d"><i class="ti ti-trending-up" aria-hidden="true"></i> 4,7%</div>
+      </div>
+    </div>
+    <div class="sub">Tabela</div>
+    <div class="sheet"><table>
+      <thead><tr><th>Nome</th><th>WhatsApp</th><th>Tag</th><th>Situação</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Ana Souza</strong></td><td class="num">+55 51 99123-4567</td><td><span class="bg bg-blue">Membro</span></td><td><span class="bg bg-ok"><span class="dot"></span>Ativo</span></td></tr>
+        <tr><td><strong>Pedro Lima</strong></td><td class="num">+55 11 98765-4321</td><td><span class="bg bg-gray">Visitante</span></td><td><span class="bg bg-warn"><span class="dot"></span>Pendente</span></td></tr>
+        <tr><td><strong>Luiza Fernandes</strong></td><td class="num">+55 21 99000-1122</td><td><span class="bg bg-blue">Liderança</span></td><td><span class="bg bg-ok"><span class="dot"></span>Ativo</span></td></tr>
+      </tbody>
+    </table></div>
+    <div class="sub">Marcadores</div>
+    <div class="row">
+      <span class="bg bg-blue">Membro</span><span class="bg bg-ok"><span class="dot"></span>Ativo</span>
+      <span class="bg bg-warn"><span class="dot"></span>Pendente</span><span class="bg bg-dang"><span class="dot"></span>Bloqueado</span>
+      <span class="bg bg-gray">Visitante</span>
+    </div>
+  </section>
+
+  <!-- 09 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-layout-sidebar" aria-hidden="true"></i><h2>Navegação</h2><span class="n">09</span></div>
+    <p class="lede">Sidebar sólida no azul do logo, sem transparência. Itens com 44px de altura, ícone de 20px e rótulo de 15px. O item ativo usa preenchimento branco leve — reconhecível de relance, sem depender de cor.</p>
+    <div class="demo">
+      <aside class="side">
+        <div class="brand">
+          <div class="brand-m"><i class="ti ti-building-community" aria-hidden="true"></i></div>
+          <div class="brand-tx"><div class="brand-n">SNI Conecta</div><div class="brand-s">Seicho-No-Ie</div></div>
+        </div>
+        <div class="nav-l">Operação</div>
+        <div class="nav-i on"><i class="ti ti-layout-dashboard" aria-hidden="true"></i><span>Dashboard</span></div>
+        <div class="nav-i"><i class="ti ti-users" aria-hidden="true"></i><span>Contatos</span></div>
+        <div class="nav-i"><i class="ti ti-speakerphone" aria-hidden="true"></i><span>Campanhas</span></div>
+        <div class="nav-i"><i class="ti ti-inbox" aria-hidden="true"></i><span>Inbox</span><span class="nav-tag">12</span></div>
+        <div class="nav-l">Gestão</div>
+        <div class="nav-i"><i class="ti ti-chart-bar" aria-hidden="true"></i><span>Relatórios</span></div>
+        <div class="nav-i"><i class="ti ti-settings" aria-hidden="true"></i><span>Configurações</span></div>
+        <div class="side-f"><div class="av">MB</div>
+          <div class="meta"><div class="who">Marcelo B.</div><div class="rl">Administrador</div></div></div>
+      </aside>
+      <div class="main">
+        <div class="top">
+          <h3>Dashboard</h3>
+          <div class="r">
+            <button class="ibtn" aria-label="Buscar"><i class="ti ti-search" aria-hidden="true"></i></button>
+            <button class="ibtn" aria-label="Notificações"><i class="ti ti-bell" aria-hidden="true"></i></button>
+            <button class="btn btn-primary btn-sm"><i class="ti ti-send" aria-hidden="true"></i> Nova campanha</button>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="menu lg" style="align-self:flex-end">
+            <div class="menu-h"><div class="av">MB</div>
+              <div><div style="font-size:15px;font-weight:600;color:var(--txt-1)">Marcelo B.</div>
+                <div style="font-size:13px;color:var(--txt-4)">marcelo@sni.org.br</div></div></div>
+            <div class="mi"><i class="ti ti-user-cog" aria-hidden="true"></i> Minha conta</div>
+            <div class="mi"><i class="ti ti-file-import" aria-hidden="true"></i> Importar contatos</div>
+            <div class="mi"><i class="ti ti-help-circle" aria-hidden="true"></i> Ajuda</div>
+            <div class="msep"></div>
+            <div class="mi"><i class="ti ti-logout" aria-hidden="true"></i> Sair</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-app-window" aria-hidden="true"></i><h2>Confirmação</h2><span class="n">10</span></div>
+    <p class="lede">Ações sem volta pedem modal sólido sobre camada de escurecimento. O texto diz o número exato e o que não pode ser desfeito. O botão repete o verbo do título.</p>
+    <div class="modal-stage">
+      <div class="dimlayer"></div>
+      <div class="modal">
+        <h4>Enviar campanha para 1.482 contatos?</h4>
+        <p>O envio começa agora e não pode ser interrompido depois de confirmado.</p>
+        <div class="row" style="justify-content:flex-end">
+          <button class="btn btn-ghost btn-md">Cancelar</button>
+          <button class="btn btn-primary btn-md"><i class="ti ti-send" aria-hidden="true"></i> Enviar agora</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-accessible" aria-hidden="true"></i><h2>Acessibilidade</h2><span class="n">11</span></div>
+    <div class="rules">
+      <div class="rule r-do"><i class="ti ti-check" aria-hidden="true"></i><div>Contraste mínimo de 4,5:1 em todo texto, medido depois do desfoque e contra o pior ponto do fundo.</div></div>
+      <div class="rule r-do"><i class="ti ti-check" aria-hidden="true"></i><div>Alvos de toque de 44px. Espaçamento de 8px entre alvos adjacentes.</div></div>
+      <div class="rule r-do"><i class="ti ti-check" aria-hidden="true"></i><div>Foco de teclado com contorno sólido de 3px e 2px de afastamento, nunca apenas mudança de cor.</div></div>
+      <div class="rule r-do"><i class="ti ti-check" aria-hidden="true"></i><div>Situação nunca comunicada só por cor: todo marcador combina cor, texto e ponto.</div></div>
+      <div class="rule r-note"><i class="ti ti-settings" aria-hidden="true"></i><div>Três preferências do sistema já estão atendidas no CSS: transparência reduzida torna tudo opaco, contraste aumentado engrossa bordas, movimento reduzido zera transições.</div></div>
+    </div>
+  </section>
+
+  <!-- 12 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-signature" aria-hidden="true"></i><h2>Nomenclatura</h2><span class="n">12</span></div>
+    <p class="lede">O nome tem duas formas, e uma delas é inegociável. "Seicho-No-Ie" sozinho nomeia o movimento e o ensinamento, e aceita caixa alta num título sem prejuízo. Já a entidade brasileira só existe em caixa alta: <span class="entidade">SEICHO-NO-IE DO BRASIL</span>. A forma em caixa mista não é uma variação aceitável — é erro.</p>
+
+    <div class="grid2" style="align-items:start">
+      <div style="padding:18px;border-radius:var(--r-card);background:var(--surface);border:1px solid var(--line)">
+        <div style="font-size:13px;font-weight:700;color:var(--txt-3);margin-bottom:10px">Movimento e ensinamento</div>
+        <div class="serif" style="font-size:23px;color:var(--txt-1);margin-bottom:4px">Seicho-No-Ie</div>
+        <div class="serif-cap" style="font-size:17px;color:var(--txt-2);margin-bottom:10px">Seicho-No-Ie</div>
+        <p style="font-size:14.5px;color:var(--txt-3);text-wrap:pretty">As duas grafias servem. Em texto corrido, iniciais maiúsculas com hifens. Em título de seção, a caixa alta do estilo pode ser aplicada normalmente.</p>
+      </div>
+      <div style="padding:18px;border-radius:var(--r-card);background:var(--surface);border:1px solid var(--sni-blue-300)">
+        <div style="font-size:13px;font-weight:700;color:var(--sni-blue-600);margin-bottom:10px">Sede brasileira e pessoa jurídica</div>
+        <div class="serif-cap entidade" style="font-size:19px;color:var(--txt-1);margin-bottom:10px">SEICHO-NO-IE DO BRASIL</div>
+        <p style="font-size:14.5px;color:var(--txt-3);text-wrap:pretty">Uma única grafia possível, em qualquer contexto: documentos, contratos, rodapés, avisos legais, relatórios e interface.</p>
+      </div>
+    </div>
+
+    <div class="sub">Regras de aplicação</div>
+    <div class="rules">
+      <div class="rule r-dont"><i class="ti ti-ban" aria-hidden="true"></i><div><b>A regra que não tem exceção:</b> a forma em caixa mista, com "do Brasil" em minúsculas, nunca pode aparecer — em lugar nenhum, em suporte nenhum. Sempre que "do Brasil" acompanhar o nome, o conjunto inteiro vai em caixa alta.</div></div>
+      <div class="rule r-do"><i class="ti ti-check" aria-hidden="true"></i><div>"Seicho-No-Ie" sozinho é livre. Em caixa mista no corpo do texto, em caixa alta num título — as duas formas estão corretas.</div></div>
+      <div class="rule r-do"><i class="ti ti-check" aria-hidden="true"></i><div>A caixa alta da entidade é do nome, não da formatação. Escrever em maiúsculas direto no conteúdo, para que a grafia sobreviva a copiar e colar, a exportação em PDF e a qualquer troca de estilo.</div></div>
+      <div class="rule r-dont"><i class="ti ti-x" aria-hidden="true"></i><div>Nunca quebrar <span class="entidade">SEICHO-NO-IE DO BRASIL</span> em duas linhas no meio do nome. A classe <code>.entidade</code> aplica <code>white-space: nowrap</code>. Em coluna estreita, reduzir o corpo antes de permitir a quebra.</div></div>
+      <div class="rule r-note"><i class="ti ti-abc" aria-hidden="true"></i><div>Os hifens são obrigatórios nas duas formas. Não existe "Seicho No Ie" nem "SEICHO NO IE".</div></div>
+      <div class="rule r-note"><i class="ti ti-device-imac" aria-hidden="true"></i><div>"SNI Conecta" é o nome do produto e segue à parte: iniciais maiúsculas sempre, mesmo quando a frase fala da entidade.</div></div>
+    </div>
+
+    <div class="sub">Na prática</div>
+    <div class="sheet"><table>
+      <thead><tr><th>Contexto</th><th>Grafia correta</th></tr></thead>
+      <tbody>
+        <tr><td>Assinatura de rodapé no sistema</td><td><span class="entidade">SEICHO-NO-IE DO BRASIL</span></td></tr>
+        <tr><td>Subtítulo da marca na barra lateral</td><td>Seicho-No-Ie</td></tr>
+        <tr><td>Termos de uso e política de privacidade</td><td><span class="entidade">SEICHO-NO-IE DO BRASIL</span></td></tr>
+        <tr><td>Mensagem de boas-vindas ao voluntário</td><td>Seicho-No-Ie</td></tr>
+        <tr><td>Cabeçalho de relatório para diretoria</td><td><span class="entidade">SEICHO-NO-IE DO BRASIL</span></td></tr>
+        <tr><td>Título de seção em caixa alta</td><td>SEICHO-NO-IE (sozinho, sem "do Brasil")</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 13 -->
+  <section class="sec lg">
+    <div class="sec-h"><i class="ti ti-code" aria-hidden="true"></i><h2>Tokens</h2><span class="n">13</span></div>
+<pre>:root{
+  /* tipografia — três vozes */
+  --font:'Figtree',system-ui,sans-serif;             /* ferramenta */
+  --font-serif:'Platypi',Georgia,serif;              /* instituição */
+  --font-num:'IBM Plex Mono',ui-monospace,monospace; /* dado */
+
+  /* título de seção: Platypi 700, caixa alta, entreletra normal */
+
+  /* nomenclatura: "do Brasil" nunca aparece em caixa mista.        */
+  /* SEICHO-NO-IE DO BRASIL escreve-se em caixa alta no conteúdo.    */
+
+  /* equilíbrio de linhas — o "balance ragged lines" do InDesign */
+  /* título, citação, legenda  → text-wrap:balance  (até 6 linhas) */
+  /* parágrafo, texto de apoio → text-wrap:pretty   (evita órfãs)  */
+
+  /* institucional — amostrado do logo */
+  --navy-900:#0D1A4E; --navy-800:#101E58;
+  --navy-700:#132460; --navy-600:#1B2E6E;
+
+  /* reflexo de controle sólido — igual em todas as variantes */
+  --btn-spec:inset 0 1px 0 rgba(255,255,255,.22),
+             inset 0 -1px 1px rgba(0,0,0,.10);
+  --btn-sheen:linear-gradient(180deg,
+             rgba(255,255,255,.10),rgba(255,255,255,0) 58%);
+
+  /* material — uma variante só */
+  --lg-surface:rgba(255,255,255,.86);
+  --lg-frost:20px;
+  --lg-sat:150%;
+  --lg-edge:rgba(255,255,255,.70);
+  --lg-spec:inset 0 1px 0 rgba(255,255,255,.95);
+
+  /* forma */
+  --r-pill:999px; --r-field:12px; --r-tile:14px;
+  --r-card:18px;  --r-panel:24px;
+
+  /* leitura */
+  --tap:44px;              /* alvo mínimo de toque */
+  /* corpo 15px · apoio 13,5px · mínimo 13px */
+}
+
+.lg{
+  background:var(--lg-surface);
+  backdrop-filter:blur(var(--lg-frost)) saturate(var(--lg-sat));
+  -webkit-backdrop-filter:blur(var(--lg-frost)) saturate(var(--lg-sat));
+  border:1px solid var(--lg-edge);
+  box-shadow:var(--lg-spec),0 8px 24px rgba(13,26,78,.09);
+}
+
+.sidebar{ background:linear-gradient(180deg,#101E58,#1B2E6E); }</pre>
+  </section>
+
+</div>
+<script>
+(function(){
+  var root=document.documentElement,b=document.getElementById('theme'),l=document.getElementById('theme-l');
+  b.addEventListener('click',function(){
+    var d=root.getAttribute('data-theme')==='dark';
+    root.setAttribute('data-theme',d?'light':'dark');
+    l.textContent=d?'Tema escuro':'Tema claro';
+    b.querySelector('i').className=d?'ti ti-moon':'ti ti-sun';
+  });
+  document.querySelectorAll('.sw').forEach(function(s){
+    s.addEventListener('click',function(){s.setAttribute('aria-pressed',s.getAttribute('aria-pressed')==='true'?'false':'true')});
+  });
+  document.querySelectorAll('.seg').forEach(function(g){
+    g.addEventListener('click',function(e){
+      if(e.target.tagName!=='BUTTON')return;
+      g.querySelectorAll('button').forEach(function(x){x.setAttribute('aria-pressed','false')});
+      e.target.setAttribute('aria-pressed','true');
+    });
+  });
+})();
+</script>
+</body>
+</html>

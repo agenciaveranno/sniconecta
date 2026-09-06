@@ -1,0 +1,383 @@
+/* ============================================================
+   SNI CONECTA — DESIGN SYSTEM v2.7
+   SEICHO-NO-IE DO BRASIL
+
+   Tokens + primitivas. Fonte da verdade do visual da plataforma.
+   Classes de componente em componentes.css; primitivos React em
+   src/componentes/ui.tsx. Regras: docs/design-system.md.
+
+   Fontes: publicadas pelo next/font em src/app/layout.tsx
+     --font-figtree    → Figtree      (ferramenta)
+     --font-platypi    → Platypi      (instituição)
+     --font-plex-mono  → IBM Plex Mono (dado)
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. TOKENS — TEMA CLARO (padrão)
+   ------------------------------------------------------------ */
+:root {
+
+  /* --- Azul institucional — amostrado do logo. Veste a barra lateral
+         e superfícies de marca. Não é o azul de ação. --- */
+  --navy-900: #0D1A4E;
+  --navy-800: #101E58;
+  --navy-700: #132460;
+  --navy-600: #1B2E6E;
+
+
+  /* --- Azul de interface --- */
+  --sni-blue-50: #EEF3FC;  --sni-blue-100: #D0DFFA; --sni-blue-200: #A3BFF4;
+  --sni-blue-300: #6B94EC; --sni-blue-400: #3A6FE0; --sni-blue-500: #1C4CC7;
+  --sni-blue-600: #163BA3; --sni-blue-700: #0F2B7A; --sni-blue-800: #091D57;
+  --sni-blue-900: #050F30;
+
+  /* --- Neutros --- */
+  --sni-gray-50: #F8F9FB;  --sni-gray-100: #EFF1F5; --sni-gray-200: #D9DDE6;
+  --sni-gray-300: #B8BFD0; --sni-gray-400: #8E97AE; --sni-gray-500: #616B84;
+  --sni-gray-600: #424B63; --sni-gray-700: #2C3348; --sni-gray-800: #1A1F2E;
+  --sni-gray-900: #0F1219;
+
+  /* --- Semânticas (escurecidas para fechar 4,5:1 em texto pequeno) --- */
+  --sni-success: #15803D;  --sni-success-bg: #DCFCE7;
+  --sni-warning: #B45309;  --sni-warning-bg: #FEF3C7;
+  --sni-danger:  #B91C1C;  --sni-danger-bg:  #FEE2E2;
+  --sni-info:    #0369A1;  --sni-info-bg:    #E0F2FE;
+
+  /* Versão sólida das semânticas: fundo de botão e de faixa com texto
+     branco. Não clareia no escuro — é o texto (--sni-danger etc.) que
+     clareia, e um fundo claro com texto branco não se lê. */
+  --sni-success-solid: #15803D;
+  --sni-warning-solid: #B45309;
+  --sni-danger-solid:  #B91C1C;
+  --sni-info-solid:    #0369A1;
+
+  /* --- Acento: troca com o tema. Use este, não o blue-600 direto. --- */
+  --accent: var(--sni-blue-600);
+  --accent-hover: var(--sni-blue-700);
+
+  /* --- Tipografia: três vozes --- */
+  --font: var(--font-figtree), system-ui, -apple-system, sans-serif;          /* ferramenta */
+  --font-serif: var(--font-platypi), Georgia, 'Times New Roman', serif;       /* instituição */
+  --font-num: var(--font-plex-mono), ui-monospace, 'SF Mono', Menlo, monospace; /* dado */
+
+  /* --- Raios: cápsula em controle, raio moderado em superfície --- */
+  --r-pill: 999px;
+  --r-field: 12px;
+  --r-tile: 14px;
+  --r-card: 18px;
+  --r-panel: 24px;
+
+  /* Nomes antigos usados em estilos inline do painel → novos raios */
+  --radius-sm: var(--r-field);
+  --radius-md: var(--r-tile);
+  --radius-lg: var(--r-card);
+  --radius-xl: var(--r-panel);
+
+  /* --- Material de vidro (uma variante) --- */
+  --lg-frost: 20px;
+  --lg-sat: 150%;
+  --lg-surface: rgba(255,255,255,.86);
+  --lg-hover: rgba(255,255,255,.96);
+  --lg-tint: rgba(22,59,163,.90);
+  --lg-edge: rgba(255,255,255,.70);
+  --lg-line: rgba(13,26,78,.12);
+  --lg-spec: inset 0 1px 0 rgba(255,255,255,.95);
+  --lg-spec-dark: inset 0 1px 0 rgba(255,255,255,.14);
+
+  /* --- Reflexo de controle sólido: igual em TODAS as variantes --- */
+  --btn-spec: inset 0 1px 0 rgba(255,255,255,.22),
+              inset 0 -1px 1px rgba(0,0,0,.10);
+  --btn-sheen: linear-gradient(180deg,
+              rgba(255,255,255,.10), rgba(255,255,255,0) 58%);
+
+  /* --- Sombras --- */
+  --sh-1: 0 1px 3px rgba(13,26,78,.07);
+  --sh-2: 0 8px 24px rgba(13,26,78,.09), 0 1px 3px rgba(13,26,78,.05);
+  --sh-3: 0 20px 48px rgba(13,26,78,.16), 0 3px 8px rgba(13,26,78,.07);
+  --dim: rgba(13,26,78,.48);
+
+  --shadow-sm: var(--sh-1);
+  --shadow-md: var(--sh-2);
+  --shadow-lg: var(--sh-3);
+
+  /* --- Texto e superfície --- */
+  --txt-1: var(--sni-gray-900);
+  --txt-2: var(--sni-gray-700);
+  --txt-3: var(--sni-gray-600);
+  --txt-4: var(--sni-gray-500);
+  --surface: #FFFFFF;
+  --line: var(--sni-gray-200);
+  --line-soft: rgba(217,221,230,.6);
+
+  --sni-surface: var(--surface);
+  --sni-border: var(--line);
+
+  /* --- Fundo da aplicação: lavado, quase liso --- */
+  --bg:
+    radial-gradient(900px 620px at 12% 0%, rgba(27,46,110,.10), transparent 60%),
+    radial-gradient(760px 560px at 92% 14%, rgba(58,111,224,.08), transparent 58%),
+    #F4F6FB;
+  --sni-page-bg: #F4F6FB;
+
+  /* --- Movimento e ergonomia --- */
+  --dur: .18s;
+  --ease: cubic-bezier(.32,.72,0,1);
+  --tap: 44px;
+
+  /* --- Layout do shell --- */
+  --sidebar-w: 236px;
+  --topbar-h: 62px;
+
+  /* ------------------------------------------------------------
+     2. TOKENS — TEMA ESCURO
+     Grafite neutro. O azul não veste o fundo: aparece só na barra
+     lateral institucional e na ação primária.
+
+     Liga com `data-theme="dark"` no <html>, posto antes da primeira
+     pintura pelo script de tema (src/lib/tema.ts) e trocado pela pessoa
+     em Minha conta.
+     ------------------------------------------------------------ */
+}
+
+:root[data-theme="dark"] {
+    color-scheme: dark;
+
+    --ink-900: #0E1013;   /* fundo da aplicação */
+    --ink-800: #14161A;   /* superfície de conteúdo */
+    --ink-700: #1A1D22;   /* superfície elevada */
+    --ink-600: #23272E;   /* hover */
+
+    --accent: #3A6FE0;    /* clareia para manter separação do fundo */
+    --accent-hover: #5583E8;
+
+    /* Os cinzas claros são usados em estilo inline como fundo sutil e
+       borda. No escuro viram superfície elevada e linha, para as telas
+       não precisarem saber do tema. Os cinzas escuros não mudam. */
+    --sni-gray-50:  var(--ink-700);
+    --sni-gray-100: var(--ink-600);
+    --sni-gray-200: rgba(255,255,255,.10);
+    --sni-gray-300: rgba(255,255,255,.18);
+
+    /* Tintas de azul (fundo de destaque) e azuis de texto */
+    --sni-blue-50:  rgba(58,111,224,.16);
+    --sni-blue-100: rgba(58,111,224,.26);
+    --sni-blue-200: rgba(58,111,224,.40);
+    --sni-blue-700: #A9C2F2;
+    --sni-blue-800: #C5D6F7;
+
+    /* Semânticas: texto clareia, fundo vira tinta translúcida */
+    --sni-success: #8EDCA8;  --sni-success-bg: rgba(21,128,61,.22);
+    --sni-warning: #E8B75C;  --sni-warning-bg: rgba(180,83,9,.24);
+    --sni-danger:  #EE9A9A;  --sni-danger-bg:  rgba(185,28,28,.24);
+    --sni-info:    #8ECDF2;  --sni-info-bg:    rgba(3,105,161,.24);
+
+    --lg-surface: rgba(26,29,34,.82);
+    --lg-hover: rgba(35,39,46,.92);
+    --lg-tint: rgba(58,111,224,.86);
+    --lg-edge: rgba(255,255,255,.09);
+    --lg-line: rgba(255,255,255,.08);
+    --lg-spec: inset 0 1px 0 rgba(255,255,255,.06);
+    --lg-spec-dark: inset 0 1px 0 rgba(255,255,255,.08);
+    --btn-spec: inset 0 1px 0 rgba(255,255,255,.16),
+                inset 0 -1px 1px rgba(0,0,0,.22);
+
+    --sh-1: 0 1px 3px rgba(0,0,0,.50);
+    --sh-2: 0 8px 24px rgba(0,0,0,.48), 0 1px 3px rgba(0,0,0,.38);
+    --sh-3: 0 20px 48px rgba(0,0,0,.60), 0 3px 8px rgba(0,0,0,.42);
+    --dim: rgba(0,0,0,.68);
+
+    --txt-1: #F2F3F5;     /* não usar branco puro: gera halo */
+    --txt-2: rgba(255,255,255,.80);
+    --txt-3: rgba(255,255,255,.64);
+    --txt-4: rgba(255,255,255,.46);
+    --surface: var(--ink-800);
+    --line: rgba(255,255,255,.10);
+    --line-soft: rgba(255,255,255,.06);
+
+    --bg:
+      radial-gradient(1200px 760px at 14% 0%, rgba(58,111,224,.055), transparent 60%),
+      var(--ink-900);
+    --sni-page-bg: var(--ink-900);
+}
+
+/* ------------------------------------------------------------
+   3. BASE
+   ------------------------------------------------------------ */
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--txt-2);
+  background: var(--bg);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Alinhamento óptico de ícone. O glifo é centrado na caixa em da fonte
+   de ícones; o texto é centrado na caixa de linha. Caixa quadrada fixa
+   + line-height apertado no texto ao lado resolve sem número mágico. */
+.ti {
+  display: inline-flex; align-items: center; justify-content: center;
+  line-height: 1; flex-shrink: 0;
+}
+
+/* Equilíbrio de linhas (o "balance ragged lines" do InDesign).
+   balance = título, citação, legenda (limite de ~6 linhas no navegador)
+   pretty  = parágrafo e texto de apoio (evita órfã na última linha) */
+.balance { text-wrap: balance; }
+.pretty  { text-wrap: pretty; }
+
+/* ------------------------------------------------------------
+   4. TIPOGRAFIA
+   ------------------------------------------------------------ */
+
+/* Platypi — voz institucional. Nunca em número, rótulo ou botão.
+   Nunca abaixo de 16px. */
+.serif {
+  font-family: var(--font-serif); font-weight: 700; letter-spacing: -.01em;
+  text-wrap: balance;
+}
+.serif-cap {
+  font-family: var(--font-serif); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0; line-height: 1.15; text-wrap: balance;
+}
+.serif-i { font-family: var(--font-serif); font-style: italic; font-weight: 400; }
+
+/* IBM Plex Mono — voz do dado. Pesos 500 e 600 apenas.
+   Nunca em texto corrido nem em rótulo. */
+.num, .sni-mono {
+  font-family: var(--font-num); font-weight: 500;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+
+/* Nome da entidade: caixa alta escrita no conteúdo; a classe só impede
+   a quebra e blinda contra text-transform que tente minusculizar. */
+.entidade { text-transform: uppercase; white-space: nowrap; }
+
+.t-page {
+  font-family: var(--font-serif); font-size: 26px; font-weight: 700;
+  letter-spacing: -.01em; line-height: 1.2; color: var(--txt-1); text-wrap: balance;
+}
+.t-section {
+  font-family: var(--font-serif); font-size: 18px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0; line-height: 1.15;
+  color: var(--txt-1); text-wrap: balance;
+}
+.t-screen  { font-size: 17px; font-weight: 700; color: var(--txt-1); }
+.t-card    { font-size: 16px; font-weight: 700; color: var(--txt-1); text-wrap: balance; }
+.t-body    { font-size: 15px; color: var(--txt-2); text-wrap: pretty; }
+.t-support { font-size: 13.5px; color: var(--txt-3); text-wrap: pretty; }
+.t-metric {
+  font-family: var(--font-num); font-size: 31px; font-weight: 600;
+  letter-spacing: -.02em; line-height: 1.15; color: var(--txt-1);
+}
+
+/* ------------------------------------------------------------
+   5. MATERIAL
+   ------------------------------------------------------------ */
+
+/* Vidro: camada funcional apenas — barra superior, menus, modais,
+   barras flutuantes. NUNCA em tabela, campo ou card de conteúdo.
+   NUNCA vidro sobre vidro. */
+.lg {
+  background: var(--lg-surface);
+  backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-sat));
+  border: 1px solid var(--lg-edge);
+  box-shadow: var(--lg-spec), var(--sh-2);
+}
+
+/* Sólido: camada de conteúdo. Onde se lê e se digita. */
+.solid {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--sh-1);
+}
+
+/* Institucional: barra lateral, cabeçalhos de marca. */
+.navy {
+  background: linear-gradient(180deg, var(--navy-800), var(--navy-600));
+  color: #fff;
+  box-shadow: var(--lg-spec-dark), var(--sh-2);
+}
+
+/* Camada de escurecimento obrigatória sob modais */
+.dimlayer { position: fixed; inset: 0; background: var(--dim); }
+
+/* ------------------------------------------------------------
+   6. SEGMENTADO E CHAVE
+   ------------------------------------------------------------ */
+.seg {
+  display: inline-flex; padding: 4px; border-radius: var(--r-pill); gap: 2px;
+  background: var(--lg-surface); border: 1px solid var(--lg-edge);
+  box-shadow: var(--lg-spec);
+}
+.seg button {
+  border: none; background: transparent; font-family: var(--font);
+  font-size: 14px; font-weight: 600; color: var(--txt-3); padding: 8px 18px;
+  border-radius: var(--r-pill); cursor: pointer; min-height: 36px;
+  transition: all var(--dur) var(--ease);
+}
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.seg button:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+
+.sw {
+  width: 52px; height: 30px; border-radius: var(--r-pill);
+  border: 1px solid var(--lg-line); background: var(--sni-gray-200);
+  cursor: pointer; position: relative; flex-shrink: 0;
+  transition: background var(--dur) var(--ease);
+}
+.sw::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 24px; height: 24px;
+  border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(13,26,78,.32);
+  transition: transform var(--dur) var(--ease);
+}
+.sw[aria-pressed="true"] { background: var(--accent); border-color: transparent; }
+.sw[aria-pressed="true"]::after { transform: translateX(22px); }
+.sw:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* ------------------------------------------------------------
+   7. ESTADO VAZIO — Platypi + itálico
+   ------------------------------------------------------------ */
+.empty {
+  text-align: center; padding: 36px 24px; border-radius: var(--r-card);
+  background: var(--surface); border: 1px dashed var(--line);
+}
+.empty i { font-size: 34px; color: var(--sni-blue-300); display: block; margin: 0 auto 12px; }
+.empty h4 {
+  font-family: var(--font-serif); font-size: 21px; font-weight: 700;
+  color: var(--txt-1); margin-bottom: 6px; text-wrap: balance;
+}
+.empty p {
+  font-family: var(--font-serif); font-style: italic; font-size: 16px;
+  color: var(--txt-3); max-width: 44ch; margin: 0 auto 18px; text-wrap: balance;
+}
+
+/* Citação institucional */
+.pull {
+  font-family: var(--font-serif); font-style: italic; font-weight: 400; font-size: 19px;
+  text-wrap: balance; line-height: 1.5; color: var(--txt-2); padding-left: 18px;
+  border-left: 3px solid var(--sni-blue-300); max-width: 52ch;
+}
+
+/* ------------------------------------------------------------
+   8. ACESSIBILIDADE — degradação automática
+   ------------------------------------------------------------ */
+@media (prefers-reduced-transparency: reduce) {
+  :root { --lg-surface: #fff; --lg-hover: #fff; }
+  :root[data-theme="dark"] { --lg-surface: var(--ink-700); --lg-hover: var(--ink-600); }
+  .lg, .sni-btn-secondary, .sni-topbar, .sni-menu {
+    backdrop-filter: none !important;
+  }
+}
+@media (prefers-contrast: more) {
+  :root { --lg-surface: #fff; --lg-edge: var(--sni-gray-600); --txt-3: var(--sni-gray-800); }
+  .sni-input, .sni-select, .sni-textarea { border-width: 2px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: .01ms !important; animation-duration: .01ms !important;
+  }
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .lg, .sni-topbar, .sni-menu { background: var(--surface); }
+}

@@ -1,0 +1,487 @@
+/* ============================================================
+   SNI CONECTA — COMPONENTES DO PAINEL (design system v2.7)
+   Classes de componente. Tokens e primitivas em tokens.css.
+   Aqui o aplicativo inteiro é painel: nada de escopo.
+   Mapa de nomes do design system → classes do projeto:
+
+
+     .btn / .btn-primary / .btn-glass / .btn-ghost  →  .sni-btn / -primary / -secondary / -ghost
+     .btn-lg / .btn-md / .btn-sm / .btn-icon        →  .sni-btn-lg / -md / -sm / -icon
+     .inp / .field label / .hint / .hint.err        →  .sni-input .sni-select .sni-textarea / .sni-label / .sni-hint / .sni-error
+     .bg .bg-blue .bg-ok .bg-warn .bg-dang .bg-gray  →  .sni-badge -blue -success -warning -danger -gray
+     .card .card-i .card-h / .kpi-v .kpi-d           →  .sni-card .sni-card-icon .sni-card-header / .sni-metric-value .sni-metric-trend
+     .sheet table                                    →  .sni-card-flat > .sni-table
+     .side .nav-l .nav-i .nav-tag                    →  .sni-sidebar .sni-sidebar-section-label .sni-sidebar-item .sni-sidebar-badge
+     .topbar .ibtn                                   →  .sni-topbar .sni-icon-btn
+     .modal .dimlayer                                →  .sni-modal .dimlayer (components/Modal.tsx)
+     .t-page / .t-section                            →  .sni-page-title / .sni-section-eyebrow
+   ============================================================ */
+/* ── Shell ─────────────────────────────────────────────────── */
+.sni-app-shell {
+  min-height: 100vh;
+  background: var(--bg);
+  background-attachment: fixed;
+  color: var(--txt-2);
+}
+.sni-auth-bg {
+  background: linear-gradient(140deg, var(--navy-800), var(--navy-600));
+}
+
+/* ── Botões — cápsula, altura mínima de 44px ───────────────── */
+.sni-btn {
+  gap: 8px;
+  font-family: var(--font);
+  font-weight: 600;
+  line-height: 1.2;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  min-height: var(--tap);
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.sni-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.sni-btn i { font-size: 18px; width: 18px; height: 18px; }
+
+.sni-btn-xl,
+.sni-btn-lg { font-size: 16px; padding: 13px 26px; border-radius: var(--r-pill); }
+.sni-btn-md { font-size: 15px; padding: 11px 22px; }
+.sni-btn-sm,
+.sni-btn-xs { font-size: 14px; padding: 8px 18px; min-height: 38px; border-radius: var(--r-pill); }
+.sni-btn-icon { padding: 0; width: var(--tap); height: var(--tap); border-radius: var(--r-pill); }
+.sni-btn-icon.sni-btn-sm,
+.sni-btn-icon.sni-btn-xs { width: 38px; height: 38px; padding: 0; }
+
+/* Reflexo idêntico nas variantes sólidas. */
+.sni-btn-primary,
+.sni-btn-danger,
+.sni-btn-success,
+.sni-btn-dark {
+  color: #fff;
+  background-image: var(--btn-sheen);
+  box-shadow: var(--btn-spec), 0 2px 6px rgba(13,26,78,.14);
+}
+.sni-btn-primary { background-color: var(--accent); }
+.sni-btn-primary:hover:not(:disabled) { background-color: var(--accent-hover); background-image: var(--btn-sheen); }
+.sni-btn-danger { background-color: var(--sni-danger-solid); }
+.sni-btn-danger:hover:not(:disabled) { background-color: #991B1B; background-image: var(--btn-sheen); }
+.sni-btn-success { background-color: var(--sni-success-solid); }
+.sni-btn-success:hover:not(:disabled) { background-color: #166534; background-image: var(--btn-sheen); }
+.sni-btn-dark { background-color: var(--navy-700); }
+.sni-btn-dark:hover:not(:disabled) { background-color: var(--navy-900); background-image: var(--btn-sheen); }
+
+/* Vidro: ação secundária que flutua. */
+.sni-btn-secondary {
+  background: var(--lg-surface);
+  color: var(--sni-blue-700);
+  backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-sat));
+  border-color: var(--lg-edge);
+  box-shadow: var(--lg-spec), var(--sh-1);
+}
+.sni-btn-secondary:hover:not(:disabled) { background: var(--lg-hover); }
+:root[data-theme="dark"] .sni-btn-secondary { color: #fff; }
+
+.sni-btn-ghost { background: transparent; color: var(--txt-2); border-color: var(--lg-line); }
+.sni-btn-ghost:hover:not(:disabled) { background: var(--lg-surface); color: var(--txt-1); }
+
+.sni-btn-link {
+  background: transparent; color: var(--accent);
+  padding: 0; border: none; min-height: 0; font-weight: 600; border-radius: 4px;
+}
+.sni-btn-link:hover:not(:disabled) { color: var(--accent-hover); text-decoration: underline; }
+
+/* ── Campos — sempre sólidos ───────────────────────────────── */
+.sni-input,
+.sni-select,
+.sni-textarea {
+  font-family: var(--font);
+  font-size: 15px;
+  padding: 12px 15px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-field);
+  background: var(--surface);
+  color: var(--txt-1);
+  min-height: var(--tap);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.sni-textarea { min-height: 96px; }
+/* iOS dá zoom ao focar campo com fonte menor que 16px. */
+@media (max-width: 768px) {
+  .sni-input, .sni-select, .sni-textarea { font-size: 16px; }
+}
+.sni-input::placeholder,
+.sni-textarea::placeholder { color: var(--txt-4); }
+.sni-input:focus,
+.sni-select:focus,
+.sni-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(58,111,224,.28);
+}
+.sni-input.error,
+.sni-select.error,
+.sni-textarea.error { border-color: var(--sni-danger); }
+.sni-input.success { border-color: var(--sni-success); }
+.sni-input:disabled,
+.sni-select:disabled,
+.sni-textarea:disabled { background: var(--sni-gray-50); color: var(--txt-4); }
+:root[data-theme="dark"] .sni-input:disabled,
+:root[data-theme="dark"] .sni-select:disabled,
+:root[data-theme="dark"] .sni-textarea:disabled { background: var(--ink-700); }
+
+.sni-label { font-family: var(--font); font-size: 15px; font-weight: 600; color: var(--txt-2); margin-bottom: 7px; }
+.sni-hint { font-size: 13.5px; color: var(--txt-4); margin-top: 6px; text-wrap: pretty; }
+.sni-error { font-size: 13.5px; font-weight: 600; color: var(--sni-danger); margin-top: 6px; gap: 6px; }
+
+.sni-input-icon-wrap .sni-input { padding-left: 44px; }
+.sni-input-icon-wrap .sni-input-icon { left: 14px; font-size: 19px; color: var(--txt-4); }
+
+/* ── Cards e dados — camada de conteúdo, sempre opaca ──────── */
+.sni-card {
+  background: var(--surface);
+  border-radius: var(--r-card);
+  border: 1px solid var(--line);
+  padding: 18px;
+  box-shadow: var(--sh-1);
+}
+.sni-card-flat {
+  background: var(--surface);
+  border-radius: var(--r-card);
+  border: 1px solid var(--line);
+  box-shadow: var(--sh-1);
+}
+.sni-clickable { transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.sni-clickable:hover { box-shadow: var(--sh-2); border-color: var(--sni-blue-300); }
+.sni-card-header { gap: 12px; margin-bottom: 12px; }
+.sni-card-icon { width: 42px; height: 42px; border-radius: var(--r-tile); font-size: 20px; }
+.sni-card-icon.blue    { background: var(--sni-blue-50);    color: var(--accent); }
+.sni-card-icon.dark    { background: var(--sni-gray-100);   color: var(--txt-2); }
+:root[data-theme="dark"] .sni-card-icon.blue { background: rgba(255,255,255,.07); color: #7FA3EE; }
+:root[data-theme="dark"] .sni-card-icon.dark { background: rgba(255,255,255,.07); color: var(--txt-2); }
+.sni-card-title    { font-size: 16px; font-weight: 700; color: var(--txt-1); text-wrap: balance; }
+.sni-card-subtitle { font-size: 13.5px; color: var(--txt-4); margin-top: 2px; }
+
+.sni-metric-value {
+  font-family: var(--font-num);
+  font-size: 31px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: 1.15;
+  color: var(--txt-1);
+  font-variant-numeric: tabular-nums;
+}
+.sni-metric-trend { gap: 5px; font-family: var(--font-num); font-size: 13.5px; font-weight: 500; margin-top: 8px; }
+:root[data-theme="dark"] .sni-trend-up { color: #8EDCA8; }
+:root[data-theme="dark"] .sni-trend-down { color: #EE9A9A; }
+
+/* ── Marcadores — cor + texto + ponto. Nunca só cor. ───────── */
+.sni-badge {
+  gap: 6px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 13px;
+  border-radius: var(--r-pill);
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+.sni-badge-lg { font-size: 14px; padding: 6px 15px; }
+.sni-badge-sm { font-size: 13px; padding: 3px 10px; }
+.sni-badge i { font-size: 14px; width: 14px; height: 14px; }
+.sni-badge-blue         { background: var(--sni-blue-50);    color: var(--sni-blue-700); }
+.sni-badge-success      { background: var(--sni-success-bg); color: var(--sni-success); }
+.sni-badge-warning      { background: var(--sni-warning-bg); color: var(--sni-warning); }
+.sni-badge-danger       { background: var(--sni-danger-bg);  color: var(--sni-danger); }
+.sni-badge-info         { background: var(--sni-info-bg);    color: var(--sni-info); }
+.sni-badge-gray         { background: var(--sni-gray-100);   color: var(--sni-gray-600); }
+.sni-badge-dark         { background: var(--navy-700);       color: #fff; }
+.sni-badge-outline-blue { background: transparent; color: var(--accent); border: 1px solid var(--sni-blue-200); }
+.sni-badge-dot { width: 7px; height: 7px; background: currentColor; }
+:root[data-theme="dark"] .sni-badge-blue    { background: rgba(58,111,224,.18); color: #A9C2F2; }
+:root[data-theme="dark"] .sni-badge-success { background: rgba(21,128,61,.22);  color: #8EDCA8; }
+:root[data-theme="dark"] .sni-badge-warning { background: rgba(180,83,9,.24);   color: #E8B75C; }
+:root[data-theme="dark"] .sni-badge-danger  { background: rgba(185,28,28,.24);  color: #EE9A9A; }
+:root[data-theme="dark"] .sni-badge-info    { background: rgba(3,105,161,.24);  color: #8ECDF2; }
+:root[data-theme="dark"] .sni-badge-gray    { background: rgba(255,255,255,.08); color: rgba(255,255,255,.72); }
+
+/* ── Alertas ───────────────────────────────────────────────── */
+.sni-alert {
+  gap: 10px;
+  padding: 13px 16px;
+  border-radius: var(--r-tile);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+.sni-alert i { font-size: 20px; width: 20px; height: 20px; margin-top: 2px; }
+.sni-alert-info    { background: var(--sni-info-bg);    color: var(--sni-info);    border-color: var(--sni-info); }
+.sni-alert-success { background: var(--sni-success-bg); color: var(--sni-success); border-color: var(--sni-success); }
+.sni-alert-warning { background: var(--sni-warning-bg); color: var(--sni-warning); border-color: var(--sni-warning); }
+.sni-alert-danger  { background: var(--sni-danger-bg);  color: var(--sni-danger);  border-color: var(--sni-danger); }
+
+/* ── Tabela — camada de conteúdo, sempre opaca ─────────────── */
+.sni-table { font-family: var(--font); font-size: 14.5px; }
+.sni-table th {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--txt-2);
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 13px 18px;
+  border-bottom: 1.5px solid var(--line);
+  background: var(--sni-gray-50);
+}
+.sni-table td {
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--txt-2);
+}
+.sni-table td strong { color: var(--txt-1); font-weight: 600; }
+.sni-table tbody tr:hover td { background: var(--sni-gray-50); }
+.sni-table tr.selected td { background: var(--sni-blue-50); }
+:root[data-theme="dark"] .sni-table th { background: rgba(255,255,255,.05); }
+:root[data-theme="dark"] .sni-table tbody tr:hover td { background: rgba(255,255,255,.04); }
+:root[data-theme="dark"] .sni-table tr.selected td { background: rgba(58,111,224,.16); }
+
+/* ── Títulos ───────────────────────────────────────────────── */
+/* Título de página: Platypi 700, 26px */
+.sni-page-title {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: 1.2;
+  color: var(--txt-1);
+  text-wrap: balance;
+}
+.sni-page-subtitle { font-size: 15px; color: var(--txt-3); margin-top: 4px; text-wrap: pretty; }
+/* Rótulo de bloco: Platypi 700 em caixa alta, 16px, entreletra normal */
+.sni-section-eyebrow {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.15;
+  text-transform: uppercase;
+  color: var(--txt-2);
+  gap: 10px;
+  text-wrap: balance;
+}
+.sni-section-eyebrow i { font-size: 20px; width: 20px; height: 20px; color: var(--accent); }
+:root[data-theme="dark"] .sni-section-eyebrow i { color: #7FA3EE; }
+
+/* ── Barra lateral — azul institucional nos dois temas ─────── */
+.sni-sidebar {
+  width: var(--sidebar-w);
+  background: linear-gradient(180deg, var(--navy-800), var(--navy-600));
+  color: rgba(255,255,255,.86);
+  box-shadow: var(--lg-spec-dark), var(--sh-2);
+}
+.sni-sidebar-logo { padding: 18px 16px 16px; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.14); }
+.sni-sidebar-logo-icon {
+  width: 40px; height: 40px;
+  border-radius: var(--r-field);
+  background: rgba(255,255,255,.14);
+  border: 1px solid rgba(255,255,255,.22);
+  font-size: 20px;
+}
+.sni-sidebar-logo-text { font-size: 16px; font-weight: 700; color: #fff; letter-spacing: -.01em; line-height: 1.25; }
+.sni-sidebar-logo-sub  { font-size: 13px; color: rgba(255,255,255,.60); letter-spacing: 0; text-transform: none; margin-top: 1px; }
+
+.sni-sidebar-scroll { padding: 4px 12px 16px; gap: 4px; }
+.sni-sidebar-section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,.58);
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 16px 10px 8px;
+}
+.sni-sidebar-item {
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: var(--r-field);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: rgba(255,255,255,.86);
+  min-height: var(--tap);
+  margin-bottom: 3px;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.sni-sidebar-item i { font-size: 20px; width: 20px; height: 20px; }
+.sni-sidebar-item:hover { background: rgba(255,255,255,.10); color: #fff; }
+.sni-sidebar-item.active {
+  color: #fff;
+  font-weight: 600;
+  background: rgba(255,255,255,.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.16);
+}
+.sni-sidebar-item.active i { color: #fff; }
+.sni-sidebar-item:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.sni-sidebar-badge {
+  font-family: var(--font-num);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  background: #fff;
+  color: var(--navy-700);
+}
+
+.sni-sidebar-bottom { padding: 14px 12px 12px; border-top: 1px solid rgba(255,255,255,.16); }
+.sni-sidebar-user { gap: 8px; padding: 0; border-radius: var(--r-field); }
+.sni-sidebar-user:hover { background: transparent; }
+/* Avatar + nome levam a Minha conta */
+.sni-sidebar-user-link {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; gap: 11px;
+  padding: 4px 6px;
+  border-radius: var(--r-field);
+  text-decoration: none;
+  min-height: var(--tap);
+  transition: background var(--dur) var(--ease);
+}
+.sni-sidebar-user-link:hover { background: rgba(255,255,255,.10); }
+.sni-sidebar-user-link.active { background: rgba(255,255,255,.16); box-shadow: inset 0 1px 0 rgba(255,255,255,.16); }
+.sni-sidebar-user-link:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.sni-sidebar-avatar { width: 36px; height: 36px; font-size: 13px; background: var(--sni-blue-400); }
+.sni-sidebar-user-name { font-size: 14px; font-weight: 600; color: #fff; line-height: 1.3; }
+.sni-sidebar-user-role { font-size: 13px; color: rgba(255,255,255,.62); margin-top: 0; }
+.sni-sidebar-logout {
+  width: var(--tap); height: var(--tap);
+  padding: 0;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(255,255,255,.14);
+  color: rgba(255,255,255,.72);
+  font-size: 20px;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.sni-sidebar-logout:hover { background: rgba(255,255,255,.10); color: #fff; }
+.sni-sidebar-logout:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+/* ── Barra superior — vidro (camada funcional) ─────────────── */
+.sni-topbar {
+  height: var(--topbar-h);
+  padding: 0 18px;
+  gap: 10px;
+  background: var(--lg-surface);
+  backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-sat));
+  border-bottom: 1px solid var(--lg-edge);
+  box-shadow: var(--lg-spec);
+}
+.sni-topbar-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--txt-1);
+  letter-spacing: 0;
+  line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sni-topbar-right { gap: 9px; }
+.sni-icon-btn,
+.sni-mobile-toggle {
+  width: var(--tap); height: var(--tap);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--lg-line);
+  color: var(--txt-2);
+  font-size: 19px;
+  background: transparent;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.sni-icon-btn:hover,
+.sni-mobile-toggle:hover { background: var(--lg-hover); color: var(--txt-1); }
+.sni-icon-btn:focus-visible,
+.sni-mobile-toggle:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.sni-page { padding: 24px; }
+
+@media (max-width: 900px) {
+  .sni-sidebar { box-shadow: var(--sh-3); }
+  .sni-sidebar-backdrop { background: var(--dim); }
+  .sni-page { padding: 16px; }
+  .sni-topbar { padding: 0 12px; }
+}
+
+/* ── Menu / popover — usa vidro ────────────────────────────── */
+.sni-menu {
+  width: 266px;
+  padding: 8px;
+  border-radius: var(--r-card);
+  background: var(--lg-surface);
+  backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-sat));
+  border: 1px solid var(--lg-edge);
+  box-shadow: var(--lg-spec), var(--sh-2);
+}
+.sni-menu-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 12px;
+  border-radius: var(--r-field);
+  font-size: 15px; font-weight: 500;
+  color: var(--txt-2);
+  cursor: pointer;
+  min-height: var(--tap);
+}
+.sni-menu-item:hover { background: var(--lg-hover); }
+.sni-menu-item i { font-size: 19px; width: 19px; height: 19px; color: var(--accent); }
+.sni-menu-sep { height: 1px; background: var(--lg-line); margin: 6px 11px; }
+
+/* ── Modal — sólido sobre camada de escurecimento ──────────── */
+.sni-modal {
+  position: relative;
+  width: 100%;
+  background: var(--surface);
+  border-radius: var(--r-panel);
+  border: 1px solid var(--lg-edge);
+  box-shadow: var(--sh-3);
+  display: flex;
+  flex-direction: column;
+}
+.sni-modal-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.sni-modal-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 21px;
+  font-weight: 700;
+  color: var(--txt-1);
+  letter-spacing: -.005em;
+  line-height: 1.3;
+  text-wrap: balance;
+}
+.sni-modal-sub { margin: 6px 0 0; font-size: 15px; color: var(--txt-3); text-wrap: pretty; }
+.sni-modal-body { flex: 1; overflow-y: auto; padding: 24px; }
+.sni-modal-foot {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--line);
+  border-bottom-left-radius: var(--r-panel);
+  border-bottom-right-radius: var(--r-panel);
+}
+
+/* Modais escritos direto na página (cartão dentro de uma camada de
+   escurecimento): o cartão vira painel — raio de 24px, sombra alta,
+   título em Platypi. */
+.sni-dimlayer > .sni-card {
+  border-radius: var(--r-panel);
+  padding: 24px;
+  border-color: var(--lg-edge);
+  box-shadow: var(--sh-3);
+}
+.sni-dimlayer > .sni-card .sni-card-title {
+  font-family: var(--font-serif);
+  font-size: 21px;
+  letter-spacing: -.005em;
+  line-height: 1.3;
+}
+
+/* ── Miscelânea ────────────────────────────────────────────── */
+.sni-spinner { border: 2px solid rgba(22,59,163,.15); border-top-color: var(--accent); }
+:root[data-theme="dark"] .sni-spinner { border-color: rgba(255,255,255,.14); border-top-color: var(--accent); }
+.sni-divider { background: var(--line-soft); }
+.sni-divider-vert { background: var(--line); }
+.sni-gradient { background: linear-gradient(180deg, var(--navy-800), var(--navy-600)); }

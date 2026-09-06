@@ -1,0 +1,34 @@
+name: Migrações do banco
+
+# Aplica as migrações SQL no projeto Supabase quando um arquivo novo chega à
+# main. É o único caminho para o esquema de produção mudar.
+#
+# Segredos necessários no repositório:
+#   SUPABASE_ACCESS_TOKEN  token pessoal/da organização no Supabase
+#   SUPABASE_PROJECT_REF   ref do projeto (o "xxxx" de xxxx.supabase.co)
+#   SUPABASE_DB_PASSWORD   senha do banco do projeto
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+  workflow_dispatch:
+
+jobs:
+  aplicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      - run: supabase db push
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}

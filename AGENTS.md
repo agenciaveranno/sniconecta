@@ -1,0 +1,113 @@
+# SNI Conecta — regras do repositório
+
+Plataforma única da SEICHO-NO-IE DO BRASIL. Um aplicativo Next, um banco
+Supabase, módulos por pasta. Este arquivo vale para as duas sessões que
+trabalham aqui (módulo `ciclo` e módulo `eventos`). Decisões de arquitetura
+estão em `docs/decisoes/`; quem discordar de uma, abre uma nova decisão, não
+contorna no código.
+
+## Este NÃO é o Next.js que você conhece
+
+Next 16, React 19, Tailwind 4. APIs e convenções mudaram em relação ao que
+está no treinamento. Antes de escrever código, leia o guia correspondente em
+`node_modules/next/dist/docs/`. `params` e `cookies()` são assíncronos; o
+middleware chama-se `src/proxy.ts` e exporta `proxy`.
+
+## Mapa do repositório
+
+```
+src/app/                 App Router. Rotas públicas, login, painel, módulos.
+src/modulos/<modulo>/    Código de domínio de cada módulo (ciclo, eventos).
+src/modulos/registro.ts  Registro declarativo de módulos: itens de menu +
+                         capacidade que os libera. A barra lateral lê daqui.
+src/componentes/ui.tsx   TODOS os primitivos visuais. Não estilize na página.
+src/design/              tokens.css (fonte da verdade) e componentes.css.
+src/lib/auth.ts          pessoaAtual(), exigirCapacidade().
+src/lib/permissoes.ts    MATRIZ de capacidades (dado, não código).
+src/lib/supabase/        clientes: servidor (RLS), navegador, serviço.
+src/lib/db.ts            Postgres direto pelo pooler (módulo eventos).
+src/lib/dominio/         regras puras e testadas: cpf, dinheiro…
+supabase/migrations/     SQL puro, prefixo de data/hora, aplicado por CI.
+supabase/rascunhos/      esquemas em discussão, ainda não aplicados.
+scripts/                 migração MySQL → Postgres e apoio.
+tests/                   vitest.
+docs/                    decisões (ADR), design system, integração.
+```
+
+## Identidade e autorização
+
+- `pessoas` é a espinha: CPF identifica, `id` (uuid) referencia. Toda tabela
+  de módulo que fala de uma pessoa aponta para `pessoas.id`.
+- Operador tem conta no Supabase Auth (`pessoas.auth_user_id`). **Quem só tem
+  histórico não tem conta**: nunca criar conta em massa.
+- Comprador do checkout público não tem conta: autentica por magic link
+  próprio do módulo `eventos`.
+- Duas camadas, ambas obrigatórias: a **matriz** (`permissoes.ts`) decide
+  quais ações a pessoa dispara; o **RLS** decide quais linhas alcança.
+- Capacidade é nomeada por **ação com prefixo do módulo**: `eventos.vender`,
+  `ciclo.matricula.decidir`. Nunca por tela.
+- Server Action e rota de API começam com `exigirCapacidade(...)` na
+  primeira linha. O guard do layout não protege endpoint.
+- Rota chamada por máquina (cron, webhook) fica fora do proxy de sessão e
+  recusa por conta própria com 401/503.
+
+## Banco de dados
+
+- Migrações em `supabase/migrations/AAAAMMDDHHMMSS_nome.sql`, aplicadas por
+  GitHub Actions no merge para `main`. **Ninguém roda SQL à mão em produção.**
+- Cada migração abre com um cabeçalho explicando a decisão, não o comando.
+- Tabela nova nasce com `enable row level security`, policies, GRANT
+  explícito e asserção no harness de RLS. O projeto Supabase roda com
+  "expose new tables" desligado: sem GRANT, a policy nem é avaliada.
+- Schema `public`: o que é comum (`pessoas`, `papeis`, `regionais`,
+  `localidades`, `auditoria`, `notificacoes`, `configuracoes`).
+  Schema `eventos`: o domínio de eventos. Outros módulos, outros schemas.
+- O módulo `eventos` acessa o Postgres **direto pelo pooler** (`src/lib/db.ts`)
+  com RLS ligada e sem GRANT para `authenticated`: o navegador nunca fala
+  com essas tabelas, e a autorização acontece por capacidade no servidor.
+  O módulo `ciclo` usa o cliente Supabase com RLS por localidade. Os dois
+  modelos convivem; ver `docs/decisoes/0003-acesso-ao-banco.md`.
+- Toda leitura do cliente Supabase cuja ausência de resultado influencia uma
+  decisão passa por `exigir()` (`src/lib/supabase/consulta.ts`). Consulta que
+  falhou não é consulta vazia.
+- Dinheiro em **centavos, inteiro**. CPF **só dígitos**, com dígito verificador
+  validado na entrada. Identificador externo (CodSNI) é `text`.
+- Segredo (credencial, chave de API, senha SMTP) vai **cifrado**
+  (`src/lib/cripto.ts`) e em **tabela sem GRANT** para `anon`/`authenticated`.
+  Nunca em auditoria, nem cifrado.
+- Configuração que é decisão do cliente mora no banco, editável em tela.
+  Segredo de infraestrutura mora em variável de ambiente.
+
+## Comunicação
+
+- Nunca enviar e-mail ou WhatsApp dentro da requisição do usuário. Enfileira
+  em `notificacoes`; o cron processa. `enfileirar()` nunca lança.
+- Uma fila só. Módulo novo não cria a segunda.
+
+## Interface
+
+Regras completas em `docs/design-system.md`. As que mais se erram:
+
+- Duas camadas: conteúdo sempre opaco; só barra superior, menus e modais
+  levam vidro. Nunca vidro sobre vidro.
+- Platypi só em título (≥16px, peso 700), nunca em número, rótulo ou botão.
+  Plex Mono em todo número que se lê (`.num` / `<Num>`). Figtree no resto.
+- Nada abaixo de 13px. Corpo 15px. Caixa alta em rótulo pequeno é proibida.
+- Cor, raio, sombra e tamanho vêm dos tokens. Precisou de algo que não
+  existe: crie o primitivo em `ui.tsx` ou pergunte antes de inventar.
+- Cadastro (criar e editar) acontece em modal. Esc e clique fora não fecham.
+- `SEICHO-NO-IE DO BRASIL` sempre em caixa alta, escrita no conteúdo
+  (`<Entidade />`). A forma com "do Brasil" em minúsculas não pode aparecer
+  em lugar nenhum. `Seicho-No-Ie` sozinho é livre. `SNI Conecta` é o produto.
+
+## Voz do código
+
+- Tudo em português: nomes, comentários, mensagens, commits.
+- Comentário explica a decisão e o que aconteceria sem ela, não o comando.
+- Armadilha conhecida vira comentário com ⚠️.
+- Mensagem de erro fala em consequência para a pessoa, não em nome de chave.
+- Commit explica o problema antes da solução.
+
+## Antes de publicar
+
+`npm run typecheck && npm test && npm run build`. Só com tudo verde.

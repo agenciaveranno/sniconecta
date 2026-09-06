@@ -1,0 +1,44 @@
+{
+  "name": "sniconecta",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plataforma SNI Conecta — SEICHO-NO-IE DO BRASIL. Módulos: ciclo (curso), eventos (inscrições).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "migrar": "tsx scripts/migrar-mysql.ts",
+    "amostra": "tsx scripts/exportar-amostra.ts"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.6",
+    "@supabase/supabase-js": "^2.115.0",
+    "@tabler/icons-react": "^3.46.0",
+    "next": "^16.3.4",
+    "postgres": "^3.4.9",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^17.4.2",
+    "eslint": "^9",
+    "eslint-config-next": "^16.3.4",
+    "mysql2": "^3.24.3",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9",
+    "vitest": "^3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
