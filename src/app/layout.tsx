@@ -32,7 +32,17 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="pt-BR" className={`${figtree.variable} ${platypi.variable} ${plexMono.variable}`}>
+    // ⚠️ `suppressHydrationWarning` é obrigatório aqui, e só aqui: o script
+    // abaixo escreve `data-theme` no <html> ANTES de o React hidratar, então o
+    // servidor manda um atributo e o cliente encontra outro. Sem isto, o React
+    // acusa divergência em toda carga de página — e um aviso que aparece
+    // sempre é um aviso que ninguém lê, escondendo a divergência de verdade
+    // no dia em que ela aparecer.
+    <html
+      lang="pt-BR"
+      className={`${figtree.variable} ${platypi.variable} ${plexMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         {/* Tema antes da primeira pintura — evita abrir claro e piscar para o escuro. */}
         <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA_INICIAL }} />

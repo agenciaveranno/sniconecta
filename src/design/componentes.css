@@ -151,9 +151,14 @@
   background-attachment: fixed;
   color: var(--txt-2);
 }
+/* Fundo da tela de entrada. No claro é o momento de marca: o azul
+   institucional ocupa a tela. No escuro NÃO — o design system reserva ao
+   tema escuro um único bloco de cor cheia, a barra lateral, e um azul
+   saturado ocupando a tela inteira compete com o conteúdo e cansa. */
 .sni-auth-bg {
   background: linear-gradient(140deg, var(--navy-800), var(--navy-600));
 }
+:root[data-theme="dark"] .sni-auth-bg { background: var(--bg); }
 
 /* ── Botões — cápsula, altura mínima de 44px ───────────────── */
 .sni-btn {
@@ -625,3 +630,104 @@
 .sni-divider { background: var(--line-soft); }
 .sni-divider-vert { background: var(--line); }
 .sni-gradient { background: linear-gradient(180deg, var(--navy-800), var(--navy-600)); }
+
+/* ── Composição de página ──────────────────────────────────────
+   Classes que os primitivos de ui.tsx montam. Existem aqui, e não
+   como estilo na página, porque a regra do projeto é que nenhuma
+   tela escreva cor, raio, sombra ou tamanho por conta própria. */
+
+/* Cabeçalho de página: título à esquerda, ação à direita, e a ação
+   descendo para baixo do título quando não couberem lado a lado. */
+.sni-page-head { margin-bottom: 24px; }
+.sni-page-head-linha {
+  display: flex; flex-wrap: wrap; align-items: flex-start;
+  justify-content: space-between; gap: 16px;
+}
+.sni-page-head-texto { min-width: 0; }
+.sni-page-head-acao { flex-shrink: 0; }
+/* Descrição com medida de leitura: linha longa demais cansa e faz o
+   olho perder a volta. */
+.sni-page-subtitle { max-width: 68ch; }
+.sni-voltar {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 38px; font-size: 13px; font-weight: 600;
+  color: var(--txt-3); text-decoration: none;
+  transition: color var(--dur) var(--ease);
+}
+.sni-voltar:hover { color: var(--accent); }
+
+/* Título de seção com régua: a régua ocupa o vão restante e separa
+   sem desenhar uma caixa. */
+.sni-section-head { display: flex; align-items: center; gap: 12px; margin: 32px 0 16px; }
+.sni-section-head:first-child { margin-top: 0; }
+.sni-section-rule { flex: 1; height: 1px; background: var(--line-soft); }
+
+/* Ação discreta em linha de tabela ou card. Não é botão: sem
+   preenchimento e sem cápsula cheia, para não competir com a ação
+   primária da tela. Mantém o alvo de toque e o mínimo de 13px. */
+.sni-acao {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 38px; padding: 0 12px;
+  border: none; background: transparent;
+  border-radius: var(--r-pill);
+  font-family: var(--font); font-size: 13px; font-weight: 600;
+  color: var(--txt-3); cursor: pointer; text-decoration: none;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.sni-acao:hover:not(:disabled) { background: var(--lg-hover); color: var(--accent); }
+.sni-acao:disabled { opacity: .55; cursor: not-allowed; }
+.sni-acao:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* Card de métrica. A variante de alerta muda a borda, não o fundo:
+   fundo colorido atrás de número em Plex Mono rouba a leitura do
+   próprio número. */
+.sni-metric {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 18px;
+  box-shadow: var(--sh-1);
+}
+.sni-metric.alerta { border-color: var(--sni-warning); }
+.sni-metric-rotulo { font-size: 13.5px; font-weight: 600; color: var(--txt-3); }
+.sni-metric-detalhe { font-size: 13.5px; color: var(--txt-4); margin-top: 8px; }
+
+/* Estado vazio: a ação fica abaixo do texto, centrada. */
+.empty-acao { display: flex; justify-content: center; margin-top: 4px; }
+
+/* Texto só para leitor de tela: sai da vista sem sair da árvore de
+   acessibilidade. `display:none` tiraria dos dois. */
+.sni-so-leitor {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* Coluna que identifica a linha: destaque por peso, não por cor. */
+.sni-table td.forte { font-weight: 600; color: var(--txt-1); }
+
+/* ── Modal sobre <dialog> nativo ────────────────────────────────
+   O <dialog> dá de graça a camada superior (sem disputa de z-index),
+   o aprisionamento de foco e o ::backdrop. O clique fora já não fecha
+   por padrão; o Esc é barrado no evento `cancel`, em Modal.tsx.
+
+   O fundo é desfocado ALÉM de escurecido: o conteúdo atrás continua
+   reconhecível como contexto sem competir com o formulário. */
+dialog.sni-modal {
+  padding: 0;
+  width: calc(100vw - 2rem);
+  max-height: calc(100vh - 4rem);
+  color: var(--txt-2);
+}
+dialog.sni-modal::backdrop {
+  background: var(--dim);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.sni-modal-sm { max-width: 440px; }
+.sni-modal-md { max-width: 640px; }
+.sni-modal-lg { max-width: 880px; }
+/* O corpo rola; cabeçalho e rodapé ficam. Numa lista longa de campos, o
+   botão de salvar continua alcançável sem rolar até o fim. */
+.sni-modal-body { max-height: 60vh; }
+.sni-modal-foot { background: var(--sni-gray-50); flex-wrap: wrap; align-items: center; }
+:root[data-theme="dark"] .sni-modal-foot { background: rgba(255,255,255,.04); }
