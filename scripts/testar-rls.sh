@@ -129,6 +129,12 @@ select v.id, v.tipo, v.pai, o.id, v.nome, v.slug
   ) as v(id, tipo, pai, org, nome, slug)
   left join organizacoes o on o.nome = v.org;
 
+-- ⚠️ A raiz do CNPJ da Sede Central é o que define quem é filial da
+-- instituição. Precisa existir aqui, no cenário, e não dentro de uma asserção:
+-- toda asserção roda em transação desfeita, e sem a matriz gravada o gatilho
+-- não teria raiz com que comparar — aceitaria o CNPJ de qualquer empresa.
+update unidades set cnpj = '61278388000181' where tipo = 'sede_central';
+
 insert into pessoas (id, cpf, cod_sni, nome, email, auth_user_id) values
   ('d0000000-0000-0000-0000-000000000001','52998224725','1','Sede','sede@x','c0000000-0000-0000-0000-000000000001'),
   ('d0000000-0000-0000-0000-000000000002','11144477735','2','Coord Sul','coord.sul@x','c0000000-0000-0000-0000-000000000002'),
@@ -274,6 +280,20 @@ escrita "AL direto na Regional é aceita (núcleo é opcional)" $SEDE \
   "insert into unidades (tipo, pai_id, organizacao_id, nome) values ('associacao_local','22220000-0000-0000-0000-000000000002',$ORG_PROSP,'AL Nova');" OK
 escrita "unidade raiz que não é sede central é recusada" $SEDE \
   "insert into unidades (tipo, nome) values ('regional','Sem pai');" NEGADO
+
+echo "── CNPJ: toda unidade é filial da Sede Central"
+escrita "Sede define o CNPJ da matriz" $SEDE \
+  "update unidades set cnpj='61278388000181' where id='11110000-0000-0000-0000-000000000001';" OK
+escrita "filial com a mesma raiz é aceita" $SEDE \
+  "update unidades set cnpj='61278388001204' where id='22220000-0000-0000-0000-000000000001';" OK
+escrita "CNPJ de outra empresa é recusado" $SEDE \
+  "update unidades set cnpj='11222333000181' where id='22220000-0000-0000-0000-000000000001';" NEGADO
+escrita "CNPJ fora do formato é recusado" $SEDE \
+  "update unidades set cnpj='61.278.388/0001-81' where id='22220000-0000-0000-0000-000000000001';" NEGADO
+escrita "Academia com CNPJ de outra empresa é recusada" $SEDE \
+  "insert into locais (tipo, nome, cnpj) values ('academia','Academia Errada','11222333000181');" NEGADO
+escrita "Academia com CNPJ de filial é aceita" $SEDE \
+  "insert into locais (tipo, nome, cnpj) values ('academia','Academia Nova','61278388003095');" OK
 
 echo "── Organização: da Associação Local, nunca do Núcleo"
 escrita "AL sem organização é recusada" $SEDE \

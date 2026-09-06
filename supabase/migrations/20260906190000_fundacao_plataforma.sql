@@ -129,6 +129,8 @@ create table unidades (
   -- Entra desde já mesmo sem site público decidido: retrofitar slug depois
   -- quebra URL que já circulou.
   slug          text unique,
+  -- Só dígitos, como o CPF: a tela formata na saída. O gatilho abaixo confere
+  -- que a raiz é a mesma da Sede Central.
   cnpj          text,
   -- Endereço e contato. Ficam na unidade, não numa tabela à parte: são um
   -- por unidade e sempre lidos junto com ela.
@@ -158,7 +160,8 @@ create table unidades (
   atualizado_em timestamptz not null default now(),
 
   constraint unidade_nao_e_pai_de_si check (pai_id is distinct from id),
-  constraint slug_formato check (slug is null or slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
+  constraint slug_formato check (slug is null or slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+  constraint cnpj_14_digitos check (cnpj is null or cnpj ~ '^[0-9]{14}$')
 );
 
 create index idx_unidades_pai on unidades(pai_id);
@@ -318,6 +321,9 @@ create table locais (
   uf          char(2),
   telefone    text,
   email       citext,
+  -- A Academia tem CNPJ próprio, como a Regional. Núcleo e Associação Local
+  -- podem ou não ter — daí ser anulável em todos.
+  cnpj        text,
   -- Para o mapa de "como chegar". O Conecta antigo já guardava as duas.
   latitude    numeric(10,7),
   longitude   numeric(10,7),
@@ -327,7 +333,8 @@ create table locais (
   criado_em   timestamptz not null default now(),
   atualizado_em timestamptz not null default now(),
 
-  constraint local_slug_formato check (slug is null or slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
+  constraint local_slug_formato check (slug is null or slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'),
+  constraint local_cnpj_14_digitos check (cnpj is null or cnpj ~ '^[0-9]{14}$')
 );
 
 create index idx_locais_unidade on locais(unidade_id);
@@ -336,6 +343,51 @@ create index idx_locais_nome_busca on locais(app.sem_acento(nome));
 
 create trigger trg_locais_atualizado before update on locais
   for each row execute function app.tocar_atualizado_em();
+
+/**
+ * Toda unidade e toda Academia é FILIAL da Sede Central: o CNPJ compartilha a
+ * raiz — os oito primeiros dígitos — e muda só no número da filial.
+ *
+ * Por isso dá para recusar um CNPJ errado sem consultar a Receita: se a raiz
+ * não bate, é de outra empresa. É o erro provável aqui — copiar o CNPJ de um
+ * fornecedor, ou o de uma unidade que mudou de mãos — e ele só apareceria na
+ * primeira nota fiscal devolvida, semanas depois.
+ *
+ * A Sede Central é a exceção: ela é a matriz, e é ela quem define a raiz.
+ */
+create or replace function app.validar_cnpj_filial()
+returns trigger language plpgsql as $$
+declare raiz_sede text;
+begin
+  if new.cnpj is null then return new; end if;
+
+  select left(u.cnpj, 8) into raiz_sede
+    from unidades u
+   where u.tipo = 'sede_central' and u.cnpj is not null
+   limit 1;
+
+  -- Sem a matriz cadastrada ainda não há raiz para comparar. Acontece na
+  -- primeira carga, e não é erro.
+  if raiz_sede is null then return new; end if;
+  if tg_table_name = 'unidades' and new.tipo = 'sede_central' then return new; end if;
+
+  if left(new.cnpj, 8) <> raiz_sede then
+    raise exception
+      'O CNPJ % não é uma filial da SEICHO-NO-IE DO BRASIL (a raiz deveria ser %).',
+      new.cnpj, raiz_sede;
+  end if;
+  return new;
+end $$;
+
+create trigger trg_locais_cnpj
+  before insert or update of cnpj on locais
+  for each row execute function app.validar_cnpj_filial();
+
+-- O gatilho da unidade vem aqui, e não junto da tabela, porque a função só
+-- existe a partir deste ponto do arquivo.
+create trigger trg_unidades_cnpj
+  before insert or update of cnpj on unidades
+  for each row execute function app.validar_cnpj_filial();
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- PESSOAS — a espinha (decisões 0002 e 0004)

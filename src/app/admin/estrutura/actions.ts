@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { exigirCapacidade } from "@/lib/auth";
+import { cnpjValido, somenteDigitos } from "@/lib/dominio/cnpj";
 import { criarClienteServidor } from "@/lib/supabase/server";
 
 const ROTA = "/admin/estrutura";
@@ -25,7 +26,16 @@ const schema = z.object({
   cidade: z.string().trim().optional().transform((v) => v || null),
   uf: z.string().trim().toUpperCase().optional().transform((v) => v || null),
   idioma: z.string().trim().optional().transform((v) => v || "pt-BR"),
-  cnpj: z.string().trim().optional().transform((v) => v || null),
+  // O banco guarda o CNPJ só com dígitos, e o `check` dele olha só o formato.
+  // A máscara que a pessoa digita some aqui, e o dígito verificador é
+  // conferido aqui: um CNPJ com DV errado passaria pelo banco e só apareceria
+  // semanas depois, na nota fiscal que volta.
+  cnpj: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? somenteDigitos(v) : null))
+    .refine((v) => v === null || cnpjValido(v), "O CNPJ informado não existe. Confira os números."),
 });
 
 function falhar(mensagem: string): never {
@@ -49,6 +59,9 @@ function traduzirErro(mensagem: string): string {
   }
   if (mensagem.includes("precisa estar dentro")) {
     return "Só a Sede Central fica no topo. Escolha a unidade superior.";
+  }
+  if (mensagem.includes("não é uma filial")) {
+    return "Esse CNPJ é de outra empresa. Toda unidade é filial da SEICHO-NO-IE DO BRASIL: só muda o número depois da barra.";
   }
   if (mensagem.includes("unidades_codigo_key")) return "Já existe uma unidade com esse código.";
   if (mensagem.includes("unidades_slug_key")) return "Já existe uma unidade com esse endereço na web.";

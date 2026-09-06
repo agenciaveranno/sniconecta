@@ -23,12 +23,13 @@
 -- Sede já corrigiu à mão.
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- A raiz. Endereço e CNPJ do rodapé do site institucional.
+-- A raiz. Endereço e CNPJ do rodapé do site institucional. O CNPJ vai só em
+-- dígitos, como o CPF: a tela formata na saída.
 insert into unidades (tipo, nome, slug, logradouro, numero, bairro, cidade, uf, cep, telefone, cnpj)
 values (
   'sede_central', 'Sede Central', 'sede-central',
   'Avenida Engenheiro Armando de Arruda Pereira', '1266', 'Jabaquara',
-  'São Paulo', 'SP', '04308900', '(11) 5014-2222', '61.278.388/0001-81'
+  'São Paulo', 'SP', '04308900', '(11) 5014-2222', '61278388000181'
 )
 on conflict (slug) do nothing;
 
