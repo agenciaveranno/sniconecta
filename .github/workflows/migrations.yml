@@ -18,6 +18,18 @@ on:
 jobs:
   aplicar:
     runs-on: ubuntu-latest
+    # O ambiente onde as credenciais do banco de produção moram.
+    #
+    # Não é detalhe de configuração: declarar o ambiente é o que faz este job
+    # enxergar os segredos guardados nele. Sem a linha, ele lê apenas os
+    # Repository secrets — e um segredo cadastrado em Production fica
+    # invisível, com a mesma mensagem de quem não cadastrou nada.
+    #
+    # E é o nome certo para o que este job faz: ele altera o esquema do banco
+    # de PRODUÇÃO. Ficar amarrado a esse ambiente abre, quando a instituição
+    # quiser, exigir aprovação de alguém antes de cada aplicação — regra que
+    # se liga em Settings → Environments, sem tocar em código.
+    environment: Production
     steps:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
@@ -34,6 +46,13 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          # ⚠️ Só as CHAVES são impressas, nunca os valores. Serve para dizer
+          # ONDE o segredo foi parar: a mesma página do GitHub tem a aba
+          # Secrets e a aba Variables, e segredo guardado como variável fica
+          # invisível para `secrets.X` — sem esta lista, o erro é idêntico ao
+          # de não ter cadastrado nada.
+          SEGREDOS_VISIVEIS: ${{ toJSON(secrets) }}
+          VARIAVEIS_VISIVEIS: ${{ toJSON(vars) }}
         run: |
           faltam=""
           [ -n "$SUPABASE_ACCESS_TOKEN" ] || faltam="$faltam SUPABASE_ACCESS_TOKEN"
@@ -42,13 +61,22 @@ jobs:
           if [ -n "$faltam" ]; then
             echo "::error::Faltam segredos no repositório:$faltam"
             echo ""
-            echo "Onde definir: Settings → Secrets and variables → Actions →"
-            echo "New repository secret, neste repositório. Não é o mesmo lugar"
-            echo "das variáveis da Vercel nem do painel do Supabase."
+            echo "O que este job CONSEGUE enxergar hoje (só os nomes):"
+            echo "  Secrets:   $(echo "$SEGREDOS_VISIVEIS" | jq -r 'keys | join(", ") // "nenhum"')"
+            echo "  Variables: $(echo "$VARIAVEIS_VISIVEIS" | jq -r 'keys | join(", ") // "nenhuma"')"
+            echo ""
+            echo "Se o nome aparece em Variables, ele foi cadastrado na aba errada:"
+            echo "credencial vai em Secrets, que o log mascara — variável aparece"
+            echo "em claro para quem abrir a execução."
+            echo ""
+            echo "Se não aparece em lugar nenhum, foi cadastrado FORA do ambiente"
+            echo "que este job declara (Production). Vale qualquer um dos dois:"
+            echo "  · Settings → Environments → Production → Environment secrets"
+            echo "  · Settings → Secrets and variables → Actions → Repository secrets"
             echo ""
             echo "  SUPABASE_ACCESS_TOKEN  Account → Access Tokens, em supabase.com"
             echo "  SUPABASE_PROJECT_REF   o 'xxxx' de xxxx.supabase.co"
-            echo "  SUPABASE_DB_PASSWORD   a senha do banco do projeto"
+            echo "  SUPABASE_DB_PASSWORD   Project Settings → Database"
             echo ""
             echo "Nada foi aplicado no banco."
             exit 1
