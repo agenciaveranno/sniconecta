@@ -717,7 +717,19 @@ dialog.sni-modal {
   width: calc(100vw - 2rem);
   max-height: calc(100vh - 4rem);
   color: var(--txt-2);
+  /* ⚠️ O navegador centra um <dialog> modal com `position: fixed; inset: 0;
+     margin: auto`. `.sni-modal` traz `position: relative` — que serve ao
+     modal escrito à mão dentro da página — e aqui anularia a centralização,
+     jogando o modal para o canto superior esquerdo. */
+  position: fixed;
+  inset: 0;
+  margin: auto;
 }
+/* ⚠️ O navegador esconde um <dialog> fechado com `display: none`, mas
+   `.sni-modal` traz `display: flex` — e a declaração da folha vence a do
+   navegador. Sem esta linha, TODO modal da página aparece aberto no meio do
+   conteúdo, com o formulário à mostra e sem camada de escurecimento. */
+dialog.sni-modal:not([open]) { display: none; }
 dialog.sni-modal::backdrop {
   background: var(--dim);
   backdrop-filter: blur(6px);
