@@ -23,6 +23,38 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
+
+      # ⚠️ Segredo ausente chega como string VAZIA, não como erro. Sem esta
+      # conferência, o `supabase link` responde "Access token not provided" —
+      # frase que soa como token inválido e manda quem depura procurar no
+      # Supabase, quando o que falta é o segredo no repositório. Já custou
+      # duas execuções.
+      - name: Conferir os segredos do repositório
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          faltam=""
+          [ -n "$SUPABASE_ACCESS_TOKEN" ] || faltam="$faltam SUPABASE_ACCESS_TOKEN"
+          [ -n "$SUPABASE_PROJECT_REF" ]  || faltam="$faltam SUPABASE_PROJECT_REF"
+          [ -n "$SUPABASE_DB_PASSWORD" ]  || faltam="$faltam SUPABASE_DB_PASSWORD"
+          if [ -n "$faltam" ]; then
+            echo "::error::Faltam segredos no repositório:$faltam"
+            echo ""
+            echo "Onde definir: Settings → Secrets and variables → Actions →"
+            echo "New repository secret, neste repositório. Não é o mesmo lugar"
+            echo "das variáveis da Vercel nem do painel do Supabase."
+            echo ""
+            echo "  SUPABASE_ACCESS_TOKEN  Account → Access Tokens, em supabase.com"
+            echo "  SUPABASE_PROJECT_REF   o 'xxxx' de xxxx.supabase.co"
+            echo "  SUPABASE_DB_PASSWORD   a senha do banco do projeto"
+            echo ""
+            echo "Nada foi aplicado no banco."
+            exit 1
+          fi
+          echo "Os três segredos estão presentes."
+
       - run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
