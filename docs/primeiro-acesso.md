@@ -38,6 +38,25 @@ CRON_SECRET                      qualquer segredo longo
 CREDENCIAIS_ENCRYPTION_KEY       ≥32 caracteres
 ```
 
+⚠️ **Config ou Secret?** A Vercel recusa marcar como *Secret* uma variável com
+prefixo `NEXT_PUBLIC_`, e está certa: esse prefixo faz o Next EMBUTIR o valor
+no JavaScript que todo visitante baixa. Não existe `NEXT_PUBLIC_` secreto.
+
+| Prefixo | Tipo |
+|---|---|
+| começa com `NEXT_PUBLIC_` | **Config** |
+| não começa | **Secret** |
+
+A chave `anon` ser pública não é descuido: é o desenho do Supabase. Quem
+protege as linhas é o RLS, não o sigilo da chave — e é por isso que o harness
+afirma, a cada execução, que `anon` não alcança tabela nenhuma.
+
+⚠️ **O erro perigoso é o inverso.** Nunca renomeie `SUPABASE_SERVICE_ROLE_KEY`
+com prefixo `NEXT_PUBLIC_` para calar um aviso. Ela IGNORA o RLS: publicada no
+navegador, qualquer pessoa lê e escreve as dezesseis mil linhas de `pessoas`.
+Se acontecer, a chave precisa ser ROTACIONADA no Supabase — tirar da Vercel
+não basta, porque ela já saiu em todo bundle servido até ali.
+
 ⚠️ **Não é o mesmo lugar dos segredos do GitHub.** Os do GitHub aplicam
 migrações; estes fazem a aplicação falar com o banco. Faltando as duas
 primeiras, toda tela protegida devolve 500 — e a tela de login continua
