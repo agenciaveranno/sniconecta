@@ -16,6 +16,134 @@
      .modal .dimlayer                                →  .sni-modal .dimlayer (components/Modal.tsx)
      .t-page / .t-section                            →  .sni-page-title / .sni-section-eyebrow
    ============================================================ */
+
+/* ============================================================
+   0. CAMADA ESTRUTURAL
+
+   ⚠️ Esta seção existe porque o resto do arquivo veio de um sistema
+   onde o v2.7 era uma camada de SOBRESCRITA: lá as classes já tinham
+   `display`, `position` e `width` definidos por baixo, e o v2.7 só
+   trocava cor, raio e tamanho. Ao trazer só a metade de cima, as
+   classes ficaram com aparência e sem esqueleto — a barra lateral não
+   flutuava, o conteúdo não ocupava a largura e o menu do celular não
+   abria.
+
+   Aqui ficam só as propriedades de LAYOUT (o que ocupa espaço e onde),
+   mais as poucas classes que não existiam em lugar nenhum. A aparência
+   continua nos blocos abaixo, que vencem por virem depois. Ao criar um
+   componente novo: layout aqui, aparência lá.
+   ============================================================ */
+
+/* Casca: barra lateral fixa à esquerda, conteúdo ocupando o resto.
+   `min-width: 0` em toda coluna flexível — sem isso, uma tabela larga
+   empurra o layout em vez de rolar dentro da própria caixa. */
+.sni-app-shell { display: flex; }
+.sni-content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.sni-page { flex: 1; min-width: 0; }
+.sni-page-wide { max-width: 1400px; margin: 0 auto; }
+
+.sni-sidebar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  z-index: 30;
+}
+.sni-sidebar-logo { display: flex; align-items: center; }
+.sni-sidebar-logo-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff; }
+.sni-sidebar-scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+.sni-sidebar-item { display: flex; align-items: center; cursor: pointer; text-decoration: none; }
+.sni-sidebar-item i { flex-shrink: 0; }
+/* O AppShell marca o item ativo com a classe; `aria-current` é o que o
+   leitor de tela anuncia. Aceitar os dois evita que uma tela pinte um e
+   anuncie o outro. */
+.sni-sidebar-item[aria-current="page"] { background: rgba(255,255,255,.16); color: #fff; font-weight: 600; }
+.sni-sidebar-badge { margin-left: auto; }
+.sni-sidebar-bottom { margin-top: auto; }
+.sni-sidebar-user { display: flex; align-items: center; }
+.sni-sidebar-user-link { display: flex; align-items: center; flex: 1; min-width: 0; text-decoration: none; }
+.sni-sidebar-user-info { flex: 1; min-width: 0; }
+/* Nome longo corta com reticências em vez de empurrar o botão de sair. */
+.sni-sidebar-user-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sni-sidebar-avatar { display: flex; align-items: center; justify-content: center; border-radius: 50%; flex-shrink: 0; color: #fff; font-weight: 700; }
+.sni-sidebar-logout { display: flex; align-items: center; justify-content: center; background: transparent; cursor: pointer; }
+
+.sni-topbar { display: flex; align-items: center; position: sticky; top: 0; z-index: 20; flex-shrink: 0; }
+.sni-topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.sni-icon-btn,
+.sni-mobile-toggle { display: flex; align-items: center; justify-content: center; cursor: pointer; }
+
+/* Fora do celular o botão de menu não existe. */
+.sni-mobile-toggle { display: none; }
+.sni-sidebar-backdrop { display: none; }
+
+@media (max-width: 900px) {
+  /* A barra sai da esquerda em vez de sumir: a transição diz de onde ela
+     veio, e o conteúdo não pula de largura ao abrir. */
+  .sni-sidebar {
+    position: fixed;
+    left: calc(-1 * var(--sidebar-w));
+    transition: left .25s var(--ease);
+  }
+  .sni-sidebar.open { left: 0; }
+  .sni-mobile-toggle { display: flex; }
+  .sni-sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 25; }
+}
+
+/* Botões e campos: o que os faz ter forma. */
+.sni-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.sni-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+.sni-field { display: flex; flex-direction: column; gap: 7px; }
+/* Formulário responsivo sem classe de utilitário na página: uma coluna no
+   celular, quantas couberem no desktop. */
+.sni-form-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.sni-input, .sni-select, .sni-textarea { width: 100%; outline: none; }
+.sni-input:disabled, .sni-select:disabled, .sni-textarea:disabled { cursor: not-allowed; }
+.sni-label { display: block; }
+.sni-hint { display: block; }
+.sni-error { display: flex; align-items: center; gap: 4px; }
+.sni-input-icon-wrap { position: relative; display: flex; align-items: center; }
+.sni-input-icon-wrap .sni-input-icon { position: absolute; pointer-events: none; }
+
+/* Cards, métricas, marcadores, alertas. */
+.sni-card-header { display: flex; align-items: center; }
+.sni-card-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.sni-clickable { cursor: pointer; transition: transform .12s var(--ease), box-shadow .12s var(--ease), border-color .12s var(--ease); }
+.sni-clickable:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
+.sni-clickable:active { transform: translateY(0); }
+.sni-metric-trend { display: inline-flex; align-items: center; }
+.sni-badge { display: inline-flex; align-items: center; white-space: nowrap; }
+.sni-badge-dot { border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.sni-alert { display: flex; align-items: flex-start; border-left: 3px solid; }
+.sni-alert i { flex-shrink: 0; }
+.sni-section-eyebrow { display: flex; align-items: center; }
+
+/* Tabela. O invólucro rola sozinho: tabela larga não pode alargar a página. */
+.sni-table-wrap { overflow-x: auto; }
+.sni-table { width: 100%; border-collapse: collapse; }
+.sni-table th { text-align: left; }
+.sni-table td { vertical-align: middle; }
+.sni-table tbody tr:last-child td { border-bottom: none; }
+
+/* Espera. */
+.sni-spinner { display: inline-block; width: 16px; height: 16px; border-radius: 50%; animation: sniSpin .7s linear infinite; }
+.sni-spinner-lg { width: 32px; height: 32px; border-width: 3px; }
+@keyframes sniSpin { to { transform: rotate(360deg); } }
+
+.sni-divider { height: 1px; margin: .25rem 0; }
+.sni-divider-vert { width: 1px; height: 20px; margin: 0 4px; }
+.sni-auth-bg { min-height: 100vh; }
+
 /* ── Shell ─────────────────────────────────────────────────── */
 .sni-app-shell {
   min-height: 100vh;
@@ -152,8 +280,18 @@
 .sni-card-header { gap: 12px; margin-bottom: 12px; }
 .sni-card-icon { width: 42px; height: 42px; border-radius: var(--r-tile); font-size: 20px; }
 .sni-card-icon.blue    { background: var(--sni-blue-50);    color: var(--accent); }
+.sni-card-icon.success { background: var(--sni-success-bg); color: var(--sni-success); }
+.sni-card-icon.warning { background: var(--sni-warning-bg); color: var(--sni-warning); }
+.sni-card-icon.danger  { background: var(--sni-danger-bg);  color: var(--sni-danger); }
+.sni-card-icon.info    { background: var(--sni-info-bg);    color: var(--sni-info); }
 .sni-card-icon.dark    { background: var(--sni-gray-100);   color: var(--txt-2); }
+/* No escuro o fundo semântico claro sumiria contra o grafite: a caixa vira
+   translúcida e a cor migra para o ícone, que é quem precisa ser lido. */
 :root[data-theme="dark"] .sni-card-icon.blue { background: rgba(255,255,255,.07); color: #7FA3EE; }
+:root[data-theme="dark"] .sni-card-icon.success { background: rgba(21,128,61,.22);  color: #8EDCA8; }
+:root[data-theme="dark"] .sni-card-icon.warning { background: rgba(180,83,9,.24);   color: #E8B75C; }
+:root[data-theme="dark"] .sni-card-icon.danger  { background: rgba(185,28,28,.24);  color: #EE9A9A; }
+:root[data-theme="dark"] .sni-card-icon.info    { background: rgba(3,105,161,.24);  color: #7FC4EE; }
 :root[data-theme="dark"] .sni-card-icon.dark { background: rgba(255,255,255,.07); color: var(--txt-2); }
 .sni-card-title    { font-size: 16px; font-weight: 700; color: var(--txt-1); text-wrap: balance; }
 .sni-card-subtitle { font-size: 13.5px; color: var(--txt-4); margin-top: 2px; }
@@ -168,6 +306,8 @@
   font-variant-numeric: tabular-nums;
 }
 .sni-metric-trend { gap: 5px; font-family: var(--font-num); font-size: 13.5px; font-weight: 500; margin-top: 8px; }
+.sni-trend-up { color: var(--sni-success); }
+.sni-trend-down { color: var(--sni-danger); }
 :root[data-theme="dark"] .sni-trend-up { color: #8EDCA8; }
 :root[data-theme="dark"] .sni-trend-down { color: #EE9A9A; }
 
