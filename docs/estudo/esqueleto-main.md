@@ -1,26 +1,29 @@
 # Auditoria do esqueleto da plataforma
 
 Leitura de **todos** os arquivos versionados de `/home/user/sniconecta`
-(`git ls-files`, 74 arquivos), exceto `docs/estudo/` e
-`docs/referencia-visual.html`. Cruzamento com o **Ciclo NOVO**
+(`git ls-files`), exceto `docs/estudo/` e `docs/referencia-visual.html` — 66
+arquivos no começo da leitura, 68 no fim — o repositório cresceu durante ela.
+Cruzamento com o **Ciclo NOVO**
 (`/home/user/sistema-ciclo-novo`, `2f07f6a`), que é a versão que vale — não a
 `70f61d6` sobre a qual os outros documentos desta pasta foram escritos.
 
 ## Aviso: o alvo se moveu durante a auditoria
 
 O estudo foi encomendado como "auditoria do commit `8cd93fa`". Quando começou,
-o `HEAD` da branch estava em `332fb50`; quando terminou, em `e4e2daf`. **Outra
-sessão comitou duas mudanças no meio da leitura**, e as duas atingem
+o `HEAD` da branch estava em `332fb50`; quando terminou, em `1a22b26`. **Outra
+sessão comitou quatro mudanças no meio da leitura**, e três delas atingem
 exatamente pontos que este documento ia reportar como defeito:
 
 | Commit | Hora | O que mudou | Efeito nesta auditoria |
 |---|---|---|---|
-| `ffd2e4c` | ~17:08 | `src/design/componentes.css` +140 linhas: camada estrutural restaurada | O defeito mais grave do esqueleto **foi corrigido** durante a leitura |
-| `e4e2daf` | ~17:11 | `docs/decisoes/0007-onde-moram-as-tabelas-de-cada-modulo.md` + `AGENTS.md` | A contradição `eventos.*` × prefixo **foi resolvida** durante a leitura |
+| `ffd2e4c` | 17:08 | `src/design/componentes.css` +140 linhas: camada estrutural restaurada | O defeito mais grave do esqueleto **foi corrigido** durante a leitura |
+| `e4e2daf` | 17:11 | ADR 0007 + `AGENTS.md` | A contradição `eventos.*` × prefixo **foi resolvida** durante a leitura |
+| `dcd0193` | 17:20 | `ui.tsx` 226 → 541 linhas, `Modal.tsx` novo (175), `componentes.css` +140 | O segundo maior buraco — primitivos e modal — **foi fechado** durante a leitura |
+| `1a22b26` | 17:22 | `docs/estudo/README.md` e outros estudos | marca este documento como "pronto" antes de ele existir |
 
-Tudo abaixo descreve o estado em **`e4e2daf`**, e diz explicitamente quando um
-achado já vale só como histórico. Quem ler isto depois: confira o `HEAD` antes
-de agir sobre a seção 5.
+Tudo abaixo descreve o estado em **`1a22b26`**, com uma releitura completa dos
+arquivos que mudaram. Onde um achado já vale só como histórico, está dito.
+Quem ler isto depois: confira o `HEAD` antes de agir sobre a seção 5.
 
 ---
 
@@ -74,7 +77,8 @@ Esta é a parte do esqueleto que pode ser mantida sem revisão.
 | `src/app/api/notificacoes/processar/route.ts` | **parcial** — o porteiro (`Bearer $CRON_SECRET`, 401/503) está certo; chama um stub |
 | `src/componentes/Painel.tsx` | **real** |
 | `src/componentes/AppShell.tsx` | **real** — 109 linhas, casca completa |
-| `src/componentes/ui.tsx` | **parcial** — 18 primitivos; falta metade do que o Ciclo já tem, ver §3.5 |
+| `src/componentes/ui.tsx` | **real desde `dcd0193`** — 541 linhas, 24 primitivos, superconjunto declarado das duas origens (`ui.tsx:23-26`); ver §3.5 |
+| `src/componentes/Modal.tsx` | **real desde `dcd0193`** — 175 linhas, `<dialog>` nativo, Esc barrado (`Modal.tsx:65`); ver §3.5 |
 | `src/app/globals.css` | **real** — 12 linhas, importa Tailwind + tokens + componentes |
 | `src/design/tokens.css` | **real** — 383 linhas. **Todas** as `var(--x)` usadas no projeto resolvem (verificado por script) |
 | `src/design/componentes.css` | **real desde `ffd2e4c`** — 627 linhas; era o buraco, ver §4.5 |
@@ -142,10 +146,17 @@ $ npm test
 **Contexto que o verde esconde.** O `tsc` cobre `**/*.ts` e `**/*.tsx`
 (`tsconfig.json:31-37`), inclusive `scripts/`. Mas os 22 testes cobrem só
 funções puras: CPF, dinheiro, transformação e matriz. **Nada** testa `proxy.ts`,
-`cripto.ts`, `auth.ts`, `consulta.ts` ou `tema.ts`. O Ciclo tem 18 arquivos de
-teste, com `cripto.test.ts` e `middleware.test.ts` entre eles — os dois módulos
-que este documento reporta com defeito (§5.2, §3.3) são justamente os que lá
-têm teste e aqui não.
+`cripto.ts`, `auth.ts`, `consulta.ts`, `tema.ts`, nem as 716 linhas de
+`ui.tsx` + `Modal.tsx`. O Ciclo tem **18** arquivos de teste, com
+`cripto.test.ts`, `consulta.test.ts` e `middleware.test.ts` entre eles — os
+três módulos que este documento reporta com defeito (§3.3, §3.7, §5.2) são
+justamente os que lá têm teste e aqui não. Não é coincidência: é o teste que
+prende a decisão.
+
+O mesmo vale para a matriz. `tests/permissoes.test.ts` existe, passa, e ainda
+assim 12 das 23 capacidades do Ciclo sumiram sem que nada ficasse vermelho
+(§3.2) — porque o teste guarda o que ninguém ia mudar por engano, e não o que
+foi transcrito à mão.
 
 ---
 
@@ -157,7 +168,7 @@ Era a contradição mais cara, porque bloqueava qualquer migração.
 
 **Como estava:**
 
-- `AGENTS.md` (versão `8cd93fa`, linhas 60-62): "Schema `public`: o que é comum
+- `AGENTS.md` (na versão `8cd93fa`, linhas 60-62): "Schema `public`: o que é comum
   … Schema `eventos`: o domínio de eventos. **Outros módulos, outros schemas.**"
 - `/home/user/sistema-ciclo-novo/docs/SNICONECTA-FUNDACAO.md:63-66`:
   "**Recomendo prefixo.** Não é mais bonito, mas é o que tem menos atrito com a
@@ -179,7 +190,7 @@ embutir `pessoas`, que fica em `public`. Logo:
 | Postgres direto pelo pooler — `eventos` | schema próprio `eventos.*`, não exposto |
 | plataforma | `public` sem prefixo |
 
-`AGENTS.md:64-71` foi reescrito de acordo, e o rascunho
+`AGENTS.md:65-71` foi reescrito de acordo, e o rascunho
 `supabase/rascunhos/eventos_schema.sql` **continua valendo como está**
 (`0007…md:58-59`).
 
@@ -319,55 +330,68 @@ padrão** (só no modo `"sistema"`), e o `tokens.css` não tem bloco
 `@media (prefers-color-scheme: dark)` — o tema escuro depende inteiramente do
 script inline. E ninguém escuta mudança de tema do SO durante a sessão.
 
-### 3.5 `ui.tsx` — não é "falta metade", é outra tecnologia
+### 3.5 `ui.tsx` e `Modal` — **buraco fechado em `dcd0193`**, mas por reescrita
 
-O `ui.tsx` do Ciclo cresceu para 551 linhas com o v2.7, mais `Modal.tsx` (205).
-O do esqueleto tem 226. Mas a diferença que importa não é o tamanho:
+Este item mudou de conclusão no meio da auditoria. Fica registrado nos dois
+estados porque a razão pela qual não dava para copiar continua valendo para
+todo o resto do porte.
+
+**O que o esqueleto tinha (até `e4e2daf`).** 226 linhas, 18 primitivos, sem
+`Modal`. Faltavam `Acao`, `AcaoLink`, `Chave`, `Etiqueta`, `Linha`, e as props
+`acao`/`voltar` de `TituloPagina`, `detalhe`/`tom`/`icone`/`alerta` de
+`Metrica`, `descricao`/`tom`/`acao` de `CardCabecalho`.
+
+**Por que não era "copiar do Ciclo".** As duas implementações não
+compartilham tecnologia:
 
 - **Ciclo**: utilitários Tailwind com tokens de um `tailwind.config.ts` de 176
   linhas — `bg-accent`, `rounded-pill`, `min-h-tap`, `text-body`, `vidro`,
   `shadow-btn` (`…/src/components/ui.tsx:37-59`). Tailwind **3**.
-- **Esqueleto**: classes CSS próprias, `.sni-btn`, `.sni-input`
-  (`src/componentes/ui.tsx:18-24`), sobre `componentes.css`. Tailwind **4**,
-  que não tem `tailwind.config.ts`.
+- **Esqueleto**: classes CSS próprias `.sni-*` (`src/componentes/ui.tsx:39-48`)
+  sobre `componentes.css`. Tailwind **4**, que nem tem `tailwind.config.ts`.
 
 **Nenhum primitivo do Ciclo compila aqui sem reescrita.** "Portar `ui.tsx` como
-superconjunto" (`docs/estudo/README.md:152`) significa reescrever 551 linhas de
-utilitário em classes `.sni-*`, não copiar arquivo.
+superconjunto" (`docs/estudo/README.md:152`) significava reescrever 551 linhas
+de utilitário em classes — foi o que `dcd0193` fez.
 
-Primitivo a primitivo:
+**O que existe agora.** `ui.tsx` (541 linhas, 24 primitivos) + `Modal.tsx`
+(175 linhas, 4). A cobertura sobre o Ciclo é **total**, e a estratégia de
+compatibilidade está declarada no cabeçalho (`ui.tsx:23-26`): "o que as telas
+do módulo `ciclo` já passavam continua aceito com o mesmo nome, e os nomes
+desta plataforma convivem como sinônimo. Porte de tela não deve virar caça a
+renomeação de prop."
 
-| Primitivo | Esqueleto | Ciclo | Situação |
+| Primitivo | Ciclo (`2f07f6a`) | Esqueleto (`dcd0193`) | Situação |
 |---|---|---|---|
-| `Botao` | `variante` (5), `tamanho` (3), `icone`, `...button` (`ui.tsx:26`) | `variante` (5), `tamanho` (3), `...button` (`…:62`) | esqueleto **melhor** (prop `icone`) |
-| `BotaoLink` | idem sobre `Link` (`ui.tsx:42`) | idem (`…:77`) | equivalente |
-| `BotaoIcone` | `rotulo` obrigatório (`ui.tsx:58`) | `rotulo` obrigatório (`…:92`) | equivalente |
-| `Acao` / `AcaoLink` | **ausentes** | ação discreta em linha de tabela (`…:123`, `…:133`) | **falta** — sem elas toda tabela vira botão |
-| `Chave` | **ausente** | liga/desliga com `aria-pressed` (`…:145`) | **falta** (o CSS `.sw` existe em `tokens.css:323`) |
-| `Input`/`Select`/`Textarea` | `ui.tsx:107-115` | `…:180-190` | equivalente |
-| `Campo` | `label`, `htmlFor`, `dica`, `erro`, `obrigatorio` (`ui.tsx:80`) | `label`, `hint`, `erro`, `obrigatorio` — **envolve em `<label>`** (`…:192`) | Ciclo dispensa `htmlFor`; esqueleto usa `dica` onde o Ciclo usa `hint` |
-| `Badge` | 6 tons + `ponto` (`ui.tsx:122`) | 7 tons + `ponto` (`…:247`) | falta o tom `navy`/`outline` |
-| `Etiqueta` | **ausente** | atalho ativo/inativo (`…:269`) | **falta** |
-| `Alerta` | `tipo` + `icone` **manual** (`ui.tsx:131`) | `tipo` escolhe o ícone sozinho (`…:304`) | Ciclo **melhor**: o esqueleto obriga cada tela a passar o ícone certo |
-| `Num` | `children` + `className` (`ui.tsx:163`) | `...ComponentProps<"span">` (`…:321`) | Ciclo mais flexível |
-| `Entidade` | `ui.tsx:177` | `…:332` | equivalente |
-| `Card` | `...ComponentProps<"section">` (`ui.tsx:142`) | `children` + `className` (`…:338`) | esqueleto mais flexível |
-| `CardCabecalho` | `icone`, `titulo`, `subtitulo` (`ui.tsx:150`) | + `descricao`, `tom` (4), `acao` (`…:348`) | **faltam 3 props** |
-| `Metrica` | `valor`, `rotulo` (`ui.tsx:167`) | + `detalhe`, `tom`, `icone`, `alerta` (`…:387`) | **faltam 4 props** |
-| `TituloPagina` | `children`, `descricao` (`ui.tsx:183`) | `titulo`, `descricao`, `acao`, `voltar` (`…:423`) | **faltam `acao` e `voltar`** |
-| `TituloSecao` | `children` (`ui.tsx:192`) | + régua à direita (`…:456`) | equivalente |
-| `Tabela` | `children` cru (`ui.tsx:209`) | `cabecalho: string[]` + `children` (`…:468`) | contratos **diferentes** |
-| `Linha` | **ausente** | `…:490` | **falta** |
-| `Celula` | `dado`, `alinhar` (`ui.tsx:220`) | `forte`, `dado` (`…:498`) | props divergem |
-| `Vazio` | `icone`, `titulo`, `children`, `acao` (`ui.tsx:196`) | idem (`…:524`) | equivalente |
-| `Modal`, `ModalCorpo`, `ModalAcoes`, `ModalCadastro` | **AUSENTES** | `Modal.tsx:26,104,109,123` | **falta o mais importante** |
+| `Botao`/`BotaoLink`/`BotaoIcone` | 5 variantes, 3 tamanhos | **8 variantes, 5 tamanhos** + prop `icone` (`ui.tsx:36-48`) | superconjunto |
+| `Acao` / `AcaoLink` | `…:123`, `…:133` | `ui.tsx:110`, `:119` — ganharam prop `icone` | superconjunto |
+| `Chave` | `…:145` | `ui.tsx:129` sobre a classe `.sw` que já existia | equivalente (ver §5.18) |
+| `Input`/`Select`/`Textarea` | `…:180-190` | `ui.tsx:151-159` | equivalente |
+| `Campo` | só embrulha em `<label>` (`…:192`) | **os dois modos**: com `htmlFor` solto, sem ele embrulhando (`ui.tsx:212-231`); aceita `dica` **e** `hint` (`:183-185`) | superconjunto |
+| `Badge` | 7 tons (`…:247`) | **9 tons**, `navy`→`dark`, + `tamanho` (`ui.tsx:237-249`) | superconjunto |
+| `Etiqueta` | `…:269` | `ui.tsx:272` | equivalente |
+| `Alerta` | ícone vem do tipo (`…:304`) | **ícone vem do tipo, `icone` sobrescreve** (`ui.tsx:282-296`) | superconjunto — resolveu o defeito antigo |
+| `Card` | `div` (`…:338`) | `div`, com prop `como` para `section`/`article` (`ui.tsx:318-325`) | superconjunto |
+| `CardCabecalho` | `titulo`,`subtitulo`,`descricao`,`tom`,`acao` (`…:348`) | os cinco (`ui.tsx:331`) | equivalente |
+| `Metrica` | `rotulo`,`valor`,`detalhe`,`tom`,`icone`,`alerta` (`…:387`) | os seis + `semCard` (`ui.tsx:372-388`) | superconjunto |
+| `Num`, `Entidade` | `…:321`, `…:332` | `ui.tsx:362`, `:412` | equivalente |
+| `TituloPagina` | `titulo` (`…:423`) | **`titulo` ou `children`** + `descricao`,`acao`,`voltar` (`ui.tsx:422-432`) | superconjunto |
+| `TituloSecao` | régua (`…:456`) | régua (`ui.tsx:454`) | equivalente |
+| `Tabela` | `cabecalho` obrigatório (`…:468`) | **`cabecalho` opcional** (`ui.tsx:494`) | superconjunto |
+| `Linha` | `…:490` | `ui.tsx:515`, com `...ComponentProps<"tr">` | superconjunto |
+| `Celula` | `forte`,`dado` (`…:498`) | `forte`,`dado`,`alinhar` (`ui.tsx:524`) | superconjunto |
+| `Vazio` | `…:524` | `ui.tsx:464` | equivalente |
+| `Modal`/`ModalCorpo`/`ModalAcoes`/`ModalCadastro` | `Modal.tsx:26,104,109,123` | `Modal.tsx:23,85,90,101` | equivalente, e **melhor**: `useId()` em vez do `id="modal-titulo"` literal do Ciclo (`Modal.tsx:39-40`), que anunciaria o título errado com dois modais na mesma página |
 
-**O buraco maior é o `Modal`.** `AGENTS.md:95` e `docs/design-system.md:204`
-determinam que *todo* cadastro acontece em modal, com Esc e clique fora
-bloqueados. O CSS já está pronto (`componentes.css:431-467`: `.sni-modal`,
-`-head`, `-title`, `-body`, `-foot`), o componente não existe, e o cabeçalho de
-`componentes.css:17` chega a apontar para "`components/Modal.tsx`" — arquivo que
-não existe e, se existisse, estaria em `componentes/`, não `components/`.
+A regra de `AGENTS.md:105` e `docs/design-system.md:204` — cadastro em modal,
+Esc e clique fora não fecham — está cumprida: `<dialog>` nativo com
+`onCancel={(e) => e.preventDefault()}` (`Modal.tsx:65`) e sem
+`onClick` no backdrop.
+
+**Sobra uma pendência de porte**, não de código: a nomenclatura das classes de
+`Campo` divergia (`dica` × `hint`) e agora aceita as duas. Isso é bom para o
+porte e ruim para a manutenção — vale marcar `hint` como obsoleto num
+comentário e remover quando as telas do Ciclo estiverem todas migradas.
 
 ### 3.6 `pessoas.email` e `cod_sni`: anuláveis aqui, `not null` lá
 
@@ -507,7 +531,7 @@ opcional, `corpo` obrigatório, cada módulo registrando os próprios templates.
 | Tema | `src/lib/tema.ts` (lógica) | `src/components/Tema.tsx` (componente) |
 | Módulos | `src/modulos/<modulo>/` | não existe |
 
-O português do esqueleto é o que `AGENTS.md:104` manda ("Tudo em português").
+O português do esqueleto é o que `AGENTS.md:112` manda ("Tudo em português").
 `src/proxy.ts` é imposição do Next 16, não escolha. O porte precisa renomear
 todos os `@/components/...` do Ciclo — mecânico, mas atinge todos os arquivos.
 Uma ponta solta ficou: `componentes.css:17` já cita "`components/Modal.tsx`",
@@ -604,9 +628,14 @@ sem definição em CSS**. A duplicação de seletor (`.sni-btn` aparece na camad
 estrutural e no bloco de aparência) é intencional e funciona: o segundo bloco
 não redefine `display`.
 
-Sobra pouco: `.sni-menu`, `.sni-dimlayer` e `.sni-modal-*` seguem sem camada
-estrutural completa — mas nenhum componente os usa ainda, e o `Modal` que os
-usaria não existe (§3.5).
+O commit `dcd0193` completou o serviço: `.sni-modal*` ganhou a camada
+estrutural e as larguras (`componentes.css:726-728`), e nasceram as classes dos
+primitivos novos — `.sni-acao` (`:668`), `.sni-metric*` (`:684-693`),
+`.sni-page-head*` (`:641-647`), `.sni-voltar` (`:651`), `.sni-section-head`
+(`:661`), `.sni-so-leitor` (`:700`), `.empty-acao` (`:696`),
+`.sni-table td.forte` (`:706`). Verifiquei por script: **toda classe usada em
+`.tsx` tem definição em CSS**, e toda `var(--x)` resolve. Sobra só `.sni-menu*`
+sem uso — o popover ainda não tem componente.
 
 ### 4.6 Rotas que o menu promete e não existem
 
@@ -708,7 +737,7 @@ transform: { undefined: null },
 ```
 
 `transform.undefined` converte `undefined` de JS em `NULL` de SQL. Não tem
-relação com datas nem com fuso. `AGENTS.md:106` manda o comentário explicar a
+relação com datas nem com fuso. `AGENTS.md:113` manda o comentário explicar a
 decisão; este explica uma decisão que não está ali.
 
 ### 5.8 `src/lib/auth.ts:30-32` — comentário sobre funções que não existem aqui
@@ -718,14 +747,16 @@ Justifica o `service_role` com "as policies dessas tabelas dependem de
 (`…/0010_funcoes_autorizacao.sql:14`) e **não neste repositório**, que não tem
 migração alguma. O comentário descreve um estado futuro como se fosse presente.
 
-### 5.9 `src/design/componentes.css:60-63` — comentário aponta para arquivo inexistente e em pasta errada
+### 5.9 `src/design/componentes.css:16` — caminho na pasta errada
 
 > `.modal .dimlayer → .sni-modal .dimlayer (components/Modal.tsx)`
 
-`Modal.tsx` não existe, e a pasta deste repositório é `componentes/`
-(`AGENTS.md:36`), não `components/`.
+Desde `dcd0193` o `Modal.tsx` existe — mas em `src/componentes/`, que é a pasta
+deste repositório (`AGENTS.md:23`). O mapa de nomes no cabeçalho do CSS
+continua apontando para `components/`, na grafia do Ciclo. Uma palavra.
+(`componentes.css:711` já escreve certo, só "Modal.tsx", sem pasta.)
 
-### 5.10 `src/design/componentes.css:61` — `aria-current` que ninguém emite
+### 5.10 `src/design/componentes.css:62` — `aria-current` que ninguém emite
 
 A camada estrutural adicionou `.sni-sidebar-item[aria-current="page"]` com o
 comentário "Aceitar os dois evita que uma tela pinte um e anuncie o outro".
@@ -776,24 +807,72 @@ escrito certo. Manter só o `white-space: nowrap`.
 ### 5.16 Nomenclatura institucional — **sem violações**
 
 Varri o repositório inteiro: nenhuma ocorrência de "do Brasil" em caixa mista
-fora das próprias regras que a proíbem (`AGENTS.md:100`,
+fora das próprias regras que a proíbem (`AGENTS.md:107`,
 `docs/design-system.md:103`, `docs/tokens.json:169`). `AppShell.tsx:54` usa
-"Seicho-No-Ie" sozinho, que `AGENTS.md:101` autoriza. `SNI Conecta` está
+"Seicho-No-Ie" sozinho, que `AGENTS.md:108` autoriza. `SNI Conecta` está
 sempre correto. Este ponto está limpo.
 
 ### 5.17 CSS declarado e nunca usado
 
-Sem contar as classes montadas dinamicamente (`sni-btn-${tamanho}`,
-`sni-badge-${tom}`, `sni-alert-${tipo}`, que são usadas), ficam mortas:
-`.sni-modal*` (5 regras, sem componente), `.sni-menu*` (3), `.sni-dimlayer`,
-`.sni-spinner`, `.sni-divider*`, `.sni-icon-btn`, `.sni-sidebar-badge`,
-`.sni-trend-*`, `.sni-form-grid`, `.sni-table-wrap` (existe mas o `Tabela` usa
-`style` inline em `ui.tsx:212`), e de `tokens.css`: `.seg`, `.sw`, `.pull`,
-`.serif*`, `.solid`, `.navy`, `.dimlayer`, `.t-card`, `.t-metric`, `.t-body`,
-`.t-screen`. Não é defeito — é a antecipação de primitivos que virão. Duas
-duplicações merecem decisão: `.t-page` × `.sni-page-title` e `.t-metric` ×
-`.sni-metric-value` definem a mesma coisa duas vezes, e o `ui.tsx` usa a
-primeira de cada par.
+Depois de `dcd0193` a lista encolheu bastante: `.sni-modal*`, `.sw`,
+`.sni-table-wrap` e `.sni-acao` passaram a ter componente. Sem contar as
+classes montadas dinamicamente (`sni-btn-${tamanho}`, `sni-badge-${tom}`,
+`sni-alert-${tipo}`, `sni-modal-${largura}` — todas usadas), seguem mortas:
+`.sni-menu*` (3 regras, sem popover), `.sni-dimlayer`, `.sni-spinner*`,
+`.sni-divider*`, `.sni-icon-btn`, `.sni-sidebar-badge`, `.sni-trend-*`,
+`.sni-form-grid`, e de `tokens.css`: `.seg`, `.pull`, `.serif*`, `.solid`,
+`.navy`, `.dimlayer`, `.t-card`, `.t-body`, `.t-screen`. Não é defeito — é a
+antecipação de primitivos que virão.
+
+**Duas duplicações merecem decisão**, e sobreviveram a `dcd0193`:
+`.t-page` (`tokens.css:257`) × `.sni-page-title` (`componentes.css:391`), e
+`.t-metric` (`tokens.css:270`) × `.sni-metric-value` (`componentes.css:304`).
+Definem a mesma coisa em dois arquivos; o `ui.tsx` usa `.t-page` e
+`.sni-metric-value`, ou seja, uma de cada par. Duas fontes da verdade para o
+mesmo tamanho de fonte é como um título muda de tamanho sozinho seis meses
+depois. Também há `.sni-section-eyebrow` definido duas vezes dentro do próprio
+`componentes.css` (`:129` na camada estrutural e `:402` na de aparência) — esse
+é o padrão novo e está certo, mas convém não confundir com o caso acima.
+
+### 5.18 `src/componentes/ui.tsx:136-145` — `Chave` anuncia o estado duas vezes
+
+```tsx
+role="switch"
+aria-checked={ligado}
+aria-pressed={ligado}
+```
+
+`role="switch"` usa `aria-checked`; `aria-pressed` pertence a `role="button"`.
+Os dois juntos são redundantes e, em alguns leitores de tela, o estado é
+anunciado duas vezes ("interruptor marcado, pressionado"). O Ciclo usa só
+`aria-pressed` sem `role` (`…/src/components/ui.tsx:153`), o que também
+funciona. Escolher um: com `role="switch"`, fica só `aria-checked`.
+
+O CSS não ajuda a escolher: `tokens.css:334-335` pinta o estado ligado por
+`.sw[aria-pressed="true"]`. Trocar para `[aria-checked="true"]` junto, ou o
+botão fica correto para o leitor de tela e apagado na tela.
+
+### 5.19 `src/componentes/Modal.tsx:151-160` — a Server Action que falha não diz nada
+
+```tsx
+iniciarEnvio(async () => {
+  await acao(formData);
+  setAberto(false);
+});
+```
+
+O comentário logo acima (`:153-155`) mostra que o caso foi pensado: "Fecha só
+DEPOIS que a ação termina. Fechar antes daria por gravado o que a validação
+ainda pode recusar". Mas **não há tratamento da recusa**: se `acao` rejeitar, a
+promessa estoura dentro da transição, `setAberto(false)` não roda (correto, o
+modal fica aberto) e **a pessoa não vê nada** — nem mensagem, nem o botão
+saindo de "Salvando…". Ela clica de novo.
+
+Falta um `try/catch` com estado de erro renderizado dentro do `ModalCorpo`.
+Enquanto não houver, toda Server Action usada por `ModalCadastro` precisa
+tratar o erro por dentro e devolver normalmente — o que é frágil de garantir.
+Nem o Ciclo resolve isso (`…/src/components/Modal.tsx:123` em diante tem a
+mesma forma), então é dívida herdada, não regressão.
 
 ---
 
@@ -813,8 +892,14 @@ primeira de cada par.
 7. `src/design/tokens.css` — 383 linhas, todas as variáveis resolvem.
 8. A camada estrutural de `componentes.css:20-140` recém-restaurada, e a regra
    que ela institui ("layout aqui, aparência lá").
-9. Os ADRs 0001–0007 e a decisão de `email`/`cod_sni` anuláveis.
-10. `next.config.ts`, os dois workflows, `.env.example`, `vitest.config.ts`.
+9. **`src/componentes/ui.tsx` e `Modal.tsx` como estão** (`dcd0193`): cobrem
+   todos os 24 primitivos do Ciclo, aceitam os nomes de prop das duas origens
+   (`ui.tsx:23-26`) e corrigem dois defeitos do original — o ícone do `Alerta`
+   passa a vir do tipo (`ui.tsx:282-296`) e o `aria-labelledby` do modal usa
+   `useId()` em vez de um literal (`Modal.tsx:39-40`). Ressalvas em §5.18 e
+   §5.19.
+10. Os ADRs 0001–0009 e a decisão de `email`/`cod_sni` anuláveis.
+11. `next.config.ts`, os dois workflows, `.env.example`, `vitest.config.ts`.
 
 ### 6.2 Ajustar (correções pontuais, alto retorno)
 
@@ -862,13 +947,11 @@ Em ordem de risco:
    Ciclo (`null` passa, erro lança) mais `ErroConsulta` tipada — senão cada
    `maybeSingle()` portado vira exceção. Se ficar a do esqueleto, revisar
    **todas** as chamadas ao portar, uma a uma.
-4. **`src/componentes/ui.tsx`: reescrever os 551 linhas do Ciclo em classes
-   `.sni-*`.** Não é cópia (§3.5): lá é utilitário Tailwind 3 com
-   `tailwind.config.ts`; aqui é CSS próprio com Tailwind 4. Prioridade:
-   `Modal` + `ModalCorpo` + `ModalAcoes` + `ModalCadastro` (o CSS já espera por
-   eles e `AGENTS.md:95` os exige), depois `Acao`/`AcaoLink`, `Chave`,
-   `Etiqueta`, `Linha`, e as props que faltam em `Metrica`, `CardCabecalho`,
-   `TituloPagina` e `Alerta`.
+4. ~~Reescrever os primitivos do Ciclo em classes `.sni-*`.~~ **FEITO em
+   `dcd0193`** (§3.5). Resta o que a reescrita não cobre: erro visível no
+   `ModalCadastro` (§5.19), `Chave` com um único atributo de estado (§5.18), e
+   um teste de renderização para os primitivos — hoje 716 linhas de UI sem
+   nenhuma asserção.
 5. **`src/lib/comunicacao/fila.ts`: o contrato, antes da implementação.**
    `template` opcional com `corpo` obrigatório, `destino` no lugar de
    `destinatario`, e `processarFila` devolvendo `{enviadas, falhas, ignoradas}` —
@@ -902,10 +985,20 @@ obriga a reescrevê-lo em duas semanas.
 - **A migração consolidada.** ADR 0007 decidiu *onde* as tabelas moram; ninguém
   ainda escreveu o `0001` da plataforma nem provou o diff de `pg_dump` contra
   as 24 migrations do Ciclo (`SNICONECTA-FUNDACAO.md:196-200`).
-- **`papeis` com escopo genérico.** A tabela do Ciclo tem `check` fixo nos 6
-  tipos e FK `edicao_id` para tabela de módulo (`…/0002_pessoas.sql:78-80`);
-  não aceita `eventos_admin`. `docs/estudo/README.md:106-108` já propôs
-  `(pessoa_id, tipo, escopo_tipo, escopo_id)`; falta escrever.
+- ~~**`papeis` com escopo genérico.**~~ Resolvido pelas ADRs 0008 e 0009,
+  escritas no fim desta sessão: `papeis(pessoa_id, tipo, unidade_id, ativo)`
+  com `unidade_id` nulo = nacional, mais um catálogo `tipos_papel(codigo,
+  nome, modulo, escopo)` como **dado** — papel de módulo novo entra por
+  `INSERT`, não por migração
+  (`docs/decisoes/0009-papeis-escopo-e-catalogo.md:18-32`). Isso resolve os
+  três defeitos da tabela do Ciclo (`check` fixo nos 6 tipos e FK `edicao_id`
+  para tabela de módulo, `…/0002_pessoas.sql:78-80`). **Duas consequências
+  para este documento:** a coluna `ativo` está mantida na decisão, o que
+  confirma §5.3 como defeito a corrigir; e o `escopo_tipo`/`escopo_id` que
+  `docs/estudo/README.md:106-108` propunha foi recusado
+  (`0009…md:40-43`), então `PapelRow` (`src/lib/supabase/tipos.ts:22-29`)
+  precisa virar `(pessoa_id, tipo, unidade_id, ativo)` — hoje tem
+  `localidade_id` e `edicao_id`, que a ADR 0009 elimina.
 - **Pessoa sem CPF** — venda de balcão a menor ou estrangeiro. Pendência da
   Sede desde `docs/decisoes/0004-pessoas-email-e-cpf.md:20-22`.
 - **Se `pessoa.gerir` do esqueleto (só sede + eventos_admin) ou do Ciclo

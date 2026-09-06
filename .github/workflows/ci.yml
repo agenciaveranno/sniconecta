@@ -17,6 +17,14 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+      # O RLS é a autorização real. Teste unitário não o alcança: a matriz em
+      # permissoes.ts diz o que a INTERFACE oferece, e quem de fato autoriza é
+      # o Postgres. Este passo sobe um banco, aplica as migrações e fala com
+      # ele como cada papel. Também confere a superfície de GRANT (decisão
+      # 0007), que é o que substitui o isolamento de um schema.
+      - name: RLS e superfície de GRANT
+        run: sudo -E ./scripts/testar-rls.sh
       # O build precisa das variáveis públicas para montar o cliente Supabase.
       # Valores de mentira bastam: nada é chamado durante o build.
       - run: npm run build

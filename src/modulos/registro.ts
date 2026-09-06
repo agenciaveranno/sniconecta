@@ -48,6 +48,7 @@ export const MODULOS: Modulo[] = [
     rotulo: "Administração",
     itens: [
       { href: "/admin/pessoas", rotulo: "Pessoas e acesso", icone: "IconUserCog", capacidade: "pessoa.gerir" },
+      { href: "/admin/estrutura", rotulo: "Estrutura", icone: "IconSitemap", capacidade: "estrutura.gerir" },
       { href: "/admin/auditoria", rotulo: "Auditoria", icone: "IconHistory", capacidade: "auditoria.ver" },
     ],
   },

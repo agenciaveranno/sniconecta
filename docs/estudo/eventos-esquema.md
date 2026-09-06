@@ -178,10 +178,10 @@ com charset declarado**.
 | `nomeCompleto` | VARCHAR(255) | não | — | l.19 |
 | `codSNI` | VARCHAR(100) | sim | — | l.20 |
 | `cpf` | VARCHAR(20) | **não** | — | l.21 |
-| `telefone` | VARCHAR(50) | sim | — | l.23 |
-| `email` | VARCHAR(255) | sim | — | l.24 |
-| `regional` | VARCHAR(100) | sim | — | l.25 — texto livre |
-| `organizacao` | VARCHAR(100) | sim | — | l.26 — texto livre |
+| `telefone` | VARCHAR(50) | sim | — | l.22 |
+| `email` | VARCHAR(255) | sim | — | l.23 |
+| `regional` | VARCHAR(100) | sim | — | l.24 — texto livre |
+| `organizacao` | VARCHAR(100) | sim | — | l.25 — texto livre |
 | `nucleo` → `associacaoLocal` | VARCHAR(255) | sim | — | l.26 criada como `nucleo`; renomeada em `migrate:199` |
 | `dataNascimento` | DATETIME | sim | — | l.27 |
 | `endereco` | VARCHAR(255) | sim | — | l.28 |
@@ -200,7 +200,9 @@ com charset declarado**.
 | `primeiraVez` | TINYINT(1) | não | 0 | `migrate:206` |
 | `emailOptOut` | TINYINT(1) | não | 0 | `migrate:760` |
 
-**25 colunas.**
+**25 colunas.** ⚠️ Os números de linha de `telefone` a `associacaoLocal` em
+`eventos-identidade.md §2.1` estão deslocados em uma unidade; os corretos são
+os desta tabela (`sed -n '16,40p' server.js`).
 
 Chaves e índices: PK `id`. O `UNIQUE` implícito em `cpf` (herdado do Prisma) é
 **derrubado** duas vezes — `server.js:44` e `migrate:178`. `migrate:1071-1083`
@@ -1654,3 +1656,651 @@ separação entre estrutura comum e estrutura do módulo (passos 2 e 4).
 numeroConvite, dataPurchase, formaPagamento, checkinAt, ingressoEvento,
 ingressoJantar}` (já migrados para `Inscricao` no Step 5).
 
+
+---
+
+## 7. Proposta de esquema Postgres final do schema `eventos`
+
+O que segue corrige os 14 erros do §2.4, completa as 23 colunas do §2.3 e traz
+as tabelas do §2.5 que **são do módulo**. Está pronto para virar
+`supabase/migrations/AAAAMMDDHHMMSS_schema_eventos.sql` assim que o schema
+comum estiver na `main` (passos 1 e 2 de `supabase/migrations/README.md`).
+
+**Premissas que este SQL assume do comum** — se alguma mudar, o SQL muda:
+`public.pessoas(id uuid, cpf, cod_sni, email, legado_id integer unique)`,
+`public.regionais(id, nome, corresponde_id, legado_id)`,
+`public.organizacoes(id, nome)`, `public.notificacoes` como fila única,
+`public.auditoria`, `public.configuracoes`.
+
+```sql
+-- ─────────────────────────────────────────────────────────────────────────
+-- Por quê: o módulo de eventos vem de um MySQL com 31 tabelas em camelCase,
+-- dinheiro em DECIMAL, datas sem fuso, imagens em base64 e ZERO chaves
+-- estrangeiras. Aqui ele ganha snake_case, centavos inteiros, timestamptz,
+-- FK de verdade e RLS. Os ids inteiros são PRESERVADOS: número de pedido na
+-- Cielo, QR de voucher e links de e-mails já enviados dependem deles.
+--
+-- O que aconteceria sem isto: a base de mais de 16 mil pessoas migraria para
+-- um esquema improvisado, e as 449 consultas do módulo seriam reescritas
+-- contra ele — duas vezes.
+--
+-- Acesso (docs/decisoes/0003): o módulo fala Postgres direto pelo pooler com
+-- papel próprio. RLS LIGADA e FORÇADA em toda tabela, e NENHUM GRANT para
+-- anon/authenticated. O projeto roda com "expose new tables" desligado, então
+-- sem GRANT a policy nem chega a ser avaliada — a proteção é dupla e
+-- proposital: uma concessão futura por engano não abre nada.
+-- ─────────────────────────────────────────────────────────────────────────
+
+create schema if not exists eventos;
+
+-- ─── Estrutura do módulo ──────────────────────────────────────────────────
+
+create table eventos.locais (
+  id              integer primary key,
+  nome            text not null,
+  endereco        text,
+  bairro          text,
+  cidade          text,
+  -- text + check, e não char(2): char preenche com espaço e quebra comparação.
+  estado          text check (estado ~ '^[A-Z]{2}$'),
+  telefone        text,
+  email           text,
+  -- Conta Cielo do local: campo de cadastro, ainda editado em tela hoje.
+  -- Não é credencial (é um identificador), então NÃO é cifrado.
+  conta_cielo     text,
+  criado_em       timestamptz not null default now()
+);
+
+create table eventos.promotores (
+  id              integer primary key,
+  nome            text not null,
+  telefone        text,
+  email           text,
+  logo_url        text,          -- Supabase Storage; era LONGTEXT base64
+  -- Liga a correspondência de regionais na estatística dos eventos deste
+  -- promotor. Sem ela, o relatório institucional agrega pela regional crua.
+  usar_correspondencia_regional boolean not null default false,
+  criado_em       timestamptz not null default now()
+);
+
+create table eventos.orientadores (
+  id              integer primary key,
+  nome            text not null,
+  foto_url        text,          -- Storage
+  bio             text,
+  criado_em       timestamptz not null default now()
+);
+
+-- Credenciais do adquirente. merchant_key_cifrada usa src/lib/cripto.ts
+-- (AES-256-GCM). Tabela sem GRANT para anon/authenticated — como toda tabela
+-- deste schema — e o valor decifrado NUNCA volta para a tela.
+create table eventos.contas_cielo (
+  id              integer primary key,
+  nome            text not null unique,
+  merchant_id     text not null,
+  merchant_key_cifrada text not null,
+  -- 'producao'/'sandbox' em português; a carga traduz 'production' e
+  -- 'homologacao' da origem.
+  ambiente        text not null default 'producao'
+                    check (ambiente in ('producao','sandbox')),
+  -- Conta usada quando o evento não aponta nenhuma. Índice parcial abaixo
+  -- garante que só existe UMA padrão — a origem não garantia.
+  padrao          boolean not null default false,
+  criado_em       timestamptz not null default now()
+);
+create unique index contas_cielo_uma_padrao
+  on eventos.contas_cielo (padrao) where padrao;
+
+-- ─── Evento e catálogo ────────────────────────────────────────────────────
+
+create table eventos.eventos (
+  id              integer primary key,
+  nome            text not null,
+  slug            text unique,
+  data_inicial    date not null,
+  data_final      date not null,
+  -- on delete set null (e não cascade): apagar um local não pode apagar o
+  -- histórico financeiro de um evento.
+  local_id        integer references eventos.locais(id) on delete set null,
+  promotor_id     integer references eventos.promotores(id) on delete set null,
+  conta_cielo_id  integer references eventos.contas_cielo(id) on delete set null,
+  ativo           boolean not null default true,
+  -- Voucher: os defaults são os DA PRODUÇÃO. Trocá-los muda o visual de todo
+  -- evento novo; se a Sede quiser as cores v2.7, é decisão em separado.
+  voucher_banner_url     text,   -- Storage
+  voucher_logo_url       text,   -- Storage
+  comprar_logo_url       text,   -- Storage; logo da landing pública
+  voucher_cor_primaria   text not null default '#1e3a5f',
+  voucher_cor_secundaria text not null default '#f59e0b',
+  voucher_boas_vindas    text,
+  voucher_instrucoes     text,
+  voucher_rodape         text,
+  -- As 5 colunas TINYINT viram um jsonb: são flags de exibição do mesmo
+  -- objeto e mudam juntas. O check impede jsonb malformado virar bug de tela.
+  voucher_mostrar jsonb not null
+    default '{"participante":true,"evento":true,"ingresso":true,"qrcode":true,"pagamento":true}'
+    check (voucher_mostrar ?& array['participante','evento','ingresso','qrcode','pagamento']),
+  criado_em       timestamptz not null default now(),
+  check (data_final >= data_inicial)
+);
+create index on eventos.eventos (ativo, data_inicial desc);
+
+create table eventos.evento_orientadores (
+  evento_id       integer not null references eventos.eventos(id) on delete cascade,
+  orientador_id   integer not null references eventos.orientadores(id) on delete cascade,
+  ordem           smallint not null default 0,
+  primary key (evento_id, orientador_id)
+);
+
+create table eventos.ingresso_tipos (
+  id              integer primary key,
+  evento_id       integer not null references eventos.eventos(id) on delete cascade,
+  nome            text not null,
+  descricao       text,
+  valor_centavos  integer not null default 0 check (valor_centavos >= 0),
+  max_parcelas    smallint not null default 1 check (max_parcelas >= 1),
+  -- null = sem limite. ⚠️ Na origem o default era 999, não null: a carga
+  -- decide se 999 significa "ilimitado" (e vira null) ou é um limite real.
+  quantidade      integer check (quantidade is null or quantidade >= 0),
+  venda_inicio    timestamptz,
+  venda_fim       timestamptz,
+  idade_min       smallint,
+  idade_max       smallint,
+  unico_por_cpf   boolean not null default false,
+  -- 'principal' (plateia, camarote — máx. 1 por CPF entre os principais)
+  -- ou 'adicional' (jantar, infantil). Default 'adicional' para não mudar o
+  -- comportamento do que já está vendido.
+  papel           text not null default 'adicional'
+                    check (papel in ('principal','adicional')),
+  exige_principal boolean not null default false,
+  exibir_venda_publica boolean not null default true,
+  -- Tipo que já vendeu não se apaga: a inscrição guarda só o id, e apagar
+  -- deixaria o convite vendido sem nome e sem preço. Inativa-se.
+  ativo           boolean not null default true,
+  criado_em       timestamptz not null default now()
+);
+create index on eventos.ingresso_tipos (evento_id, ativo);
+
+create table eventos.ingresso_campos (
+  id              integer primary key,
+  ingresso_tipo_id integer not null references eventos.ingresso_tipos(id) on delete cascade,
+  rotulo          text not null,
+  tipo            text not null default 'texto' check (tipo in ('texto','select')),
+  -- Array JSON de strings; obrigatório quando tipo = 'select'.
+  opcoes          jsonb,
+  obrigatorio     boolean not null default false,
+  ordem           smallint not null default 0,
+  -- Soft-delete: o campo some do formulário mas continua resolvendo as
+  -- respostas já dadas.
+  ativo           boolean not null default true,
+  criado_em       timestamptz not null default now(),
+  check (tipo <> 'select' or jsonb_array_length(coalesce(opcoes,'[]')) > 0)
+);
+create index on eventos.ingresso_campos (ingresso_tipo_id, ativo, ordem);
+
+create table eventos.combos (
+  id              integer primary key,
+  evento_id       integer not null references eventos.eventos(id) on delete cascade,
+  nome            text not null,
+  descricao       text,
+  valor_centavos  integer not null default 0 check (valor_centavos >= 0),
+  quantidade      integer,                    -- null = sem limite
+  venda_inicio    timestamptz,
+  venda_fim       timestamptz,
+  ativo           boolean not null default true,
+  limite_por_cpf  integer,
+  max_parcelas    smallint not null default 1 check (max_parcelas >= 1),
+  criado_em       timestamptz not null default now()
+);
+create index on eventos.combos (evento_id, ativo);
+
+create table eventos.combo_itens (
+  id              integer primary key,
+  combo_id        integer not null references eventos.combos(id) on delete cascade,
+  ingresso_tipo_id integer not null references eventos.ingresso_tipos(id),
+  quantidade      smallint not null default 1 check (quantidade >= 1)
+);
+create index on eventos.combo_itens (combo_id);
+
+create table eventos.cupons (
+  id              integer primary key,
+  evento_id       integer not null references eventos.eventos(id) on delete cascade,
+  codigo          text not null,
+  descricao       text,
+  tipo            text not null check (tipo in ('percentual','valor')),
+  -- Duas colunas, e não uma: na origem o DECIMAL(10,2) servia aos dois
+  -- sentidos e 12,50% virava 12 ou 1250 conforme quem lia. Aqui o percentual
+  -- guarda a casa decimal e o valor guarda centavos; o check garante que
+  -- exatamente um está preenchido.
+  percentual      numeric(5,2) check (percentual is null or (percentual > 0 and percentual <= 100)),
+  valor_centavos  integer check (valor_centavos is null or valor_centavos > 0),
+  check ((tipo = 'percentual' and percentual is not null and valor_centavos is null)
+      or (tipo = 'valor'      and valor_centavos is not null and percentual is null)),
+  ingresso_tipo_id integer references eventos.ingresso_tipos(id),
+  combo_id        integer references eventos.combos(id),
+  max_usos_total  integer,
+  max_usos_por_cpf integer,
+  vigencia_inicio timestamptz,
+  vigencia_fim    timestamptz,
+  ativo           boolean not null default true,
+  criado_em       timestamptz not null default now(),
+  unique (evento_id, codigo)
+);
+create index on eventos.cupons (evento_id, ativo);
+
+-- ─── Compra ───────────────────────────────────────────────────────────────
+
+-- Era PedidoPendente: a TENTATIVA de compra online, antes de virar convite.
+create table eventos.pedidos (
+  id              integer primary key,
+  comprador_id    uuid not null references public.pessoas(id),
+  -- O CPF do comprador continua aqui: é o que a Cielo recebe como pagador e
+  -- o que casa o carrinho abandonado. Redundante com pessoas.cpf de
+  -- propósito — é o valor no momento da compra.
+  comprador_cpf   text not null check (comprador_cpf ~ '^[0-9]{11}$'),
+  evento_id       integer not null references eventos.eventos(id),
+  -- Âncora: num combo é o 1º item. Obrigatório, como na origem.
+  ingresso_tipo_id integer not null references eventos.ingresso_tipos(id),
+  combo_id        integer references eventos.combos(id),
+  quantidade      smallint not null default 1 check (quantidade >= 1),
+  cupom_id        integer references eventos.cupons(id),
+  valor_original_centavos integer not null default 0 check (valor_original_centavos >= 0),
+  desconto_centavos       integer not null default 0 check (desconto_centavos >= 0),
+  -- Snapshot dos participantes e respostas informados no checkout. Default
+  -- '[]' porque a origem admitia NULL e a carga não pode inventar conteúdo.
+  participantes   jsonb not null default '[]',
+  status          text not null default 'pendente'
+                    check (status in ('pendente','confirmado','cancelado','expirado')),
+  -- As 10 colunas cielo* viram um objeto: order_id, payment_id, method, tid,
+  -- auth_code, brand, pix{qr_code,expires_at}, return_code, return_message.
+  -- A imagem base64 do QR Pix NÃO entra aqui (vence em horas).
+  cielo           jsonb not null default '{}',
+  criado_em       timestamptz not null default now(),
+  atualizado_em   timestamptz not null default now()
+);
+-- Índices que a origem tinha (e a varredura de expiração exige).
+create index on eventos.pedidos ((cielo->>'order_id'));
+create index on eventos.pedidos ((cielo->>'payment_id'));
+create index on eventos.pedidos (status, criado_em);
+create index on eventos.pedidos (status, ((cielo->'pix'->>'expires_at')));
+create index on eventos.pedidos (comprador_id);
+
+-- O convite. Uma linha por unidade vendida.
+create table eventos.inscricoes (
+  id              integer primary key,
+  pessoa_id       uuid not null references public.pessoas(id),
+  evento_id       integer not null references eventos.eventos(id),
+  ingresso_tipo_id integer references eventos.ingresso_tipos(id),
+  combo_id        integer references eventos.combos(id),
+  -- Relação invertida em relação à origem, onde PedidoPendente.inscricaoIds
+  -- guardava os ids como CSV em VARCHAR(255) — que trunca em ~35 unidades.
+  pedido_id       integer references eventos.pedidos(id),
+  -- Linhas nascidas da MESMA compra: é por ele que um combo é cancelado
+  -- inteiro. Necessário porque combo gratuito não gera order_id.
+  compra_grupo_id uuid,
+  comprador_id    uuid references public.pessoas(id),
+  comprador_cpf   text check (comprador_cpf ~ '^[0-9]{11}$'),
+  numero_convite  text,
+  forma_pagamento text check (forma_pagamento in
+    ('dinheiro','cartao','cielo','cielo-pix','cielo-credito',
+     'credenciamento','pix','cortesia','gratuito','transferencia')),
+  -- ANULÁVEL: a coluna nasceu depois de milhares de vendas e nunca teve
+  -- backfill. NOT NULL aqui recusaria toda inscrição antiga. 'transferencia'
+  -- é valor real (a transferência entre eventos grava exatamente isso).
+  tipo_venda      text check (tipo_venda in ('online','balcao','transferencia')),
+  status          text not null default 'pago'
+                    check (status in ('pendente','pago','cancelado','expirado','transferido')),
+  valor_original_centavos integer check (valor_original_centavos is null or valor_original_centavos >= 0),
+  desconto_centavos       integer not null default 0 check (desconto_centavos >= 0),
+  cupom_id        integer references eventos.cupons(id),
+  data_compra     timestamptz,
+  checkin_em      timestamptz,
+  observacao      text,                 -- ObsPgto da importação de credenciamento
+  -- Rastro de conferência do balcão: cada forma de pagamento carrega o dado
+  -- que comprova a entrada.
+  credenciamento_pedido text,
+  pix_data        date,
+  pix_recibo      text,
+  cortesia_motivo text,
+  -- Resultado da autorização (order_id, payment_id, method, tid, auth_code,
+  -- brand, return_code, return_message). Mesmo formato de pedidos.cielo.
+  cielo           jsonb not null default '{}',
+  -- Cancelamento. O operador é guardado nas DUAS formas: o id quando resolve
+  -- para uma pessoa, o e-mail sempre — a origem só tinha o e-mail, e nem
+  -- todo operador antigo vira pessoa.
+  cancelado_em    timestamptz,
+  cancelado_por_id uuid references public.pessoas(id),
+  cancelado_por_email text,
+  cancelamento_motivo text,
+  -- Âncora do cancelamento (aponta para si mesma). É por ela que se listam as
+  -- unidades canceladas juntas.
+  cancelamento_ancora_id integer references eventos.inscricoes(id),
+  -- Estorno: preenchido SÓ na âncora, para a fila da Sede não duplicar valor.
+  estorno_status  text check (estorno_status in ('pendente','efetuado','sem_estorno')),
+  estorno_forma   text check (estorno_forma in ('pix','cartao','dinheiro','sede','sem_estorno')),
+  estorno_valor_centavos integer check (estorno_valor_centavos is null or estorno_valor_centavos >= 0),
+  -- Coluna, e não jsonb: a fila da Sede ordena e filtra por esta data.
+  estorno_efetuado_em timestamptz,
+  estorno_efetuado_por_id uuid references public.pessoas(id),
+  estorno_efetuado_por_email text,
+  estorno_comprovante text,
+  estorno_observacao text,
+  -- Transferência ENTRE EVENTOS: a receita fica na origem (status
+  -- 'transferido'), a participação vai para o destino (valor 0).
+  transferido_para_evento_id integer references eventos.eventos(id),
+  transferido_para_inscricao_id integer references eventos.inscricoes(id),
+  transferido_de_id integer references eventos.inscricoes(id),
+  transferido_em  timestamptz,
+  transferido_por_id uuid references public.pessoas(id),
+  transferido_por_email text,
+  -- Troca de TITULAR: mesmo convite, mesmo valor, outro dono. Colunas
+  -- próprias (e não as de transferência) porque são operações distintas e
+  -- precisam ser distinguíveis depois.
+  titular_anterior_id uuid references public.pessoas(id),
+  titular_trocado_em timestamptz,
+  titular_trocado_por_id uuid references public.pessoas(id),
+  titular_trocado_por_email text,
+  titular_troca_motivo text,
+  criado_em       timestamptz not null default now()
+);
+create index on eventos.inscricoes (pessoa_id, evento_id);
+create index on eventos.inscricoes (evento_id, status);
+create index on eventos.inscricoes (evento_id, ingresso_tipo_id);
+create index on eventos.inscricoes (compra_grupo_id) where compra_grupo_id is not null;
+create index on eventos.inscricoes (pedido_id) where pedido_id is not null;
+create index on eventos.inscricoes (comprador_id) where comprador_id is not null;
+create index on eventos.inscricoes (cancelamento_ancora_id) where cancelamento_ancora_id is not null;
+create index on eventos.inscricoes (status, data_compra);
+create index on eventos.inscricoes (estorno_status, cancelado_em) where estorno_status is not null;
+create index on eventos.inscricoes ((cielo->>'order_id'));
+
+-- Resposta a um campo personalizado, uma por inscrição. `rotulo` é snapshot
+-- deliberado: o relatório continua correto se o campo for renomeado ou
+-- desativado.
+create table eventos.inscricao_respostas (
+  id              integer primary key,
+  inscricao_id    integer not null references eventos.inscricoes(id) on delete cascade,
+  campo_id        integer references eventos.ingresso_campos(id) on delete set null,
+  rotulo          text not null,
+  valor           text,
+  criado_em       timestamptz not null default now()
+);
+create index on eventos.inscricao_respostas (inscricao_id);
+create index on eventos.inscricao_respostas (campo_id);
+
+-- Magic link do comprador: autentica SEM conta no Auth (ADR 0005).
+-- Guarda o HASH, não o token: na origem o token era a própria PK, em claro —
+-- quem lesse o banco entrava na conta de qualquer comprador.
+create table eventos.magic_links (
+  token_hash      text primary key,           -- sha256 hex do token
+  pessoa_id       uuid not null references public.pessoas(id) on delete cascade,
+  -- Contexto da compra: é o que reconstrói o carrinho quando a pessoa volta
+  -- pelo link, e o alvo da ação "comprar_ingresso" da régua de e-mails.
+  evento_id       integer references eventos.eventos(id) on delete cascade,
+  ingresso_tipo_id integer references eventos.ingresso_tipos(id) on delete set null,
+  quantidade      smallint,
+  expira_em       timestamptz not null,
+  usado_em        timestamptz,
+  criado_em       timestamptz not null default now()
+);
+create index on eventos.magic_links (pessoa_id);
+create index on eventos.magic_links (expira_em);
+
+-- Remarketing: quem começou a compra e não terminou. Guarda dado pessoal de
+-- quem pode nem ter cadastro, então tem prazo de descarte (ver §8).
+create table eventos.carrinhos_abandonados (
+  id              integer primary key,
+  evento_id       integer not null references eventos.eventos(id) on delete cascade,
+  ingresso_tipo_id integer references eventos.ingresso_tipos(id) on delete set null,
+  pessoa_id       uuid references public.pessoas(id) on delete set null,
+  nome            text,
+  email           text,
+  telefone        text,
+  -- Anulável: a origem admitia carrinho sem CPF.
+  cpf             text check (cpf is null or cpf ~ '^[0-9]{11}$'),
+  quantidade      smallint not null default 1 check (quantidade >= 1),
+  convertido      boolean not null default false,
+  criado_em       timestamptz not null default now(),
+  atualizado_em   timestamptz not null default now(),
+  -- É esta chave que faz o upsert do carrinho funcionar.
+  unique (evento_id, cpf)
+);
+create index on eventos.carrinhos_abandonados (convertido, evento_id);
+
+-- ─── Comissão organizadora ────────────────────────────────────────────────
+
+create table eventos.comissao_setores_padrao (
+  id              integer primary key,
+  nome            text not null unique,
+  ordem           smallint not null default 0,
+  criado_em       timestamptz not null default now()
+);
+
+create table eventos.comissao_funcoes_padrao (
+  id              integer primary key,
+  setor_id        integer not null references eventos.comissao_setores_padrao(id) on delete cascade,
+  nome            text not null,
+  ordem           smallint not null default 0,
+  criado_em       timestamptz not null default now(),
+  -- Na origem a unicidade era global e passou a ser por setor; aqui já nasce
+  -- por setor, e setor_id é NOT NULL (a origem deixou órfãs com setor nulo).
+  unique (setor_id, nome)
+);
+
+create table eventos.comissao_membros (
+  id              integer primary key,
+  evento_id       integer not null references eventos.eventos(id) on delete cascade,
+  -- NOT NULL como na origem: hoje todo membro é uma pessoa cadastrada, e
+  -- nome/telefone/e-mail vêm do cadastro, não de cópia. Se a Sede decidir que
+  -- pode haver membro sem cadastro, isto vira nullable + coluna `nome`.
+  pessoa_id       uuid not null references public.pessoas(id) on delete cascade,
+  -- Ids, e não texto: renomear um setor não pode reescrever o histórico —
+  -- mas também não pode deixar o membro com um nome que não existe mais.
+  setor_id        integer references eventos.comissao_setores_padrao(id),
+  funcao_id       integer references eventos.comissao_funcoes_padrao(id),
+  -- Snapshot dos nomes no momento do cadastro, para o relatório antigo não
+  -- mudar de conteúdo. Preenchido pela carga a partir do texto da origem.
+  setor_nome      text not null,
+  funcao_nome     text not null,
+  criado_em       timestamptz not null default now(),
+  unique (evento_id, pessoa_id, setor_nome, funcao_nome)
+);
+create index on eventos.comissao_membros (evento_id);
+create index on eventos.comissao_membros (pessoa_id);
+
+-- ─── Comunicação do módulo ────────────────────────────────────────────────
+
+-- A REGRA da régua (uma linha por rotina). O ENVIO vai para a fila comum
+-- public.notificacoes — não se cria a segunda fila (AGENTS.md).
+create table eventos.emails_agendados (
+  id              integer primary key,
+  evento_id       integer not null references eventos.eventos(id) on delete cascade,
+  nome_interno    text not null,
+  assunto         text not null,
+  corpo           text,                        -- HTML; {{nome}}, {{link_acao}}
+  frequencia      text not null default 'once'
+                    check (frequencia in ('once','semanal','mensal')),
+  agendamento_tipo text not null default 'fixa'
+                    check (agendamento_tipo in ('fixa','apos_compra','antes_evento')),
+  data_envio      timestamptz,
+  dias            smallint,
+  segmento        text not null default 'todos'
+                    check (segmento in ('todos','tipo','carrinho','campo_faltante','tem_sem')),
+  ingresso_tipo_id  integer references eventos.ingresso_tipos(id) on delete set null,
+  ingresso_tipo_id_b integer references eventos.ingresso_tipos(id) on delete set null,
+  campo_id        integer references eventos.ingresso_campos(id) on delete set null,
+  acao            text not null default 'nenhuma'
+                    check (acao in ('nenhuma','coletar_campo','comprar_ingresso','voucher')),
+  acao_ingresso_tipo_id integer references eventos.ingresso_tipos(id) on delete set null,
+  anexar_voucher  boolean not null default false,
+  ativo           boolean not null default true,
+  criado_em       timestamptz not null default now(),
+  atualizado_em   timestamptz not null default now()
+);
+create index on eventos.emails_agendados (evento_id, ativo);
+
+-- E-mail corporativo da Regional por promotor: o presidente da regional
+-- PROSPERIDADE não é o mesmo de JOVENS. Tabela, e não coluna, porque a lista
+-- de promotores é cadastro.
+create table eventos.regional_avisos (
+  id              integer primary key,
+  regional_id     uuid not null references public.regionais(id) on delete cascade,
+  promotor_id     integer not null references eventos.promotores(id) on delete cascade,
+  email           text not null,
+  criado_em       timestamptz not null default now(),
+  atualizado_em   timestamptz not null default now(),
+  unique (regional_id, promotor_id)
+);
+create index on eventos.regional_avisos (promotor_id);
+
+-- Segredos do módulo (SMTP, WhatsApp, Meta CAPI, MPI). Cifrados com
+-- src/lib/cripto.ts. Tabela separada da configuração comum porque segredo
+-- não anda junto com o que a tela mostra.
+create table eventos.configuracao_segredos (
+  chave           text primary key,
+  valor_cifrado   text not null,
+  atualizado_em   timestamptz not null default now()
+);
+
+-- ─── atualizado_em: o MySQL fazia com ON UPDATE CURRENT_TIMESTAMP ─────────
+create or replace function eventos.tg_atualizado_em() returns trigger
+language plpgsql as $$
+begin new.atualizado_em := now(); return new; end $$;
+
+create trigger trg_pedidos_atualizado before update on eventos.pedidos
+  for each row execute function eventos.tg_atualizado_em();
+create trigger trg_carrinhos_atualizado before update on eventos.carrinhos_abandonados
+  for each row execute function eventos.tg_atualizado_em();
+create trigger trg_emails_atualizado before update on eventos.emails_agendados
+  for each row execute function eventos.tg_atualizado_em();
+create trigger trg_avisos_atualizado before update on eventos.regional_avisos
+  for each row execute function eventos.tg_atualizado_em();
+create trigger trg_segredos_atualizado before update on eventos.configuracao_segredos
+  for each row execute function eventos.tg_atualizado_em();
+
+-- ─── Acesso: RLS ligada e FORÇADA, sem GRANT para anon/authenticated ──────
+-- Enumerado tabela a tabela, e não por laço sobre pg_tables: um laço só
+-- alcança o que já existe quando ele roda, e a próxima tabela nasceria
+-- desprotegida sem ninguém perceber.
+-- `force` para que nem o dono do schema escape da RLS.
+
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'locais','promotores','orientadores','contas_cielo','eventos',
+    'evento_orientadores','ingresso_tipos','ingresso_campos','combos',
+    'combo_itens','cupons','pedidos','inscricoes','inscricao_respostas',
+    'magic_links','carrinhos_abandonados','comissao_setores_padrao',
+    'comissao_funcoes_padrao','comissao_membros','emails_agendados',
+    'regional_avisos','configuracao_segredos'
+  ] loop
+    execute format('alter table eventos.%I enable row level security', t);
+    execute format('alter table eventos.%I force row level security', t);
+    execute format('revoke all on eventos.%I from anon, authenticated', t);
+  end loop;
+end $$;
+
+revoke usage on schema eventos from anon, authenticated;
+revoke all on all sequences in schema eventos from anon, authenticated;
+alter default privileges in schema eventos
+  revoke all on tables from anon, authenticated;
+
+-- NENHUMA policy: sem GRANT, a policy nem é avaliada. As policies entram no
+-- dia em que o domínio ganhar escopo por regional (docs/decisoes/0003, seção
+-- "Quando revisar") — e o papel de conexão passar a assumir a identidade da
+-- pessoa. Não antes.
+
+-- O papel de conexão do módulo (criado na migração de infraestrutura, fora
+-- deste arquivo) recebe:
+--   grant usage on schema eventos to eventos_app;
+--   grant select, insert, update, delete on all tables in schema eventos to eventos_app;
+--   grant usage on all sequences in schema eventos to eventos_app;
+--   alter role eventos_app bypassrls;   -- ver nota abaixo
+-- ⚠️ `force row level security` + zero policies bloqueia TAMBÉM o papel do
+-- módulo. Duas saídas: `bypassrls` no papel (simples, e a autorização
+-- continua sendo a matriz no servidor, como manda a ADR 0003), ou uma policy
+-- `using (true)` restrita a esse papel. A primeira é mais honesta: diz no
+-- banco o que já é verdade no código.
+
+-- ─── Sequências: continuam depois do maior id importado ───────────────────
+-- A fase `sequencias` da migração roda, por tabela com id gerado:
+--   select setval(pg_get_serial_sequence('eventos.<t>','id'),
+--                 coalesce((select max(id) from eventos.<t>), 0) + 1, false);
+-- Sem isso, a primeira venda depois da virada tenta o id 1 e colide.
+```
+
+### 7.1 O que este SQL deliberadamente NÃO traz
+
+| Deixado de fora | Porquê |
+|---|---|
+| `legado_id` nas tabelas de eventos | os ids são preservados; seria cópia do `id` (erro E7). Só `public.pessoas` precisa |
+| `eventos.eventos.landing jsonb` | não existe na origem nem em tela (erro E1). Entra quando alguém disser o que vai dentro |
+| `eventos.rate_limits` | `RateLimit` é descartável; a implementação nova (banco ou Upstash) é decisão à parte |
+| `eventos.usuarios` / `perfis` | operador vira conta no Supabase Auth + `public.papeis`; permissão vira a matriz de `src/lib/permissoes.ts` |
+| `eventos.regionais` / `organizacoes` | são da plataforma (`public`), não do módulo |
+| `eventos.auditoria`, `eventos.notificacoes`, `eventos.preferencias` | fila e auditoria são **únicas** (`AGENTS.md`) |
+| `Inscricao.qr_code` | coluna morta na origem; o QR é derivado do id |
+| `cielo_pix_qr_image` | base64 de QR vencido; nada a preservar |
+| policies de RLS | sem escopo natural no domínio hoje (ADR 0003) |
+
+
+---
+
+## 8. Perguntas abertas e riscos que este recorte deixa
+
+### 8.1 O que só o banco real responde (bloqueia a migração)
+
+1. **`SHOW CREATE TABLE` das 31 tabelas.** O esquema deste documento é o que o
+   código *pretende* criar. `CREATE TABLE IF NOT EXISTS` + `ALTER` em
+   `try/catch` significa que a produção pode divergir. É o **primeiro comando**
+   a rodar com o usuário só-leitura.
+2. **Charset e collation** das 30 tabelas criadas pelo `migrate` (§0.1).
+3. **Modo estrito do MySQL**: decide se `Participant.cpf` tem `''` ou `NULL`
+   (§1.1) e se `PedidoPendente.inscricaoIds` já truncou (§1.16).
+4. Os **13 números de `contagens.sql`** e as 12 consultas propostas em §5.1.
+
+### 8.2 O que a Sede decide (bloqueia o esquema)
+
+1. **Pessoa sem CPF válido** — quarentena, bloqueio ou recusa? A ADR 0004:20-22
+   deixa em aberto; §5.4 mostra que a resposta decide o destino das
+   **inscrições** dessas pessoas, não só das pessoas.
+2. **E-mail compartilhado em família**: com `unique`, a segunda pessoa perde o
+   e-mail. Aceitar a perda, relaxar o `unique`, ou marcar como "e-mail de
+   contato" (não identificador)?
+3. **CodSNI com caractere não numérico**: limpar, afrouxar o `check` do Ciclo,
+   ou rejeitar a linha? (§5.2)
+4. **`primeiraVez`** é da pessoa (`public.pessoas`) ou do módulo? (§3.2)
+5. **Endereço**: um campo só (como o Ciclo) ou quatro (como eventos)? (§3.3)
+6. **Membro da comissão** é sempre pessoa cadastrada? (§2.4-E11)
+7. **Cores padrão do voucher**: `#1e3a5f`/`#f59e0b` (produção) ou
+   `#132460`/`#B45309` (rascunho)? (§2.4-E5)
+8. **`IngressoTipo.quantidade = 999`** significa ilimitado? (§2.2.7)
+9. **`Local`, `Promotor`, `Orientador`** ficam no módulo (proposta de §7) ou
+   viram comuns? O Ciclo também tem locais.
+10. **Carrinho abandonado** guarda nome, e-mail, telefone e CPF de quem talvez
+    nem tenha cadastro: qual o prazo de descarte? (§5.5)
+
+### 8.3 Riscos do esquema que a migração precisa carregar
+
+| Risco | Onde | Consequência se ignorado |
+|---|---|---|
+| `Participant.id` vira uuid | §5.3 | todo link de descadastro já enviado quebra; magic links de 45 dias emitidos antes da virada quebram — **problema de LGPD, não de UX** |
+| `transformar.ts` ignora o fuso | §5.6 | datas de nascimento voltam um dia; vendas mudam de dia no relatório |
+| FKs novas contra dado sem FK | §5.4, §2.4-E9/E12 | inscrição (dinheiro) recusada em silêncio |
+| `tipoVenda`/`valorOriginal` nulos | §2.4-E3 | `not null` recusa milhares de linhas antigas, ou o carregador inventa valores |
+| `canceladoPor` e-mail → uuid | §2.4-E8 | rastro de quem cancelou se perde |
+| `inscricaoIds` CSV em VARCHAR(255) | §1.16 | combos grandes já podem ter perdido ids na origem |
+| `merchantKey` e 5 segredos em claro | §4 | migram em claro se ninguém cifrar; `GET /api/admin/config` já os expõe hoje |
+| `MagicLink.token` em claro | §1.11, §4 | quem lê o banco entra na conta de qualquer comprador |
+| `dedupe` recria `uniq_cpf` na origem | §5.2 | rodar durante venda ao vivo derruba escritas |
+| `Perfil` ausente → `isAdmin: true` | §1.23 | não é esquema, mas viaja com o modelo se for copiado |
+
+### 8.4 O que este documento NÃO cobriu (por recorte)
+
+Regras de negócio da compra e da operação — estão em `eventos-compra.md` e
+`eventos-operacao.md`. Identidade, permissões e dedup — em
+`eventos-identidade.md`. O schema comum (`public.pessoas`, `papeis`,
+`notificacoes`, `configuracoes`, `auditoria`) e a árvore institucional — em
+`ciclo-esquema.md` e `estrutura-organizacional.md`. A implementação das fases
+2 a 13 de `scripts/migrar-mysql.ts` — a fazer, com a ordem de §6.3.

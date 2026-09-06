@@ -14,7 +14,12 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 const VERSAO = "v1";
 
 function chave(): Buffer {
-  const segredo = process.env.CREDENCIAIS_ENCRYPTION_KEY;
+  // ⚠️ `trim()` é obrigatório e precisa ser IGUAL no outro sistema que cifra
+  // com esta mesma chave. A chave é colada à mão num painel de hospedagem, e
+  // uma quebra de linha invisível no fim muda o SHA-256 — o texto cifrado de
+  // um lado deixa de abrir do outro, com um erro que fala em autenticação e
+  // não em espaço em branco.
+  const segredo = process.env.CREDENCIAIS_ENCRYPTION_KEY?.trim();
   if (!segredo || segredo.length < 32) {
     throw new Error("CREDENCIAIS_ENCRYPTION_KEY ausente ou curta (mínimo 32 caracteres): credenciais não podem ser guardadas.");
   }

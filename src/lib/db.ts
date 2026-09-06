@@ -29,5 +29,24 @@ function criar() {
   });
 }
 
-export const sql = globalParaDb.sql ?? criar();
-if (process.env.NODE_ENV !== "production") globalParaDb.sql = sql;
+/**
+ * A conexão nasce no primeiro uso, não ao importar o módulo.
+ *
+ * ⚠️ Criar no corpo do arquivo quebra o `next build`: a coleta de dados das
+ * páginas importa todo módulo alcançável, e `DATABASE_URL` não existe no
+ * ambiente de build — a primeira página de eventos derrubaria o CI com "sem
+ * DATABASE_URL", sem nunca ter tentado consultar nada.
+ *
+ * Em desenvolvimento a instância fica no escopo global porque o recarregamento
+ * a quente reavalia o módulo a cada mudança, e uma conexão nova por
+ * recarga esgota o pooler em minutos.
+ */
+let instancia: ReturnType<typeof postgres> | undefined;
+
+export function conexao(): ReturnType<typeof postgres> {
+  const guardada = globalParaDb.sql ?? instancia;
+  if (guardada) return guardada;
+  instancia = criar();
+  if (process.env.NODE_ENV !== "production") globalParaDb.sql = instancia;
+  return instancia;
+}
