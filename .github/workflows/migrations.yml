@@ -18,6 +18,18 @@ on:
 jobs:
   aplicar:
     runs-on: ubuntu-latest
+    # O ambiente onde as credenciais do banco de produção moram.
+    #
+    # Não é detalhe de configuração: declarar o ambiente é o que faz este job
+    # enxergar os segredos guardados nele. Sem a linha, ele lê apenas os
+    # Repository secrets — e um segredo cadastrado em Production fica
+    # invisível, com a mesma mensagem de quem não cadastrou nada.
+    #
+    # E é o nome certo para o que este job faz: ele altera o esquema do banco
+    # de PRODUÇÃO. Ficar amarrado a esse ambiente abre, quando a instituição
+    # quiser, exigir aprovação de alguém antes de cada aplicação — regra que
+    # se liga em Settings → Environments, sem tocar em código.
+    environment: Production
     steps:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
@@ -57,11 +69,10 @@ jobs:
             echo "credencial vai em Secrets, que o log mascara — variável aparece"
             echo "em claro para quem abrir a execução."
             echo ""
-            echo "Se não aparece em lugar nenhum, provavelmente foi cadastrado"
-            echo "dentro de um AMBIENTE (Preview, Production). Este job não declara"
-            echo "environment, então enxerga só os Repository secrets — a seção de"
-            echo "baixo da página, sem ambiente algum:"
-            echo "  Settings → Secrets and variables → Actions → Repository secrets"
+            echo "Se não aparece em lugar nenhum, foi cadastrado FORA do ambiente"
+            echo "que este job declara (Production). Vale qualquer um dos dois:"
+            echo "  · Settings → Environments → Production → Environment secrets"
+            echo "  · Settings → Secrets and variables → Actions → Repository secrets"
             echo ""
             echo "  SUPABASE_ACCESS_TOKEN  Account → Access Tokens, em supabase.com"
             echo "  SUPABASE_PROJECT_REF   o 'xxxx' de xxxx.supabase.co"
