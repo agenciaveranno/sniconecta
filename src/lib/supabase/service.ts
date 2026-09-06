@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
+import { chaveDeServico, urlSupabase } from "./ambiente";
 import type { Database } from "./tipos";
 
 /**
@@ -8,11 +9,7 @@ import type { Database } from "./tipos";
  * CPF → e-mail, criação de conta). Registre auditoria ao usar.
  */
 export function criarClienteServico() {
-  const chave = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!chave) {
-    throw new Error("Sem SUPABASE_SERVICE_ROLE_KEY: operações de servidor não conseguem ler o banco.");
-  }
-  return createClient<Database>(process.env.NEXT_PUBLIC_SUPABASE_URL!, chave, {
+  return createClient<Database>(urlSupabase(), chaveDeServico(), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }

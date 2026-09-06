@@ -1,4 +1,5 @@
 import { IconAlertCircle, IconBuildingCommunity, IconLock, IconLogin, IconUser } from "@tabler/icons-react";
+import ResgatarConvite from "@/componentes/ResgatarConvite";
 import { Alerta, Botao, Campo, Entidade, Input } from "@/componentes/ui";
 import { entrar } from "./actions";
 
@@ -36,6 +37,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               <Input id="senha" name="senha" type="password" autoComplete="current-password" required />
             </div>
           </Campo>
+          <ResgatarConvite />
           {erro && <Alerta tipo="danger" icone={<IconAlertCircle size={20} className="ti" />}>{erro}</Alerta>}
           <Botao type="submit" tamanho="lg" icone={<IconLogin size={18} className="ti" />} style={{ width: "100%" }}>
             Entrar

@@ -8,6 +8,35 @@ A migração `20260906210000_primeiro_acesso_e_credenciais.sql` resolve isso —
 cria a pessoa da Sede **sem conta** e dá a ela o papel nacional `sede`. Quem
 cria a conta é o convite do Auth, e um gatilho amarra as duas pelo e-mail.
 
+## Antes: o que precisa estar configurado
+
+### Na Vercel — Settings → Environment Variables, marcando **Production**
+
+```
+NEXT_PUBLIC_SUPABASE_URL         https://<ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY    a chave `anon public`
+SUPABASE_SERVICE_ROLE_KEY        a `service_role` (⚠️ ignora o RLS)
+DATABASE_URL                     o pooler, porta 6543
+CRON_SECRET                      qualquer segredo longo
+CREDENCIAIS_ENCRYPTION_KEY       ≥32 caracteres
+```
+
+⚠️ **Não é o mesmo lugar dos segredos do GitHub.** Os do GitHub aplicam
+migrações; estes fazem a aplicação falar com o banco. Faltando as duas
+primeiras, toda tela protegida devolve 500 — e a tela de login continua
+abrindo, porque rota pública não fala com o Supabase. É um estado que
+parece "quase funcionando" e não é.
+
+### No Supabase — Authentication → URL Configuration
+
+```
+Site URL        https://sniconecta.com.br/auth/confirmar
+Redirect URLs   https://sniconecta.com.br/**
+```
+
+O **Site URL** é para onde o convite volta. Se ficar no endereço gerado pela
+Vercel, o link do e-mail leva a pessoa para fora do domínio da instituição.
+
 ## Passo a passo
 
 1. **Aplique as migrações.** Merge para `main` dispara
@@ -25,6 +54,15 @@ cria a conta é o convite do Auth, e um gatilho amarra as duas pelo e-mail.
    e-mail exatamente igual ao que está em `pessoas`. O gatilho
    `trg_auth_user_liga_pessoa` preenche `pessoas.auth_user_id` no instante em
    que a conta nasce.
+
+   O link do e-mail cai em `/auth/confirmar`, que troca o convite por uma
+   sessão e leva a `/definir-senha`. ⚠️ Essa tela precisa ser CLIENTE: o
+   convite do painel devolve o token no FRAGMENTO da URL (`#access_token=…`),
+   e fragmento nunca chega ao servidor — o navegador não o envia. Uma rota de
+   servidor veria a URL vazia e trataria um convite válido como link quebrado.
+
+   Se o Site URL estiver apontando para a raiz ou para o login, não se perde
+   nada: `ResgatarConvite` acha o token no fragmento e encaminha.
 
    ⚠️ **O e-mail precisa bater.** Se divergir por uma letra, a conta entra e a
    pessoa fica sem papel nenhum — a tela dirá que ela não tem permissão, e o

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { chaveAnonima, urlSupabase } from "@/lib/supabase/ambiente";
 
 // Proxy de sessão (o "middleware" do Next 16). Três garantias:
 //  1. Rota pública não fala com o Supabase: fica de pé com o Auth fora do ar.
@@ -12,7 +13,12 @@ import { createServerClient } from "@supabase/ssr";
 // ⚠️ `/login/sair` precisa estar aqui: sem sessão, o proxy mandaria o pedido
 // de saída para o login, e a rota que limpa o cookie nunca rodaria.
 const PUBLICAS_EXATAS = new Set(["/", "/login", "/login/sair", "/politicas"]);
-const PUBLICAS_PREFIXO = ["/e/", "/comprar", "/certificado/", "/l/", "/descadastro", "/r/"];
+// ⚠️ `/auth/` é público porque é ONDE A SESSÃO NASCE: quem chega pelo convite
+// ainda não tem cookie nenhum. Protegê-la mandaria o convite para o login, e o
+// login não sabe o que fazer com um token de convite.
+const PUBLICAS_PREFIXO = [
+  "/auth/", "/e/", "/comprar", "/certificado/", "/l/", "/descadastro", "/r/",
+];
 
 export function rotaPublica(pathname: string): boolean {
   return PUBLICAS_EXATAS.has(pathname) || PUBLICAS_PREFIXO.some((p) => pathname.startsWith(p));
@@ -32,8 +38,8 @@ export async function proxy(req: NextRequest) {
 
   let res = NextResponse.next({ request: req });
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    urlSupabase(),
+    chaveAnonima(),
     {
       cookies: {
         getAll: () => req.cookies.getAll(),
