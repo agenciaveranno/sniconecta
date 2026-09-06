@@ -658,6 +658,16 @@
 
 /* Título de seção com régua: a régua ocupa o vão restante e separa
    sem desenhar uma caixa. */
+/* Lista de rótulo e valor. `dl` e não tabela: são pares, não linhas de
+   dados comparáveis — e o leitor de tela anuncia "CPF, 845…" em vez de ler
+   a coluna inteira antes de chegar ao valor. */
+.sni-dados {
+  display: grid; gap: 16px; margin: 0;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.sni-dados dt { font-size: 13px; font-weight: 600; color: var(--txt-4); margin-bottom: 2px; }
+.sni-dados dd { margin: 0; font-size: 15px; color: var(--txt-2); }
+
 /* Barra de busca acima de uma tabela. Medida de leitura curta: caixa de
    busca larga demais parece campo de texto longo e convida a digitar a
    frase inteira. */
