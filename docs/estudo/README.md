@@ -15,7 +15,7 @@ já foi concluído e por onde a próxima sessão continua.
 | `eventos-esquema.md` | em produção ao fim da sessão | `sni-ciclo/src/app/api/migrate/route.ts` (31 tabelas) × `supabase/rascunhos/eventos_schema.sql` |
 | `eventos-identidade.md` | pronto (75 KB) | User/Perfil/permissões, participantes, dedup, regional/organização, magic link |
 | `eventos-compra.md` | em produção | checkout, pedidos, inscrições, Cielo, cupons, combos, voucher, estornos |
-| `eventos-operacao.md` | em produção | balcão, check-in, relatórios, comissão, e-mails, WhatsApp, configurações |
+| `eventos-operacao.md` | pronto (94 KB) | balcão, check-in, relatórios, comissão, e-mails, WhatsApp, configurações |
 | `estrutura-organizacional.md` | em produção | hierarquia institucional nos quatro sistemas + esboço de modelo unificado |
 | `esqueleto-main.md` | em produção | auditoria do commit `8cd93fa` (typecheck, testes, contradições, qualidade) |
 | seção "Delta para 2f07f6a" nos 4 docs do Ciclo | em produção | diferença entre `70f61d6` e a versão nova do Ciclo |
