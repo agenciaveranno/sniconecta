@@ -35,15 +35,32 @@ cria a conta é o convite do Auth, e um gatilho amarra as duas pelo e-mail.
    que o sistema manda depois (comprovante, certificado) sai pela fila, e a
    fila precisa desses dados.
 
-## Convidando os demais operadores
+## Os demais operadores não passam mais pelo painel do Supabase
 
-O caminho é sempre o mesmo, e nesta ordem:
+Só a PRIMEIRA pessoa precisa do convite pelo painel — porque é a única que
+nasce antes de existir alguém para cadastrá-la. Daí em diante, tudo acontece
+em `/admin/pessoas`, nesta ordem:
 
-1. Cadastre a pessoa em `/admin/pessoas` (CPF, nome, e-mail).
-2. Conceda o papel na unidade certa.
-3. Convide o e-mail no painel do Supabase.
+1. **Cadastre a pessoa** (CPF, nome, e-mail).
+2. **Conceda o papel** na unidade certa, em *Papéis*.
+3. **Crie o acesso**, em *Acesso*. Deixe o sistema gerar a senha: ela aparece
+   uma vez, na tela, para você passar à pessoa. Depois disso não aparece mais
+   — nem em log, nem em auditoria.
 
-Se a conta já existir por algum motivo, o gatilho inverso
-(`trg_pessoa_liga_conta`) amarra as duas no momento em que a pessoa ganha o
-e-mail. Acontece com quem é promovido a operador depois de anos só com
-histórico.
+⚠️ **Ter cadastro não é ter acesso.** A maioria das dezesseis mil pessoas
+nunca vai ter conta: elas participam, compram ingresso e fazem curso sem
+nunca entrar no sistema. Conta é para quem opera.
+
+⚠️ **E-mail de família não vira duas contas.** Depois da decisão 0011, mãe e
+filho podem dividir o mesmo e-mail no cadastro — mas só uma pessoa por e-mail
+consegue ter acesso, porque é por ele que se entra. A tela diz de quem é a
+conta quando isso acontece, em vez de devolver o erro do Supabase.
+
+## Quando alguém diz que "o login não funciona"
+
+Quase sempre é o e-mail do cadastro divergindo do e-mail do Auth. Nesse
+estado o Supabase responde *"Invalid login credentials"* — a mesma frase de
+senha errada — e a pessoa fica trancada fora com a senha certa na mão.
+
+Redefinir a senha em *Acesso* conserta os dois de uma vez: a operação
+sincroniza o e-mail junto. É por isso que essa é a tela a procurar.

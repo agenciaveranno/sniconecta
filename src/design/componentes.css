@@ -658,6 +658,37 @@
 
 /* Título de seção com régua: a régua ocupa o vão restante e separa
    sem desenhar uma caixa. */
+/* Barra de busca acima de uma tabela. Medida de leitura curta: caixa de
+   busca larga demais parece campo de texto longo e convida a digitar a
+   frase inteira. */
+.sni-busca { max-width: 420px; margin-bottom: 20px; }
+
+/* Papéis já concedidos, dentro do modal. Não é tabela: são poucas linhas e
+   cada uma tem uma ação só. */
+.sni-lista-papeis { display: grid; gap: 8px; }
+.sni-lista-papeis-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 12px; border: 1px solid var(--line-soft);
+  border-radius: var(--r-field); background: var(--surface); font-size: 14px;
+}
+
+/* Caixa de marcação. O alvo de toque é a linha inteira, não o quadradinho:
+   errar um alvo de 13px num celular é a regra, não a exceção. */
+.sni-check {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 38px; font-size: 14px; color: var(--txt-2); cursor: pointer;
+}
+.sni-check input { width: 17px; height: 17px; accent-color: var(--sni-blue-500); }
+
+/* Ação destrutiva: vermelha só no texto. Botão vermelho cheio dentro de um
+   modal compete com a ação principal e é clicado por engano. */
+.sni-acao-perigo { color: var(--sni-danger); }
+
+.sni-paginacao {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-top: 16px;
+}
+
 /* Grupo de campos: separa blocos de um formulário longo sem abrir um card
    dentro do modal — vidro sobre vidro é proibido, e caixa dentro de caixa
    confunde o que é conteúdo e o que é moldura. Uma régua acima basta. */

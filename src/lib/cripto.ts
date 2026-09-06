@@ -26,6 +26,22 @@ function chave(): Buffer {
   return createHash("sha256").update(segredo).digest();
 }
 
+/**
+ * Diz se dá para cifrar, sem estourar.
+ *
+ * A tela de configurações precisa saber ANTES de oferecer o campo de senha:
+ * sem chave, guardar credencial é impossível, e a pessoa que preencheu o
+ * formulário inteiro receberia um erro só no fim.
+ */
+export function cifragemDisponivel(): boolean {
+  try {
+    chave();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function cifrar(texto: string): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", chave(), iv);
@@ -38,7 +54,13 @@ export function cifrar(texto: string): string {
 export function decifrar(cifrado: string): string {
   const [versao, iv, tag, corpo] = cifrado.split(".");
   if (versao !== VERSAO || !iv || !tag || !corpo) {
-    throw new Error("Credencial guardada num formato que este sistema não reconhece.");
+    // ⚠️ "formato desconhecido" e não "falha ao decifrar": o caso real é
+    // credencial gravada em claro por algum caminho que escapou, ou cifrada
+    // por uma versão futura. Confundir isso com chave errada mandaria quem
+    // depura procurar no lugar errado.
+    throw new Error(
+      "Credencial guardada num formato desconhecido por este sistema — nada foi decifrado."
+    );
   }
   const decipher = createDecipheriv("aes-256-gcm", chave(), Buffer.from(iv, "base64url"));
   decipher.setAuthTag(Buffer.from(tag, "base64url"));
