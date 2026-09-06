@@ -13,7 +13,7 @@ já foi concluído e por onde a próxima sessão continua.
 | `ciclo-modulo.md` | pronto (92 KB) | `sistema-ciclo` em `70f61d6`: rotas, actions, regras de negócio, checklist de porte |
 | `ui-design-system.md` | pronto (71 KB) | Ciclo × esqueleto × eventos: primitivos, tokens, modal, tema, AppShell |
 | `eventos-esquema.md` | em produção ao fim da sessão | `sni-ciclo/src/app/api/migrate/route.ts` (31 tabelas) × `supabase/rascunhos/eventos_schema.sql` |
-| `eventos-identidade.md` | em produção | User/Perfil/permissões, participantes, dedup, regional/organização, magic link |
+| `eventos-identidade.md` | pronto (75 KB) | User/Perfil/permissões, participantes, dedup, regional/organização, magic link |
 | `eventos-compra.md` | em produção | checkout, pedidos, inscrições, Cielo, cupons, combos, voucher, estornos |
 | `eventos-operacao.md` | em produção | balcão, check-in, relatórios, comissão, e-mails, WhatsApp, configurações |
 | `estrutura-organizacional.md` | em produção | hierarquia institucional nos quatro sistemas + esboço de modelo unificado |
