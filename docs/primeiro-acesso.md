@@ -8,6 +8,71 @@ A migração `20260906210000_primeiro_acesso_e_credenciais.sql` resolve isso —
 cria a pessoa da Sede **sem conta** e dá a ela o papel nacional `sede`. Quem
 cria a conta é o convite do Auth, e um gatilho amarra as duas pelo e-mail.
 
+## Antes: o que precisa estar configurado
+
+### O caminho curto: a integração Supabase↔Vercel
+
+Em *Vercel → Settings → Integrations → Supabase → Manage*, ligar o projeto
+Supabase a este projeto Vercel preenche sozinha as chaves do Supabase, sem
+ninguém copiar e colar credencial — que é justamente onde se erra.
+
+Duas coisas que ela **não** faz, e que continuam manuais:
+
+- `CRON_SECRET` e `CREDENCIAIS_ENCRYPTION_KEY` são nossas, não do Supabase.
+  Gere com `openssl rand -base64 48`.
+- Conferir o **escopo**. A integração pode marcar só Preview. Sem Production,
+  o domínio da instituição continua devolvendo 500 enquanto a prévia funciona
+  — e é fácil concluir que o problema é o código.
+
+E, em qualquer caso: **variável nova só vale depois de um redeploy.** A
+Vercel não reinicia sozinha por causa de uma variável.
+
+### Na Vercel — Settings → Environment Variables, marcando **Production**
+
+```
+NEXT_PUBLIC_SUPABASE_URL         https://<ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY    a chave `anon public`
+SUPABASE_SERVICE_ROLE_KEY        a `service_role` (⚠️ ignora o RLS)
+DATABASE_URL                     o pooler, porta 6543
+CRON_SECRET                      qualquer segredo longo
+CREDENCIAIS_ENCRYPTION_KEY       ≥32 caracteres
+```
+
+⚠️ **Config ou Secret?** A Vercel recusa marcar como *Secret* uma variável com
+prefixo `NEXT_PUBLIC_`, e está certa: esse prefixo faz o Next EMBUTIR o valor
+no JavaScript que todo visitante baixa. Não existe `NEXT_PUBLIC_` secreto.
+
+| Prefixo | Tipo |
+|---|---|
+| começa com `NEXT_PUBLIC_` | **Config** |
+| não começa | **Secret** |
+
+A chave `anon` ser pública não é descuido: é o desenho do Supabase. Quem
+protege as linhas é o RLS, não o sigilo da chave — e é por isso que o harness
+afirma, a cada execução, que `anon` não alcança tabela nenhuma.
+
+⚠️ **O erro perigoso é o inverso.** Nunca renomeie `SUPABASE_SERVICE_ROLE_KEY`
+com prefixo `NEXT_PUBLIC_` para calar um aviso. Ela IGNORA o RLS: publicada no
+navegador, qualquer pessoa lê e escreve as dezesseis mil linhas de `pessoas`.
+Se acontecer, a chave precisa ser ROTACIONADA no Supabase — tirar da Vercel
+não basta, porque ela já saiu em todo bundle servido até ali.
+
+⚠️ **Não é o mesmo lugar dos segredos do GitHub.** Os do GitHub aplicam
+migrações; estes fazem a aplicação falar com o banco. Faltando as duas
+primeiras, toda tela protegida devolve 500 — e a tela de login continua
+abrindo, porque rota pública não fala com o Supabase. É um estado que
+parece "quase funcionando" e não é.
+
+### No Supabase — Authentication → URL Configuration
+
+```
+Site URL        https://sniconecta.com.br/auth/confirmar
+Redirect URLs   https://sniconecta.com.br/**
+```
+
+O **Site URL** é para onde o convite volta. Se ficar no endereço gerado pela
+Vercel, o link do e-mail leva a pessoa para fora do domínio da instituição.
+
 ## Passo a passo
 
 1. **Aplique as migrações.** Merge para `main` dispara
@@ -25,6 +90,15 @@ cria a conta é o convite do Auth, e um gatilho amarra as duas pelo e-mail.
    e-mail exatamente igual ao que está em `pessoas`. O gatilho
    `trg_auth_user_liga_pessoa` preenche `pessoas.auth_user_id` no instante em
    que a conta nasce.
+
+   O link do e-mail cai em `/auth/confirmar`, que troca o convite por uma
+   sessão e leva a `/definir-senha`. ⚠️ Essa tela precisa ser CLIENTE: o
+   convite do painel devolve o token no FRAGMENTO da URL (`#access_token=…`),
+   e fragmento nunca chega ao servidor — o navegador não o envia. Uma rota de
+   servidor veria a URL vazia e trataria um convite válido como link quebrado.
+
+   Se o Site URL estiver apontando para a raiz ou para o login, não se perde
+   nada: `ResgatarConvite` acha o token no fragmento e encaminha.
 
    ⚠️ **O e-mail precisa bater.** Se divergir por uma letra, a conta entra e a
    pessoa fica sem papel nenhum — a tela dirá que ela não tem permissão, e o

@@ -1,6 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { chaveAnonima, urlSupabase } from "./ambiente";
 import type { Database } from "./tipos";
 
 /**
@@ -10,8 +11,8 @@ import type { Database } from "./tipos";
 export async function criarClienteServidor() {
   const jar = await cookies();
   return createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    urlSupabase(),
+    chaveAnonima(),
     {
       cookies: {
         getAll: () => jar.getAll(),
