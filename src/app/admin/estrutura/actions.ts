@@ -24,6 +24,8 @@ const schema = z.object({
   slug: z.string().trim().optional().transform((v) => v || null),
   cidade: z.string().trim().optional().transform((v) => v || null),
   uf: z.string().trim().toUpperCase().optional().transform((v) => v || null),
+  idioma: z.string().trim().optional().transform((v) => v || "pt-BR"),
+  cnpj: z.string().trim().optional().transform((v) => v || null),
 });
 
 function falhar(mensagem: string): never {
@@ -75,6 +77,8 @@ export async function criarUnidade(formData: FormData) {
     slug: dados.data.slug,
     cidade: dados.data.cidade,
     uf: dados.data.uf,
+    idioma: dados.data.idioma,
+    cnpj: dados.data.cnpj,
   });
   if (error) falhar(traduzirErro(error.message));
 
@@ -102,6 +106,8 @@ export async function editarUnidade(formData: FormData) {
       slug: dados.data.slug,
       cidade: dados.data.cidade,
       uf: dados.data.uf,
+      idioma: dados.data.idioma,
+      cnpj: dados.data.cnpj,
     })
     .eq("id", id);
   if (error) falhar(traduzirErro(error.message));

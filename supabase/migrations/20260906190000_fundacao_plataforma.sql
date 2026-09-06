@@ -142,11 +142,15 @@ create table unidades (
   pais          char(2) not null default 'BR',
   telefone      text,
   email         citext,
-  -- Fuso e idioma existem porque a Sede Central cuida de países
-  -- ibero-americanos e da África latina. Enquanto for só Brasil, o padrão
-  -- responde; no dia em que não for, o dado já tem onde morar.
-  fuso_horario  text not null default 'America/Sao_Paulo',
+  -- ⚠️ O idioma NÃO é enfeite: parte das Regionais conduz as atividades em
+  -- japonês, e o site institucional as lista em página separada por isso.
+  -- É o que decide em que língua a pessoa daquela Regional recebe o convite,
+  -- o comprovante e o certificado. Texto livre, não `check`: acrescentar um
+  -- idioma não pode custar migração.
   idioma        text not null default 'pt-BR',
+  -- Existe porque a Sede Central cuida também de países ibero-americanos e da
+  -- África latina. Enquanto for só Brasil, o padrão responde.
+  fuso_horario  text not null default 'America/Sao_Paulo',
   ativo         boolean not null default true,
   -- Rastro da carga do sistema de eventos, onde a unidade era texto livre.
   legado_nome   text,
@@ -272,14 +276,37 @@ grant execute on function public.ancestrais(uuid) to authenticated, service_role
 -- ───────────────────────────────────────────────────────────────────────────
 -- LOCAIS — recurso físico, deliberadamente fora da árvore
 --
--- O Conecta antigo juntou os dois conceitos num enum `regional | al | outro`
--- e precisou acrescentar `academia` na migração seguinte. Hotel não é degrau
--- da instituição.
+-- Onde o evento acontece: Academia de Treinamento Espiritual, hotel, salão.
+-- Uma Academia NÃO é uma Regional, não tem gente vinculada e não recebe
+-- papel — ela recebe evento. Por isso fica aqui e não na árvore.
+--
+-- O Conecta antigo aprendeu isso na prática: começou com um enum
+-- `regional | al | outro` no local e precisou acrescentar `academia` numa
+-- migração seguinte, com tabela própria. Aqui o tipo já nasce em catálogo.
 -- ───────────────────────────────────────────────────────────────────────────
+
+create or replace function app.tocar_atualizado_em()
+returns trigger language plpgsql as $$
+begin
+  new.atualizado_em := now();
+  return new;
+end $$;
+
+create table tipos_local (
+  codigo text primary key,
+  nome   text not null,
+  plural text not null,
+  ordem  smallint not null default 0,
+  ativo  boolean not null default true
+);
 
 create table locais (
   id          uuid primary key default gen_random_uuid(),
+  tipo        text not null references tipos_local(codigo) on delete restrict,
   nome        text not null,
+  -- Código próprio da instituição, quando houver. Único quando presente.
+  codigo      text unique,
+  slug        text unique,
   -- Quem cuida do local, quando é de alguma unidade. Nulo = de terceiro.
   unidade_id  uuid references unidades(id) on delete set null,
   cep         text,
@@ -291,13 +318,24 @@ create table locais (
   uf          char(2),
   telefone    text,
   email       citext,
+  -- Para o mapa de "como chegar". O Conecta antigo já guardava as duas.
+  latitude    numeric(10,7),
+  longitude   numeric(10,7),
   observacoes text,
   ativo       boolean not null default true,
   legado_id   integer unique,
-  criado_em   timestamptz not null default now()
+  criado_em   timestamptz not null default now(),
+  atualizado_em timestamptz not null default now(),
+
+  constraint local_slug_formato check (slug is null or slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
 );
 
 create index idx_locais_unidade on locais(unidade_id);
+create index idx_locais_tipo on locais(tipo);
+create index idx_locais_nome_busca on locais(app.sem_acento(nome));
+
+create trigger trg_locais_atualizado before update on locais
+  for each row execute function app.tocar_atualizado_em();
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- PESSOAS — a espinha (decisões 0002 e 0004)
@@ -372,13 +410,6 @@ create index idx_pessoas_nome_busca on pessoas(app.sem_acento(nome));
 comment on table pessoas is
   'Cadastro único. CPF identifica, id referencia. Importar não significa '
   'criar conta: conta nasce quando alguém precisa entrar.';
-
-create or replace function app.tocar_atualizado_em()
-returns trigger language plpgsql as $$
-begin
-  new.atualizado_em := now();
-  return new;
-end $$;
 
 create trigger trg_pessoas_atualizado before update on pessoas
   for each row execute function app.tocar_atualizado_em();
@@ -733,6 +764,7 @@ grant execute on function
 alter table tipos_unidade          enable row level security;
 alter table unidades               enable row level security;
 alter table organizacoes           enable row level security;
+alter table tipos_local            enable row level security;
 alter table locais                 enable row level security;
 alter table pessoas                enable row level security;
 alter table pessoa_unidade_vinculos enable row level security;
@@ -751,7 +783,7 @@ alter table solicitacoes_exclusao  enable row level security;
 grant usage on schema public to anon, authenticated;
 
 -- ── Referência: todo autenticado lê, só a Sede escreve ─────────────────────
-grant select on tipos_unidade, unidades, organizacoes, locais,
+grant select on tipos_unidade, unidades, organizacoes, tipos_local, locais,
                 funcoes_doutrinarias, tipos_papel to authenticated;
 -- A visão não tem RLS própria: `security_invoker` faz valer o RLS das tabelas
 -- de baixo, que é onde a regra está escrita.
@@ -760,6 +792,7 @@ grant select on pessoa_vinculo_atual, pessoa_funcao_atual to authenticated;
 create policy ref_le_tipos_unidade on tipos_unidade for select to authenticated using (true);
 create policy ref_le_unidades      on unidades      for select to authenticated using (true);
 create policy ref_le_organizacoes  on organizacoes  for select to authenticated using (true);
+create policy ref_le_tipos_local   on tipos_local   for select to authenticated using (true);
 create policy ref_le_locais        on locais        for select to authenticated using (true);
 create policy ref_le_funcoes       on funcoes_doutrinarias for select to authenticated using (true);
 create policy ref_le_tipos_papel   on tipos_papel   for select to authenticated using (true);
@@ -884,6 +917,15 @@ insert into tipos_unidade (codigo, nome, plural, pais_permitidos, exige_organiza
   ('regional',         'Regional',         'Regionais',          '{sede_central}',                 false, 2),
   ('nucleo',           'Núcleo',           'Núcleos',            '{regional}',                     false, 3),
   ('associacao_local', 'Associação Local', 'Associações Locais', '{regional,nucleo}',              true,  4)
+on conflict (codigo) do nothing;
+
+-- Onde os eventos acontecem. A Academia de Treinamento Espiritual é o caso
+-- que motiva o catálogo: é da instituição, mas não é degrau dela.
+insert into tipos_local (codigo, nome, plural, ordem) values
+  ('academia', 'Academia de Treinamento Espiritual', 'Academias de Treinamento Espiritual', 1),
+  ('hotel',    'Hotel',                              'Hotéis',                              2),
+  ('salao',    'Salão',                              'Salões',                              3),
+  ('outro',    'Outro',                              'Outros',                              4)
 on conflict (codigo) do nothing;
 
 -- As quatro que existem hoje (Sede, set/2026). É ponto de partida, não lista

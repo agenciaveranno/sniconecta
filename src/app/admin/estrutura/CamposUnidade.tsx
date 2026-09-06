@@ -100,6 +100,21 @@ export default function CamposUnidade({
       </Campo>
 
       <div className="sni-form-grid">
+        <Campo
+          label="Idioma das atividades"
+          dica="Decide em que língua esta unidade recebe convite, comprovante e certificado."
+        >
+          <Select name="idioma" defaultValue={unidade?.idioma ?? "pt-BR"}>
+            <option value="pt-BR">Português</option>
+            <option value="ja">Japonês</option>
+          </Select>
+        </Campo>
+        <Campo label="CNPJ" dica="A Regional é filial da Sede Central e tem CNPJ próprio.">
+          <Input name="cnpj" defaultValue={unidade?.cnpj ?? ""} maxLength={18} />
+        </Campo>
+      </div>
+
+      <div className="sni-form-grid">
         <Campo label="Cidade">
           <Input name="cidade" defaultValue={unidade?.cidade ?? ""} maxLength={100} />
         </Campo>

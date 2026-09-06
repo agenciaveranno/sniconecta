@@ -21,9 +21,44 @@ export type UnidadeRow = {
   cidade: string | null;
   uf: string | null;
   pais: string;
+  cnpj: string | null;
+  telefone: string | null;
+  /** 'pt-BR' ou 'ja': parte das Regionais conduz as atividades em japonês. */
+  idioma: string;
   ativo: boolean;
   criado_em: string;
   atualizado_em: string;
+};
+
+export type TipoLocalRow = {
+  codigo: string;
+  nome: string;
+  plural: string;
+  ordem: number;
+  ativo: boolean;
+};
+
+/** Onde o evento acontece. Academia de Treinamento Espiritual, hotel, salão. */
+export type LocalRow = {
+  id: string;
+  tipo: string;
+  nome: string;
+  codigo: string | null;
+  slug: string | null;
+  unidade_id: string | null;
+  cep: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  telefone: string | null;
+  email: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  observacoes: string | null;
+  ativo: boolean;
 };
 
 export type TipoUnidadeRow = {
@@ -123,6 +158,8 @@ export interface Database {
       tipos_papel: Tabela<TipoPapelRow>;
       pessoa_unidade_vinculos: Tabela<VinculoRow>;
       funcoes_doutrinarias: Tabela<FuncaoDoutrinariaRow>;
+      tipos_local: Tabela<TipoLocalRow>;
+      locais: Tabela<LocalRow>;
     };
     Views: {
       pessoa_vinculo_atual: { Row: VinculoAtualRow; Relationships: [] };
