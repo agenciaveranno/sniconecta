@@ -10,6 +10,23 @@ cria a conta é o convite do Auth, e um gatilho amarra as duas pelo e-mail.
 
 ## Antes: o que precisa estar configurado
 
+### O caminho curto: a integração Supabase↔Vercel
+
+Em *Vercel → Settings → Integrations → Supabase → Manage*, ligar o projeto
+Supabase a este projeto Vercel preenche sozinha as chaves do Supabase, sem
+ninguém copiar e colar credencial — que é justamente onde se erra.
+
+Duas coisas que ela **não** faz, e que continuam manuais:
+
+- `CRON_SECRET` e `CREDENCIAIS_ENCRYPTION_KEY` são nossas, não do Supabase.
+  Gere com `openssl rand -base64 48`.
+- Conferir o **escopo**. A integração pode marcar só Preview. Sem Production,
+  o domínio da instituição continua devolvendo 500 enquanto a prévia funciona
+  — e é fácil concluir que o problema é o código.
+
+E, em qualquer caso: **variável nova só vale depois de um redeploy.** A
+Vercel não reinicia sozinha por causa de uma variável.
+
 ### Na Vercel — Settings → Environment Variables, marcando **Production**
 
 ```

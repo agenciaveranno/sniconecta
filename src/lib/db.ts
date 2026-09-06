@@ -16,9 +16,37 @@ import postgres from "postgres";
  */
 const globalParaDb = globalThis as unknown as { sql?: ReturnType<typeof postgres> };
 
+/**
+ * A string de conexão, com as duas grafias que aparecem na prática.
+ *
+ * ⚠️ A integração Supabase↔Vercel injeta as variáveis dela com o prefixo
+ * `POSTGRES_`, não `DATABASE_URL`. Sem aceitar as duas, quem usa a integração
+ * — que é o caminho recomendado, e evita colar chave à mão — teria tudo
+ * configurado e ainda assim veria "sem DATABASE_URL", com nada errado do lado
+ * dele.
+ *
+ * A ordem importa: `POSTGRES_URL` é o POOLER em modo transação, que é o que
+ * este módulo precisa. `POSTGRES_URL_NON_POOLING` fica por último porque abre
+ * conexão direta — em serverless isso esgota o banco.
+ */
+function urlDoBanco(): string | undefined {
+  return (
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING
+  );
+}
+
 function criar() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("Sem DATABASE_URL: o módulo eventos não alcança o banco.");
+  const url = urlDoBanco();
+  if (!url) {
+    throw new Error(
+      "Sem string de conexão ao Postgres: o módulo eventos não alcança o banco. " +
+        "Defina DATABASE_URL (o pooler do Supabase, porta 6543) na hospedagem — " +
+        "ou conecte a integração Supabase↔Vercel, que injeta POSTGRES_URL sozinha."
+    );
+  }
   return postgres(url, {
     prepare: false,
     max: 5,
