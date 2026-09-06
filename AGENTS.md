@@ -59,9 +59,16 @@ docs/                    decisões (ADR), design system, integração.
 - Tabela nova nasce com `enable row level security`, policies, GRANT
   explícito e asserção no harness de RLS. O projeto Supabase roda com
   "expose new tables" desligado: sem GRANT, a policy nem é avaliada.
-- Schema `public`: o que é comum (`pessoas`, `papeis`, `regionais`,
-  `localidades`, `auditoria`, `notificacoes`, `configuracoes`).
-  Schema `eventos`: o domínio de eventos. Outros módulos, outros schemas.
+- **Nunca um `alter default privileges` geral.** Ele concede a toda tabela
+  futura, inclusive à que ninguém revisou. GRANT é tabela a tabela, na mesma
+  migração que a cria, e o harness reprova quem sobrar sem declaração.
+- Onde a tabela mora segue o **modo de acesso** do módulo (decisão 0007):
+  quem fala pelo cliente Supabase fica em `public` com prefixo (`ciclo_*`),
+  porque o PostgREST só embute relação dentro do schema ativo e todo módulo
+  precisa embutir `pessoas`; quem fala Postgres direto ganha schema próprio
+  não exposto (`eventos.*`). O comum fica em `public` sem prefixo:
+  `pessoas`, `unidades`, `organizacoes`, `papeis`, `auditoria`,
+  `notificacoes`, `configuracoes`.
 - O módulo `eventos` acessa o Postgres **direto pelo pooler** (`src/lib/db.ts`)
   com RLS ligada e sem GRANT para `authenticated`: o navegador nunca fala
   com essas tabelas, e a autorização acontece por capacidade no servidor.
