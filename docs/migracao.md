@@ -8,38 +8,35 @@ São dois lugares diferentes, e confundi-los é a primeira pedra do caminho:
 
 | O quê | Onde | Precisa instalar? |
 |---|---|---|
-| `scripts/esquema-origem.sql`, `scripts/contagens.sql` | Painel do Railway: serviço do MySQL → aba **Data** → **Query** | Não |
-| `CREATE USER` / `GRANT` | Cliente MySQL de verdade (`railway connect`, TablePlus, DBeaver) | Sim |
+| `scripts/esquema-origem.sql`, `scripts/contagens.sql`, o `CREATE USER` | Serviço MySQL no Railway → aba **Console** | Não |
 | `npm run migrar` | Terminal da sua máquina, na pasta do projeto | Node e o repositório |
 
-O painel do Railway executa **SQL** — mas com duas restrições que não estão
-escritas em lugar nenhum e custam meia hora a quem não as conhece:
+⚠️ **Use a aba Console, não a Data.** A aba *Data → Query* serve para espiar
+dados, não para extrair esquema, e falha de três jeitos diferentes:
 
-- **Uma instrução por vez.** Colar um arquivo com várias dá erro de sintaxe
-  na segunda.
-- **Ele acrescenta `LIMIT 100`** ao que você colou. Isso corta consulta longa
-  em silêncio — e quebra qualquer DDL, porque `FLUSH PRIVILEGES LIMIT 100`
-  não é SQL válido. É por isso que o `CREATE USER` não roda ali.
+- **Acrescenta `LIMIT 100`** ao que você cola. Corta resultado longo em
+  silêncio — e quebra qualquer DDL, porque `FLUSH PRIVILEGES LIMIT 100` não é
+  SQL válido.
+- **Roda uma instrução por vez.** Colar um arquivo com várias dá erro de
+  sintaxe na segunda.
+- **Pagina de cinco em cinco linhas, sem exportar.** Um resultado de 31
+  tabelas vira sete telas para copiar à mão.
 
-As consultas de `scripts/esquema-origem.sql` foram escritas para caber nessa
-régua: nenhuma tem `LIMIT` próprio, e todas devolvem uma linha por TABELA (não
-por coluna), o que as mantém bem abaixo de 100.
-
-`mysqldump` não é SQL, é programa de linha de comando — por isso o retrato do
-esquema vem por `scripts/esquema-origem.sql`, que faz o mesmo trabalho
-consultando o `information_schema` e roda no painel, sem instalar nada.
+A aba **Console** é um terminal dentro do container: sem paginação, sem
+`LIMIT`, com o cliente `mysql` à mão e aceitando `SET SESSION` — que é o que
+permite juntar as colunas de uma tabela numa linha só sem o servidor cortar em
+1024 caracteres. `scripts/esquema-origem.sql` é escrito para ele: três comandos
+que devolvem umas trinta linhas de texto, de um copiar-colar só.
 
 ## Antes de rodar
 
-1. **Leia o esquema da origem.** Cole `scripts/esquema-origem.sql` no painel
-   do Railway, uma consulta por vez, e guarde os quatro resultados. Só nomes
-   de tabela, de coluna e tipos: nenhum dado pessoal sai daí. É o que permite
-   escrever cada fase contra os nomes reais em vez de adivinhar.
-2. **Rode `scripts/contagens.sql`**, no mesmo painel, e guarde os números: são
+1. **Leia o esquema da origem.** Cole os três comandos de
+   `scripts/esquema-origem.sql` no Console, um por vez, e guarde as saídas. Só
+   nomes de tabela, de coluna e tipos: nenhum dado pessoal sai daí. É o que
+   permite escrever cada fase contra os nomes reais em vez de adivinhar.
+2. **Rode `scripts/contagens.sql`**, no mesmo Console, e guarde os números: são
    eles que dizem o que esperar do relatório.
-3. **Crie um usuário somente leitura.** Isto é DDL: não roda no painel. Abra
-   um cliente de verdade — `railway connect` (CLI do Railway), TablePlus ou
-   DBeaver apontando para o host da aba Variables — e rode:
+3. **Crie um usuário somente leitura**, ainda no Console:
 
    ```sql
    CREATE USER 'sni_leitura'@'%' IDENTIFIED BY 'uma-senha-longa-e-aleatoria';
@@ -51,8 +48,7 @@ consultando o `information_schema` e roda no painel, sem instalar nada.
    produção de um sistema que está no ar: um `UPDATE` acidental ali derruba a
    venda de ingresso de quem está comprando naquele minuto.
 
-   Este passo só é necessário na hora de rodar a migração. Para ler o esquema
-   e as contagens, o painel basta.
+   Este passo só é necessário na hora de rodar a migração.
 
 4. **Monte a string de conexão** com o host, a porta e o banco que aparecem na
    aba **Variables** do serviço (`MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`),

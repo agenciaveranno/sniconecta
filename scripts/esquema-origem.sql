@@ -1,87 +1,84 @@
 -- Retrato do esquema do MySQL de origem (Railway), para escrever as fases da
 -- migração contra os nomes de coluna REAIS em vez de adivinhar.
 --
--- ⚠️ COMO O PAINEL DO RAILWAY SE COMPORTA (aba Data → Query):
+-- ⚠️ ONDE RODAR: aba **Console** do serviço MySQL, não a aba Data.
 --
---   1. Roda UMA instrução por vez. Colar o arquivo inteiro dá erro de
---      sintaxe na segunda.
---   2. Acrescenta `LIMIT 100` no fim do que você colou. Por isso nenhuma
---      consulta aqui tem LIMIT próprio (viraria `LIMIT 100 LIMIT 100`), e
---      todas foram escritas para caber em MENOS de 100 linhas — uma que
---      devolvesse 400 seria cortada em silêncio, e a migração nasceria
---      cega justamente nas tabelas do fim do alfabeto.
---   3. Não aceita DDL: `CREATE USER`, `GRANT` e `FLUSH PRIVILEGES` quebram
---      no `LIMIT` acrescentado. Criar o usuário de leitura exige um cliente
---      de verdade — ver `docs/migracao.md`.
+-- A aba Data → Query serve para espiar dados, não para extrair esquema:
+-- acrescenta `LIMIT 100` ao que você cola, roda uma instrução por vez e
+-- pagina de cinco em cinco linhas. Um resultado de 31 tabelas vira sete telas
+-- e nenhum botão de exportar.
 --
--- Nada aqui devolve dado pessoal: só nomes de tabela, de coluna e tipos.
-
--- ── 1. Inventário: uma linha por tabela ────────────────────────────────────
--- Cole SÓ esta consulta e me mande o resultado. Ela diz o tamanho de cada
--- tabela e quantas colunas tem — é o que me permite montar as próximas
--- consultas já sabendo que cabem no limite de 100 linhas.
+-- O Console é um terminal dentro do container: sem paginação, sem LIMIT, e
+-- aceita `SET SESSION` — que é o que permite juntar todas as colunas de uma
+-- tabela numa linha só sem o servidor cortar em 1024 caracteres.
 --
--- `table_rows` é estimativa do InnoDB, não contagem exata. Serve para saber o
--- tamanho da encrenca; quem confere a migração é scripts/contagens.sql.
-SELECT t.table_name,
-       t.table_rows AS linhas_estimadas,
-       (SELECT COUNT(*) FROM information_schema.columns c
-         WHERE c.table_schema = t.table_schema AND c.table_name = t.table_name) AS colunas
-  FROM information_schema.tables t
- WHERE t.table_schema NOT IN ('information_schema','mysql','performance_schema','sys')
-   AND t.table_type = 'BASE TABLE'
- ORDER BY t.table_name;
+-- Cada bloco abaixo é UM comando: cole inteiro, aperte enter, selecione a
+-- saída e me mande. Nada aqui devolve dado pessoal — só nomes e tipos.
+--
+-- Se o Console abrir direto no prompt do MySQL (`mysql>`) em vez de um shell,
+-- pule o `mysql -u... -e "…"` e cole só o SQL de dentro das aspas.
 
 
--- ── 2. As colunas, agrupadas por tabela ────────────────────────────────────
--- Uma linha por TABELA (e não por coluna), justamente para caber em 100.
--- É esta a consulta que mais importa: sem ela, cada fase da migração seria
--- escrita no chute e só quebraria na hora de rodar, com o banco pela metade.
+-- ═══ 1. Colunas de todas as tabelas ════════════════════════════════════════
+-- A consulta que mais importa: sem ela, cada fase da migração seria escrita no
+-- chute e só quebraria na hora de rodar, com o banco pela metade.
 --
--- ⚠️ `JSON_ARRAYAGG` pode ser truncado pelo servidor quando a tabela tem
--- muitas colunas. Se algum valor de `colunas` vier cortado no meio — JSON que
--- não fecha o colchete — me avise: eu devolvo uma versão que lê essas tabelas
--- uma a uma.
-SELECT c.table_name,
-       JSON_ARRAYAGG(JSON_OBJECT(
-         'n',     c.ordinal_position,
-         'nome',  c.column_name,
-         'tipo',  c.column_type,
-         'nulo',  c.is_nullable,
-         'chave', c.column_key,
-         'extra', c.extra)) AS colunas
+-- Uma linha por tabela, no formato:
+--   Participant :: id int !PK AI | cpf varchar(14) | email varchar(255)
+-- onde `!` marca NOT NULL. É denso de propósito: cabe numa tela e num
+-- copiar-colar.
+
+mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -N -B -e "
+SET SESSION group_concat_max_len = 1000000;
+SELECT CONCAT(c.table_name, ' :: ', GROUP_CONCAT(
+         CONCAT(c.column_name, ' ', c.column_type,
+                IF(c.is_nullable = 'NO', ' !', ''),
+                IF(c.column_key <> '', CONCAT(' ', c.column_key), ''),
+                IF(c.extra <> '', CONCAT(' ', c.extra), ''))
+         ORDER BY c.ordinal_position SEPARATOR ' | '))
   FROM information_schema.columns c
- WHERE c.table_schema NOT IN ('information_schema','mysql','performance_schema','sys')
+ WHERE c.table_schema = DATABASE()
  GROUP BY c.table_name
- ORDER BY c.table_name;
+ ORDER BY c.table_name;"
 
 
--- ── 3. Chaves estrangeiras ─────────────────────────────────────────────────
+-- ═══ 2. Chaves estrangeiras ════════════════════════════════════════════════
 -- Definem a ORDEM das fases: não dá para gravar inscrição antes do evento a
--- que ela pertence. Agrupadas por tabela pelo mesmo motivo da anterior.
-SELECT k.table_name,
-       JSON_ARRAYAGG(JSON_OBJECT(
-         'coluna',  k.column_name,
-         'aponta',  k.referenced_table_name,
-         'para',    k.referenced_column_name)) AS referencias
+-- que ela pertence.
+
+mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -N -B -e "
+SELECT CONCAT(k.table_name, '.', k.column_name, ' -> ',
+              k.referenced_table_name, '.', k.referenced_column_name)
   FROM information_schema.key_column_usage k
- WHERE k.table_schema NOT IN ('information_schema','mysql','performance_schema','sys')
+ WHERE k.table_schema = DATABASE()
    AND k.referenced_table_name IS NOT NULL
- GROUP BY k.table_name
- ORDER BY k.table_name;
+ ORDER BY k.table_name, k.column_name;"
 
 
--- ── 4. Índices únicos ──────────────────────────────────────────────────────
--- Revelam o que a origem já tratava como identificador — e o que vai colidir
--- quando a mesma regra virar `unique` no Postgres. É aqui que se descobre,
--- por exemplo, se CPF já era único lá ou se a base tem repetidos.
-SELECT s.table_name,
-       JSON_ARRAYAGG(JSON_OBJECT(
-         'indice', s.index_name,
-         'ordem',  s.seq_in_index,
-         'coluna', s.column_name)) AS unicos
+-- ═══ 3. Índices únicos e tamanho das tabelas ═══════════════════════════════
+-- Os únicos revelam o que a origem já tratava como identificador — e o que vai
+-- colidir quando a mesma regra virar `unique` no Postgres. `table_rows` é
+-- estimativa do InnoDB: serve para saber o tamanho da encrenca, não para
+-- conferir a migração (quem confere é scripts/contagens.sql).
+
+mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE" -N -B -e "
+SET SESSION group_concat_max_len = 1000000;
+SELECT CONCAT(s.table_name, ' [', s.index_name, '] ',
+              GROUP_CONCAT(s.column_name ORDER BY s.seq_in_index SEPARATOR ', '))
   FROM information_schema.statistics s
- WHERE s.table_schema NOT IN ('information_schema','mysql','performance_schema','sys')
-   AND s.non_unique = 0
- GROUP BY s.table_name
- ORDER BY s.table_name;
+ WHERE s.table_schema = DATABASE() AND s.non_unique = 0
+ GROUP BY s.table_name, s.index_name
+ ORDER BY s.table_name, s.index_name;
+SELECT CONCAT(t.table_name, ' ~', t.table_rows, ' linhas')
+  FROM information_schema.tables t
+ WHERE t.table_schema = DATABASE() AND t.table_type = 'BASE TABLE'
+ ORDER BY t.table_name;"
+
+
+-- ═══ Se a senha não estiver no ambiente ════════════════════════════════════
+-- O container costuma trazer MYSQL_ROOT_PASSWORD e MYSQL_DATABASE prontos.
+-- Se algum comando reclamar de acesso negado, veja o que existe com:
+--
+--   env | grep -i mysql
+--
+-- e troque os nomes das variáveis nos comandos acima pelos que aparecerem.
