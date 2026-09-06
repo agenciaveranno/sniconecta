@@ -8,8 +8,19 @@ Supabase (Postgres, região São Paulo), módulos por pasta:
 | `ciclo` | Ciclo de Estudos da Prosperidade: turmas, matrícula, aulas, provas, certificados | reescrita do sistema Ciclo (Supabase, ainda sem dados) |
 | `eventos` | Inscrições em eventos: checkout público, venda balcão, check-in, vouchers, relatórios, estornos | migração do SNI Ciclo de Eventos (MySQL no Railway, em produção) |
 
-O que é comum aos módulos vive no schema `public`: pessoas, papéis, regionais,
-localidades, auditoria, fila de notificações, configurações.
+O que é comum aos módulos vive no schema `public`, sem prefixo: pessoas, a
+árvore de unidades (Sede Central → Regionais → Núcleos e Associações Locais),
+organizações, papéis, auditoria, fila de notificações e configurações. Onde
+ficam as tabelas de cada módulo é a decisão 0007; a estrutura institucional é
+a 0008.
+
+## Estado
+
+A fundação está de pé: migração da plataforma aplicável e verificada,
+primitivos de interface, e a tela de estrutura em `/admin/estrutura`. Os dois
+módulos ainda não foram portados — o mapa de cada um está em
+`docs/estudo/`, e o que ainda depende de resposta da Sede está em
+`docs/estudo/estrutura-organizacional.md` §6.
 
 ## Desenvolvimento
 
@@ -20,6 +31,9 @@ npm run dev
 ```
 
 Antes de abrir PR: `npm run typecheck && npm test && npm run build`.
+Mexeu em migração ou em policy: `sudo ./scripts/testar-rls.sh` — ele sobe um
+Postgres, aplica tudo e fala com o banco como cada papel. Teste unitário não
+alcança RLS.
 
 ## Como as coisas chegam à produção
 
