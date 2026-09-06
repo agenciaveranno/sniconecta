@@ -130,7 +130,11 @@ insert into auth.users (id, email) values
   ('c0000000-0000-0000-0000-000000000003','coord.campinas@x'),
   ('c0000000-0000-0000-0000-000000000004','orientador.sul@x'),
   ('c0000000-0000-0000-0000-000000000005','aluna.curitiba@x'),
-  ('c0000000-0000-0000-0000-000000000006','coord.nucleo@x');
+  ('c0000000-0000-0000-0000-000000000006','coord.nucleo@x'),
+  -- Conta sem pessoa: existe só para as asserções de ligação por e-mail
+  -- poderem usar um `auth_user_id` livre. Com um já tomado, o unique de
+  -- `auth_user_id` recusaria antes e mascararia o que se quer provar.
+  ('c0000000-0000-0000-0000-000000000007','sobra@x');
 
 insert into unidades (id, tipo, pai_id, organizacao_id, nome, slug)
 select v.id, v.tipo, v.pai, o.id, v.nome, v.slug
@@ -344,15 +348,41 @@ escrita "papel nacional com unidade é recusado" $SEDE \
 escrita "papel de unidade sem unidade é recusado" $SEDE \
   "insert into papeis (pessoa_id, tipo) values ('d0000000-0000-0000-0000-000000000005','coordenador');" NEGADO
 
-echo "── Identidade (decisões 0002 e 0004)"
+echo "── Identidade (decisões 0002, 0004 e 0011)"
 escrita "CPF fora do formato é recusado" $SEDE \
   "insert into pessoas (cpf, nome) values ('123','X');" NEGADO
-escrita "e-mail vazio é recusado (o unique cairia na segunda pessoa)" $SEDE \
+escrita "e-mail vazio é recusado (string vazia não é e-mail)" $SEDE \
   "insert into pessoas (cpf, nome, email) values ('11144477735','X','');" NEGADO
 escrita "duas pessoas sem e-mail convivem" $SEDE \
   "insert into pessoas (cpf, nome) values ('64152962057','A'),('37515868048','B');" OK
+# A família compartilha caixa: 1.060 e-mails repetidos na base de origem.
+# Recusar isto rejeitaria milhares de pessoas legítimas na carga.
+escrita "mãe e filho compartilham o mesmo e-mail" $SEDE \
+  "insert into pessoas (cpf, nome, email) values ('64152962057','Mãe','casa@x'),('37515868048','Filho','casa@x');" OK
 escrita "conta sem e-mail é recusada" $SEDE \
   "insert into pessoas (cpf, nome, auth_user_id) values ('64152962057','X','c0000000-0000-0000-0000-000000000001');" NEGADO
+# ⚠️ Duas CONTAS com o mesmo e-mail seriam duas identidades para o mesmo
+# login. O Auth já impede; este índice é a cinta do nosso lado.
+escrita "duas contas com o mesmo e-mail são recusadas" $SEDE \
+  "insert into pessoas (cpf, nome, email, auth_user_id) values ('64152962057','A','coord.sul@x','c0000000-0000-0000-0000-000000000007');" NEGADO
+# ⚠️ A pior falha possível deste sistema: entregar a sessão da mãe ao filho.
+# Com e-mail repetido, a conta nova não tem como saber de quem é — então NÃO
+# liga a ninguém e registra a ambiguidade para alguém resolver à mão. Ficar
+# sem acesso é chato e reversível; ver a ficha de outra pessoa, não.
+amb=$(P -t -A -q -c "begin;
+insert into pessoas (cpf, nome, email) values ('64152962057','Mãe','casa@x'),('37515868048','Filho','casa@x');
+insert into auth.users (id, email) values ('c0000000-0000-0000-0000-0000000000aa','casa@x');
+select (select count(*) from pessoas where auth_user_id = 'c0000000-0000-0000-0000-0000000000aa')
+       || '/' ||
+       (select count(*) from auditoria where acao = 'conta.ligacao_ambigua');
+rollback;" 2>/dev/null | tr -d ' \n')
+if [ "$amb" = "0/1" ]; then
+  echo "  ✅ conta com e-mail de família não liga a ninguém, e a dúvida vira auditoria"
+else
+  echo "  ❌ conta com e-mail de família — esperava 0 ligada / 1 auditoria, obteve $amb"
+  falhas=$((falhas+1))
+fi
+
 escrita "dois vínculos ativos para a mesma pessoa são recusados" $SEDE \
   "insert into pessoa_unidade_vinculos (pessoa_id, unidade_id) values ('d0000000-0000-0000-0000-000000000005','33330000-0000-0000-0000-000000000002');" NEGADO
 

@@ -116,10 +116,47 @@ permite estornar uma compra inteira em vez de ingresso a ingresso.
   já expressa isso, e `Promotor.usarCorrespondenciaRegional` é a chave que
   liga o comportamento.
 
+## A qualidade do dado, medida em 06/09/2026
+
+| Medida | Quantidade |
+|---|---|
+| Participantes | 16.676 |
+| Sem CPF | 0 |
+| CPF fora do formato | 0 |
+| CPF placeholder (`111…`) | 2 |
+| Sem CodSNI | 17 |
+| **CodSNI repetido** | **0** |
+| Sem e-mail | 443 |
+| **E-mails repetidos (grupos)** | **1.060** |
+| Inscrições | 1.196 |
+| Eventos | 2 |
+| Regionais em texto livre | 118 |
+| Organizações em texto livre | 6 |
+
+O que isso diz, em ordem de importância:
+
+**O e-mail derruba a decisão 0004.** Mil e sessenta caixas compartilhadas —
+família com um endereço só. Com `unique` em `pessoas.email`, a carga
+rejeitaria milhares de pessoas legítimas. Ver a decisão 0011.
+
+**A identidade está limpa.** Zero CPF ausente, zero fora do formato, zero
+CodSNI repetido. O medo de que o CodSNI colidisse não se confirmou: ele pode
+entrar como segunda chave sem tratamento especial. Os 2 CPFs placeholder são
+rejeitados pelo dígito verificador — dois, resolvidos à mão depois.
+
+**O peso está em `Participant`, não em `Inscricao`.** 16.676 pessoas contra
+1.196 inscrições em 2 eventos. A carga de eventos é leve; a de pessoas é a que
+precisa de cuidado — e é justamente a única fase já implementada.
+
+**118 Regionais em texto contra 114 publicadas no site**, e 6 Organizações
+contra as 4 oficiais. A diferença é grafia, unidade extinta ou digitação — e
+conciliar isso é trabalho de tela, com uma pessoa decidindo caso a caso, não
+de carga. Por isso `regional`, `organizacao` e `associacaoLocal` vão inteiros
+para `migracao_extras` até alguém casar cada um com a unidade certa.
+
 ## O que falta ler da origem
 
-- `scripts/contagens.sql` — a qualidade do dado: CPF fora do formato, CodSNI
-  repetido, e-mail repetido. É o que diz quantas rejeições esperar.
 - Comandos 2 e 3 de `scripts/esquema-origem.sql` — chaves estrangeiras
   declaradas e índices únicos. O `MUL` acima indica índice, mas não diz para
-  onde aponta.
+  onde aponta. Não bloqueia a fase `pessoas`; bloqueia a ordem das fases de
+  eventos.
