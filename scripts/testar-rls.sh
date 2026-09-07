@@ -416,11 +416,133 @@ escrita "dois vínculos ativos para a mesma pessoa são recusados" $SEDE \
 # Tabela que ganhe privilégio para anon ou authenticated sem estar aqui
 # reprova. É isto que substitui, mecanicamente, o isolamento de um schema.
 echo
+echo "── Ficha da pessoa: documentos fora do alcance do navegador"
+# ⚠️ Documento de identidade e cache de CEP não se protegem por policy: quem
+# alcança a tabela alcança o caminho do arquivo, e caminho vazado é arquivo
+# vazado. A garantia é não haver GRANT nenhum.
+n_grant_ficha=$(conta "select count(*) from information_schema.role_table_grants where table_schema='public' and table_name in ('pessoa_anexos','ceps') and grantee in ('anon','authenticated');")
+if [ "$n_grant_ficha" = "0" ]; then echo "  ✅ anexos e CEPs sem GRANT nenhum";
+else echo "  ❌ anexos/CEPs concedidos ao navegador ($n_grant_ficha)"; falhas=$((falhas+1)); fi
+
+n_idx_login=$(conta "select count(*) from pg_indexes where tablename='pessoas' and indexdef ilike '%login%';")
+if [ "$n_idx_login" -ge 1 ]; then echo "  ✅ login tem índice único";
+else echo "  ❌ login sem índice: dois logins iguais conviveriam"; falhas=$((falhas+1)); fi
+escrita "login com dois logins iguais em caixas diferentes é recusado" $SEDE \
+  "insert into pessoas (nome, cpf, login) values ('A','52998224725','Vinicius'),('B','11144477735','vinicius');" NEGADO
+escrita "login que começa com número é recusado" $SEDE \
+  "insert into pessoas (nome, cpf, login) values ('C','52998224725','1abc');" NEGADO
+escrita "estado civil fora da lista é recusado" $SEDE \
+  "insert into pessoas (nome, cpf, estado_civil) values ('D','52998224725','amigado');" NEGADO
+escrita "anexo de tipo desconhecido é recusado" $SEDE \
+  "insert into pessoa_anexos (pessoa_id, tipo, caminho, nome_arquivo) values ('d0000000-0000-0000-0000-000000000005','selfie','x/y','y.jpg');" NEGADO
+
+echo "── Departamentos: um cadastro, duas palavras"
+# ⚠️ A Organização é um Departamento MARCADO como tal. Se a marca sumir, a tela
+# de Associação Local passa a oferecer "Departamento Jurídico" como opção.
+n_org=$(conta "select count(*) from organizacoes where e_organizacao;")
+[ "$n_org" -ge 4 ] || { echo "  ❌ esperava ao menos as 4 Organizações marcadas, veio $n_org"; falhas=$((falhas+1)); }
+n_dep=$(conta "select count(*) from organizacoes where not e_organizacao;")
+[ "$n_dep" -ge 14 ] || { echo "  ❌ esperava ao menos 14 Departamentos administrativos, veio $n_dep"; falhas=$((falhas+1)); }
+echo "  ✅ $n_org Organizações e $n_dep Departamentos no mesmo cadastro"
+escrita "Sede cria seção" $SEDE \
+  "insert into secoes (organizacao_id, nome) values ($ORG_PROSP,'Seção de Eventos');" OK
+escrita "coordenadora NÃO cria seção" $CSUL \
+  "insert into secoes (organizacao_id, nome) values ($ORG_PROSP,'Seção Paralela');" NEGADO
+escrita "duas seções com o mesmo nome no mesmo Departamento são recusadas" $SEDE \
+  "insert into secoes (organizacao_id, nome) values ($ORG_PROSP,'Repetida'),($ORG_PROSP,'Repetida');" NEGADO
+
+echo "── Mandatos: cargo é fato datado, com requisito de função"
+# Uma pessoa com função baixa não pode ser Diretor-Presidente. A checagem é
+# contra o HISTÓRICO na data da posse, não contra a função de hoje.
+P -q -c "insert into pessoa_funcao_hist (pessoa_id, funcao_id, vigencia_inicio) values ('d0000000-0000-0000-0000-000000000005',(select id from funcoes_doutrinarias where nome='Divulgador'),'2020-01-01');" >/dev/null 2>&1
+escrita "Divulgador NÃO pode ser Diretor-Presidente" $SEDE \
+  "insert into mandatos (pessoa_id, cargo, data_inicio) values ('d0000000-0000-0000-0000-000000000005','dac.presidente','2026-03-01');" NEGADO
+escrita "Divulgador PODE presidir Associação Local" $SEDE \
+  "insert into mandatos (pessoa_id, cargo, unidade_id, data_inicio) values ('d0000000-0000-0000-0000-000000000005','al.presidente','33330000-0000-0000-0000-000000000001','2026-06-01');" OK
+# ⚠️ A promoção veio DEPOIS da posse: ela não pode validar retroativamente uma
+# nomeação que era irregular quando aconteceu.
+escrita "promoção posterior não valida posse anterior" $SEDE \
+  "insert into pessoa_funcao_hist (pessoa_id, funcao_id, vigencia_inicio) values ('d0000000-0000-0000-0000-000000000005',(select id from funcoes_doutrinarias where nome='Preletor em grau Máster'),'2030-01-01');
+   insert into mandatos (pessoa_id, cargo, data_inicio) values ('d0000000-0000-0000-0000-000000000005','dac.presidente','2026-03-01');" NEGADO
+escrita "com a função na data da posse, a nomeação passa" $SEDE \
+  "insert into pessoa_funcao_hist (pessoa_id, funcao_id, vigencia_inicio) values ('d0000000-0000-0000-0000-000000000005',(select id from funcoes_doutrinarias where nome='Preletor em grau Máster'),'2025-01-01');
+   insert into mandatos (pessoa_id, cargo, data_inicio) values ('d0000000-0000-0000-0000-000000000005','dac.presidente','2026-03-01');" OK
+escrita "cargo nacional com unidade é recusado" $SEDE \
+  "insert into mandatos (pessoa_id, cargo, unidade_id, data_inicio) values ('d0000000-0000-0000-0000-000000000005','dac.secretario','22220000-0000-0000-0000-000000000001','2026-03-01');" NEGADO
+escrita "cargo de Regional sem unidade é recusado" $SEDE \
+  "insert into mandatos (pessoa_id, cargo, data_inicio) values ('d0000000-0000-0000-0000-000000000005','supervisao.supervisor','2026-10-01');" NEGADO
+# ⚠️ Os dois na MESMA instrução: `escrita` desfaz a transação, então um mandato
+# aberto na asserção anterior não existe mais aqui.
+escrita "dois Presidentes da mesma AL ao mesmo tempo são recusados" $SEDE \
+  "insert into mandatos (pessoa_id, cargo, unidade_id, data_inicio) values ('d0000000-0000-0000-0000-000000000005','al.presidente','33330000-0000-0000-0000-000000000001','2026-06-01'),('d0000000-0000-0000-0000-000000000007','al.presidente','33330000-0000-0000-0000-000000000001','2026-06-01');" NEGADO
+escrita "coordenadora NÃO dá posse" $CSUL \
+  "insert into mandatos (pessoa_id, cargo, unidade_id, data_inicio) values ('d0000000-0000-0000-0000-000000000005','al.presidente','33330000-0000-0000-0000-000000000001','2026-06-01');" NEGADO
+n_cargos=$(conta "select count(*) from cargos;")
+[ "$n_cargos" -ge 30 ] || { echo "  ❌ esperava ao menos 30 cargos catalogados, veio $n_cargos"; falhas=$((falhas+1)); }
+n_secr=$(conta "select count(*) from colegiados c where not exists (select 1 from cargos g where g.colegiado=c.codigo and g.e_secretario) and c.codigo not in ('supervisao','departamento','representacao');")
+[ "$n_secr" = "0" ] || { echo "  ❌ $n_secr colegiado(s) sem cargo de Secretário — a ata não saberia quem a lavrou"; falhas=$((falhas+1)); }
+echo "  ✅ $n_cargos cargos catalogados, e todo conselho tem Secretário"
+
+echo "── Missão Sagrada, contas bancárias, revistas e reuniões"
+# ⚠️ Quanto cada pessoa contribui e onde a instituição guarda dinheiro NÃO se
+# protegem por policy de leitura: quem alcança a tabela alcança o dado. A
+# garantia é não haver GRANT nenhum, e é isto que se afirma.
+n_grant_dinheiro=$(conta "select count(*) from information_schema.role_table_grants where table_schema in ('public','missao') and table_name in ('contas_bancarias','chaves_pix','maquininhas','categorias','adesoes','contribuicoes','rateio') and grantee in ('anon','authenticated');")
+if [ "$n_grant_dinheiro" = "0" ]; then echo "  ✅ contas, Pix, maquininhas e Missão Sagrada sem GRANT nenhum";
+else echo "  ❌ dado bancário/contribuição concedido ao navegador ($n_grant_dinheiro)"; falhas=$((falhas+1)); fi
+
+n_missao=$(conta "select count(*) from missao.categorias;")
+[ "$n_missao" = "7" ] || { echo "  ❌ esperava 7 categorias da Missão Sagrada, veio $n_missao"; falhas=$((falhas+1)); }
+echo "  ✅ $n_missao categorias da Missão Sagrada"
+
+escrita "rateio que não fecha em 100% é recusado" $SEDE \
+  "insert into missao.rateio (vigencia_inicio, pct_sede, pct_regional, pct_local) values ('2027-01-01', 50, 25, 20);" NEGADO
+escrita "categoria com valor E percentual é recusada" $SEDE \
+  "insert into missao.categorias (nome, valor_min_centavos, percentual_renda) values ('Impossível', 100, 10);" NEGADO
+escrita "conta bancária sem dono é recusada" $SEDE \
+  "insert into contas_bancarias (apelido) values ('Órfã');" NEGADO
+escrita "conta bancária com dois donos é recusada" $SEDE \
+  "insert into contas_bancarias (apelido, unidade_id, organizacao_id) values ('Dupla','22220000-0000-0000-0000-000000000001',$ORG_PROSP);" NEGADO
+escrita "banco com código de dois dígitos é recusado" $SEDE \
+  "insert into contas_bancarias (apelido, unidade_id, banco_codigo) values ('BB','22220000-0000-0000-0000-000000000001','1');" NEGADO
+escrita "cotista pagando mais que a capa é recusado" $SEDE \
+  "insert into revista_precos (vigencia_inicio, capa_centavos, cotista_centavos) values ('2027-01-01', 200, 250);" NEGADO
+escrita "reunião semanal sem dia da semana é recusada" $SEDE \
+  "insert into reunioes (unidade_id, frequencia, hora_inicio) values ('33330000-0000-0000-0000-000000000001','semanal','20:00');" NEGADO
+escrita "reunião que termina antes de começar é recusada" $SEDE \
+  "insert into reunioes (unidade_id, frequencia, dia_semana, hora_inicio, hora_fim) values ('33330000-0000-0000-0000-000000000001','semanal',2,'20:00','19:00');" NEGADO
+escrita "reunião semanal com dia da semana é aceita" $SEDE \
+  "insert into reunioes (unidade_id, frequencia, dia_semana, hora_inicio, hora_fim) values ('33330000-0000-0000-0000-000000000001','semanal',2,'20:00','21:30');" OK
+# ⚠️ A herança da árvore vale aqui como vale em pessoas: a coordenadora da
+# Regional Sul alcança as ALs abaixo dela, e nenhuma de outra Regional.
+escrita "coordenadora da Regional Sul cadastra reunião de AL dela" $CSUL \
+  "insert into reunioes (unidade_id, frequencia, dia_semana, hora_inicio) values ('33330000-0000-0000-0000-000000000001','semanal',3,'19:30');" OK
+escrita "coordenadora da Regional Sul NÃO cadastra reunião em Campinas" $CSUL \
+  "insert into reunioes (unidade_id, frequencia, dia_semana, hora_inicio) values ('33330000-0000-0000-0000-000000000003','semanal',3,'19:30');" NEGADO
+
+echo "── PASC, locais de terceiro e catálogo de produtos"
+# ⚠️ O gatilho de CNPJ exige a raiz da Sede — e isso vale só para o que é NOSSO.
+# Um hotel tem CNPJ de outra empresa, e recusá-lo impediria cadastrar o local
+# onde o evento vai acontecer.
+escrita "hotel de terceiro com CNPJ próprio é aceito" $SEDE \
+  "insert into locais (tipo, nome, cnpj, proprio) values ('hotel','Hotel do Evento','11222333000181',false);" OK
+escrita "local NOSSO com CNPJ de outra empresa continua recusado" $SEDE \
+  "insert into locais (tipo, nome, cnpj, proprio) values ('academia','Academia Errada','11222333000181',true);" NEGADO
+escrita "categoria de produto que não fecha em 100% é recusada" $SEDE \
+  "insert into produto_categorias (nome, pct_sede, pct_regional, pct_local) values ('Torta', 50, 25, 20);" NEGADO
+escrita "código de barras com letra é recusado" $SEDE \
+  "insert into produtos (categoria_id, nome, codigo_barras) values ((select id from produto_categorias where nome='Livros'),'Livro','ABC123');" NEGADO
+escrita "evento gratuito e parcelado é recusado" $SEDE \
+  "insert into eventos.eventos (nome, data_inicial, data_final, gratuito, max_parcelas) values ('Impossível','2026-05-01','2026-05-01',true,3);" NEGADO
+n_ambito=$(conta "select count(*) from information_schema.columns where table_schema='eventos' and table_name='eventos' and column_name='ambito';")
+[ "$n_ambito" = "1" ] || { echo "  ❌ o PASC precisa da coluna de âmbito no evento"; falhas=$((falhas+1)); }
+echo "  ✅ PASC é recorte de \`ambito\`, não tabela à parte"
+
 echo "── Superfície de GRANT"
 # Tabelas e visões que PODEM ser lidas ou escritas pelo navegador. Toda a
 # lista é decisão registrada: quem entrar aqui sem estar no arquivo da
 # migração reprova.
-PERMITIDAS="auditoria,configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,organizacoes,papeis,pessoa_funcao_atual,pessoa_funcao_hist,pessoa_unidade_vinculos,pessoa_vinculo_atual,pessoas,solicitacoes_exclusao,tipos_local,tipos_papel,tipos_unidade,unidades"
+PERMITIDAS="auditoria,cargos,colegiados,configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,mandato_atual,mandatos,organizacoes,papeis,pessoa_funcao_atual,pessoa_funcao_hist,pessoa_unidade_vinculos,pessoa_vinculo_atual,pessoas,produto_categorias,produtos,reunioes,revista_cotas,revista_minimos,revista_pedidos,revista_precos,revistas,secoes,solicitacoes_exclusao,tipos_local,tipos_papel,tipos_unidade,unidades"
 inesperadas=$(P -t -A <<SQL
 select string_agg(distinct table_name, ', ' order by table_name)
   from information_schema.role_table_grants

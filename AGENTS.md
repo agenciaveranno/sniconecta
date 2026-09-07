@@ -106,6 +106,9 @@ Regras completas em `docs/design-system.md`. As que mais se erram:
 - Cor, raio, sombra e tamanho vêm dos tokens. Precisou de algo que não
   existe: crie o primitivo em `ui.tsx` ou pergunte antes de inventar.
 - Cadastro (criar e editar) acontece em modal. Esc e clique fora não fecham.
+  **Exceção registrada (decisão 0015): a ficha da pessoa é página com abas.**
+  Vira página quem tiver duas destas: mais de ~15 campos, upload de arquivo,
+  mais de um assunto dentro, ou necessidade de URL própria.
 - `SEICHO-NO-IE DO BRASIL` sempre em caixa alta, escrita no conteúdo
   (`<Entidade />`). A forma com "do Brasil" em minúsculas não pode aparecer
   em lugar nenhum. `Seicho-No-Ie` sozinho é livre. `SNI Conecta` é o produto.

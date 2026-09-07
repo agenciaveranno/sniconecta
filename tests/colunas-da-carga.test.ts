@@ -47,13 +47,32 @@ function colunasDoBanco(): Map<string, Set<string>> {
   return mapa;
 }
 
-/** Cada `insert into <tabela> (a, b, c)` do script de carga. */
+/**
+ * Cada inserção do script, nas DUAS formas que ele usa:
+ *
+ *  · uma linha por vez — `insert into tabela (a, b, c) values (...)`
+ *  · em lote — `insert into tabela ${destino(lote, "a", "b", "c")}`
+ *
+ * ⚠️ A segunda forma existe porque dezesseis mil idas e voltas pelo pooler
+ * levam mais de uma hora. Quando ela entrou, este teste PAROU de enxergar as
+ * duas maiores inserções da carga e passou calado, com dois testes a menos —
+ * é por isso que as colunas do lote são escritas à mão em vez de deduzidas do
+ * primeiro objeto: para continuarem visíveis daqui.
+ */
 function insercoesDaCarga(): { tabela: string; colunas: string[] }[] {
   const script = readFileSync("scripts/migrar-mysql.ts", "utf8");
-  return [...script.matchAll(/insert into ([\w.]+)\s*\(([^)]*)\)/g)].map((m) => ({
+
+  const uma = [...script.matchAll(/insert into ([\w.]+)\s*\(([^)]*)\)/g)].map((m) => ({
     tabela: m[1].includes(".") ? m[1] : `public.${m[1]}`,
     colunas: m[2].split(",").map((c) => c.trim()).filter((c) => /^[a-z_][a-z0-9_]*$/.test(c)),
   }));
+
+  const lote = [...script.matchAll(/insert into ([\w.]+)\s*\$\{([^}]*)\}/g)].map((m) => ({
+    tabela: m[1].includes(".") ? m[1] : `public.${m[1]}`,
+    colunas: [...m[2].matchAll(/"([a-z_][a-z0-9_]*)"/g)].map((c) => c[1]),
+  }));
+
+  return [...uma, ...lote].filter((i) => i.colunas.length > 0);
 }
 
 describe("as colunas que a carga escreve", () => {
@@ -66,6 +85,10 @@ describe("as colunas que a carga escreve", () => {
     expect(banco.get("public.pessoas")?.has("cpf")).toBe(true);
     expect(banco.get("public.pessoas")?.has("passaporte")).toBe(true);
     expect(insercoes.length).toBeGreaterThan(8);
+    // ⚠️ As duas maiores inserções da carga são em LOTE. Se o parser deixar de
+    // reconhecê-las, este teste passaria vazio justamente onde mais importa.
+    expect(insercoes.some((i) => i.tabela === "public.pessoas")).toBe(true);
+    expect(insercoes.some((i) => i.tabela === "public.pessoa_unidade_vinculos")).toBe(true);
   });
 
   for (const { tabela, colunas } of insercoesDaCarga()) {

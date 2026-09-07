@@ -206,3 +206,72 @@ export function chaveNucleo(v: unknown): string {
     .replace(/^(da|de|do|dos|das)(\s+|$)/, "")
     .trim();
 }
+
+/**
+ * O tipo de um campo extra de inscrição, traduzido para o catálogo do destino.
+ *
+ * ⚠️ A carga passava o valor CRU da origem, e o `check` do banco derrubou tudo:
+ * a origem usa o vocabulário de um formulário HTML ("text", "select",
+ * "checkbox"), e o destino usa o da instituição ("texto", "selecao",
+ * "booleano"). São dois vocabulários, e supor que coincidem é o que fez a fase
+ * inteira parar.
+ *
+ * ⚠️ O desconhecido vira `texto` e SE ANUNCIA, em vez de derrubar a carga.
+ * Campo de texto aceita qualquer coisa que a pessoa tenha digitado — nada se
+ * perde — e o relatório diz qual era o valor, que é o que permite acrescentar a
+ * tradução certa depois. Derrubar dezesseis mil pessoas por causa de um rótulo
+ * de campo seria a troca errada.
+ */
+const TIPOS_DE_CAMPO: Record<string, string> = {
+  // O vocabulário do destino, para o caso de já vir traduzido.
+  texto: "texto", numero: "numero", data: "data",
+  selecao: "selecao", multipla: "multipla", booleano: "booleano",
+  // O de formulário HTML, que é o que a origem usa.
+  text: "texto", string: "texto", textarea: "texto", email: "texto",
+  tel: "texto", phone: "texto", cpf: "texto", url: "texto", password: "texto",
+  number: "numero", numeric: "numero", int: "numero", integer: "numero", float: "numero",
+  date: "data", datetime: "data", time: "data",
+  select: "selecao", dropdown: "selecao", radio: "selecao",
+  checkbox: "booleano", boolean: "booleano", bool: "booleano",
+  multiselect: "multipla", checkboxes: "multipla",
+};
+
+export function tipoDeCampo(bruto: unknown): { tipo: string; desconhecido: string | null } {
+  const chave = String(bruto ?? "").trim().toLowerCase();
+  if (!chave) return { tipo: "texto", desconhecido: null };
+  const achado = TIPOS_DE_CAMPO[chave];
+  return achado
+    ? { tipo: achado, desconhecido: null }
+    : { tipo: "texto", desconhecido: chave };
+}
+
+/**
+ * Um valor que precisa estar numa lista fechada do destino.
+ *
+ * ⚠️ ESTA É A ARMADILHA QUE JÁ CUSTOU EXECUÇÕES EM PRODUÇÃO. Toda coluna com
+ * `check (x in (...))` recebe um valor que a ORIGEM escolheu, e a origem usa o
+ * vocabulário dela. Enquanto os dois coincidem, funciona; na primeira linha em
+ * que divergem, o banco recusa e a fase inteira para — uma descoberta por
+ * execução, sempre com a base pela metade.
+ *
+ * Aqui o desconhecido cai no padrão e SE ANUNCIA no relatório. A carga
+ * atravessa, e o relatório diz exatamente qual palavra falta traduzir — que é
+ * a informação que permite corrigir de uma vez, em vez de descobrir de novo.
+ *
+ * ⚠️ O padrão precisa ser o valor SEGURO, não o mais comum: uma inscrição de
+ * status desconhecido é melhor `pendente` (alguém confere) do que `pago`
+ * (ninguém confere nunca).
+ */
+export function deLista(
+  bruto: unknown,
+  permitidos: readonly string[],
+  padrao: string,
+  sinonimos: Record<string, string> = {}
+): { valor: string; desconhecido: string | null } {
+  const chave = String(bruto ?? "").trim().toLowerCase();
+  if (!chave) return { valor: padrao, desconhecido: null };
+  if (permitidos.includes(chave)) return { valor: chave, desconhecido: null };
+  const traduzido = sinonimos[chave];
+  if (traduzido) return { valor: traduzido, desconhecido: null };
+  return { valor: padrao, desconhecido: chave };
+}

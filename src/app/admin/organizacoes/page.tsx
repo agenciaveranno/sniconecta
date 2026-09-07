@@ -1,9 +1,11 @@
 import { IconAlertCircle, IconBuildingArch, IconPlus } from "@tabler/icons-react";
+import Link from "next/link";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import CamposCielo from "@/componentes/CamposCielo";
 import {
   Alerta,
+  Badge,
   Campo,
   Celula,
   Etiqueta,
@@ -19,9 +21,10 @@ import { listarCredenciais } from "@/lib/credenciais";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import type { OrganizacaoRow } from "@/lib/supabase/tipos";
+import ToggleOrganizacao from "./ToggleOrganizacao";
 import { alternarAtivo, criarOrganizacao, editarOrganizacao } from "./actions";
 
-export const metadata = { title: "Organizações" };
+export const metadata = { title: "Departamentos" };
 
 type Conta = { merchant_id: string; nome_loja: string; temSegredo: boolean } | undefined;
 
@@ -41,6 +44,8 @@ function Campos({
       <Campo label="Nome" obrigatorio>
         <Input name="nome" defaultValue={organizacao?.nome ?? ""} required maxLength={120} />
       </Campo>
+
+      <ToggleOrganizacao inicial={organizacao?.e_organizacao} />
 
       <div className="sni-form-grid">
         <Campo label="Nome curto" dica="Como aparece em tabela e crachá, onde o nome inteiro não cabe.">
@@ -96,15 +101,15 @@ export default async function OrganizacoesPage({
   };
 
   return (
-    <Painel titulo="Organizações">
+    <Painel titulo="Departamentos">
       <TituloPagina
-        titulo="Organizações"
-        descricao="Atravessam todas as esferas: cada Associação Local pertence a uma delas, e a Regional pertence a todas ao mesmo tempo. A lista não é fechada — a Sede cria novas quando a instituição cresce."
+        titulo="Departamentos da Sede Central"
+        descricao="As unidades administrativas que dão suporte aos trabalhos. Algumas delas são as Organizações doutrinárias — Fraternidade, Pomba Branca, Jovens, Prosperidade —; outras, não. É a chave de cada linha que responde, e é por ela que a Associação Local monta a lista de escolha. Fora da Sede Central, todas se chamam Organização."
         acao={
           <ModalCadastro
-            rotulo="Nova organização"
+            rotulo="Novo departamento"
             icone={<IconPlus size={18} className="ti" />}
-            titulo="Nova organização"
+            titulo="Novo departamento"
             acao={criarOrganizacao}
             rotuloConfirmar="Cadastrar"
           >
@@ -122,15 +127,29 @@ export default async function OrganizacoesPage({
       )}
 
       {organizacoes.length === 0 ? (
-        <Vazio icone={<IconBuildingArch size={34} className="ti" />} titulo="Nenhuma organização cadastrada">
-          Sem organização, nenhuma Associação Local pode ser criada: toda AL
-          pertence a uma.
+        <Vazio icone={<IconBuildingArch size={34} className="ti" />} titulo="Nenhum departamento cadastrado">
+          Sem Organização marcada, nenhuma Associação Local pode ser criada:
+          toda AL pertence a uma.
         </Vazio>
       ) : (
-        <Tabela cabecalho={["Organização", "Código", "Ordem", ...(podeVerCielo ? ["Conta Cielo"] : []), "Situação", ""]}>
+        <Tabela cabecalho={["Departamento", "É Organização", "Código", "Ordem", ...(podeVerCielo ? ["Conta Cielo"] : []), "Situação", ""]}>
           {organizacoes.map((o) => (
             <Linha key={o.id}>
-              <Celula forte>{o.nome}</Celula>
+              <Celula forte>
+                {o.nome}
+                {o.descricao && (
+                  <span className="sni-hint" style={{ marginTop: 2 }}>{o.descricao}</span>
+                )}
+              </Celula>
+              <Celula>
+                {/* ⚠️ Nunca só por cor: quem não distingue verde de cinza
+                    precisa do texto para saber o que a linha diz. */}
+                {o.e_organizacao ? (
+                  <Badge tom="success" ponto>Organização</Badge>
+                ) : (
+                  <span className="sni-hint">Administrativo</span>
+                )}
+              </Celula>
               <Celula>{o.codigo ?? "—"}</Celula>
               <Celula>
                 <Num>{o.ordem}</Num>

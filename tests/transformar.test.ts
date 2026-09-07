@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bool, centavos, chaveNucleo, cielo, texto, transformarParticipante, type ParticipanteMysql } from "../scripts/lib/transformar";
+import { bool, centavos, chaveNucleo, cielo, deLista, texto, tipoDeCampo, transformarParticipante, type ParticipanteMysql } from "../scripts/lib/transformar";
 
 const base: ParticipanteMysql = {
   id: 42,
@@ -139,5 +139,61 @@ describe("chaveNucleo", () => {
     expect(chaveNucleo(null)).toBe("");
     expect(chaveNucleo("   ")).toBe("");
     expect(chaveNucleo("Regional")).toBe("");
+  });
+});
+
+describe("tipoDeCampo", () => {
+  it("traduz o vocabulário de formulário para o da instituição", () => {
+    // ⚠️ A origem fala HTML, o destino fala instituição. Supor que coincidem
+    // fez a fase `eventos` inteira parar no `check` do banco.
+    expect(tipoDeCampo("text").tipo).toBe("texto");
+    expect(tipoDeCampo("select").tipo).toBe("selecao");
+    expect(tipoDeCampo("checkbox").tipo).toBe("booleano");
+    expect(tipoDeCampo("number").tipo).toBe("numero");
+    expect(tipoDeCampo("date").tipo).toBe("data");
+  });
+
+  it("aceita o que já vem no vocabulário do destino", () => {
+    expect(tipoDeCampo("selecao").tipo).toBe("selecao");
+    expect(tipoDeCampo("BOOLEANO").tipo).toBe("booleano");
+  });
+
+  it("o desconhecido vira texto e SE ANUNCIA", () => {
+    // Campo de texto aceita o que a pessoa digitou — nada se perde. E o
+    // relatório diz qual era o valor, que é o que permite traduzir depois.
+    const r = tipoDeCampo("assinatura");
+    expect(r.tipo).toBe("texto");
+    expect(r.desconhecido).toBe("assinatura");
+  });
+
+  it("vazio é texto, sem alarde", () => {
+    expect(tipoDeCampo(null)).toEqual({ tipo: "texto", desconhecido: null });
+    expect(tipoDeCampo("  ")).toEqual({ tipo: "texto", desconhecido: null });
+  });
+});
+
+describe("deLista", () => {
+  const STATUS = ["pendente", "pago", "cancelado", "expirado", "transferido"] as const;
+
+  it("aceita o que já está na lista, sem olhar caixa", () => {
+    expect(deLista("PAGO", STATUS, "pendente")).toEqual({ valor: "pago", desconhecido: null });
+  });
+
+  it("traduz sinônimo conhecido", () => {
+    expect(deLista("paid", STATUS, "pendente", { paid: "pago" }).valor).toBe("pago");
+  });
+
+  it("o desconhecido cai no padrão e SE ANUNCIA", () => {
+    // ⚠️ É esta linha que impede a carga de parar na palavra número um
+    // milhão. O relatório diz qual falta traduzir.
+    expect(deLista("chargeback", STATUS, "pendente")).toEqual({
+      valor: "pendente",
+      desconhecido: "chargeback",
+    });
+  });
+
+  it("vazio é o padrão, sem alarde", () => {
+    expect(deLista(null, STATUS, "pendente").desconhecido).toBe(null);
+    expect(deLista("   ", STATUS, "pendente").valor).toBe("pendente");
   });
 });

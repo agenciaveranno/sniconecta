@@ -14,6 +14,11 @@ const schema = z.object({
   nome_curto: z.string().trim().optional().transform((v) => v || null),
   codigo: z.string().trim().optional().transform((v) => v || null),
   ordem: z.coerce.number().int().min(0).max(999).default(0),
+  descricao: z.string().trim().optional().transform((v) => v || null),
+  // ⚠️ "1"/"0" e não checkbox: checkbox desmarcado NÃO é enviado pelo
+  // navegador, então a ausência do campo significaria "não mexeu" e nunca
+  // "desmarcou" — e a marca jamais poderia ser tirada.
+  e_organizacao: z.string().optional().transform((v) => v === "1"),
 });
 
 function falhar(mensagem: string): never {

@@ -22,8 +22,8 @@ import { writeFileSync } from "node:fs";
 import mysql from "mysql2/promise";
 import postgres from "postgres";
 import {
-  bool as booleano, centavos, chaveNucleo, cielo, data, numero, texto,
-  transformarParticipante, type ParticipanteMysql,
+  bool as booleano, centavos, chaveNucleo, cielo, data, deLista, numero, texto,
+  tipoDeCampo, transformarParticipante, type ParticipanteMysql,
 } from "./lib/transformar";
 
 /**
@@ -68,6 +68,17 @@ if (!ORIGEM || !DESTINO) {
 // CommonJS — o erro é de compilação, não de execução: o arquivo nem carrega,
 // e nada do que ele faz chega a ser tentado.
 let origem: mysql.Connection;
+/**
+ * ⚠️ `pool` é a conexão; `destino` é POR ONDE se escreve. No ensaio, `destino`
+ * vira o handle de uma TRANSAÇÃO que é desfeita no fim — assim o ensaio executa
+ * exatamente o SQL que a gravação executaria, e não sobra nada.
+ *
+ * Antes disso o ensaio não rodava SQL nenhum: contava linhas e validava a
+ * transformação. Quatro execuções em produção foram gastas descobrindo, uma de
+ * cada vez, coisas que só o banco sabe — coluna que não existe, índice único
+ * que colide. Nenhuma delas era visível sem executar.
+ */
+let pool: ReturnType<typeof postgres>;
 let destino: ReturnType<typeof postgres>;
 const relatorio: Relatorio = {};
 const rejeicoesDetalhe: { fase: string; legado_id: number; motivo: string }[] = [];
@@ -99,6 +110,30 @@ async function fasePessoas() {
   const [linhas] = await origem.query<mysql.RowDataPacket[]>("SELECT * FROM Participant ORDER BY id");
   r.lidas = linhas.length;
 
+  /**
+   * CPF já visto → a pessoa que ficou com ele.
+   *
+   * ⚠️ A ORIGEM TEM O MESMO CPF EM LINHAS DIFERENTES: a mesma pessoa cadastrada
+   * duas vezes, em anos diferentes, sem que o sistema antigo impedisse. O
+   * `on conflict (legado_id)` não vê isso — são ids de origem distintos — e a
+   * carga batia no índice único do CPF e parava.
+   *
+   * Unificar não é remendo, é o motivo de existir cadastro único: as duas
+   * inscrições passam a ser da MESMA pessoa, e o histórico dela deixa de estar
+   * partido em dois. Criar duas pessoas seria reproduzir no sistema novo
+   * exatamente o problema que ele veio resolver.
+   *
+   * Começa com o que JÁ ESTÁ no destino para a carga ser repetível: rodar de
+   * novo não pode duplicar o que a execução anterior unificou.
+   */
+  const porCpf = new Map<string, { id: string; legado_id: number | null }>();
+  for (const l of await destino<{ id: string; cpf: string; legado_id: number | null }[]>`
+    select id, cpf, legado_id from public.pessoas where cpf is not null`) {
+    porCpf.set(l.cpf, { id: l.id, legado_id: l.legado_id });
+  }
+
+  const aInserir: Record<string, unknown>[] = [];
+
   const lote: ReturnType<typeof transformarParticipante>[] = linhas.map((l) => transformarParticipante(l as ParticipanteMysql));
   for (const item of lote) {
     if (!item.ok) {
@@ -107,9 +142,95 @@ async function fasePessoas() {
       continue;
     }
     r.avisos += item.avisos.length;
-    if (dryRun) { r.gravadas++; continue; }
 
     const p = item.pessoa;
+
+    // ── Mesma pessoa, dois cadastros na origem ──
+    //
+    // Quem chega primeiro (menor id de origem) É a pessoa. Quem chega depois
+    // completa o que falta e some como cadastro à parte.
+    const jaExiste = porCpf.get(p.cpf!);
+
+    // ⚠️ A pessoa da Sede nasce por MIGRAÇÃO, sem `legado_id`, e também está na
+    // origem. Sem este ramo ela cairia na unificação, o id de origem ficaria só
+    // dentro de `unificados`, e as inscrições dela seriam rejeitadas como
+    // "pessoa não migrada". Adotar o id resolve na raiz: a partir daqui ela é
+    // uma linha comum, atualizada pelo `on conflict` como todas as outras.
+    if (jaExiste && jaExiste.legado_id === null) {
+      r.pendencias["já estava cadastrada no sistema — a origem só preencheu vazios"] =
+        (r.pendencias["já estava cadastrada no sistema — a origem só preencheu vazios"] ?? 0) + 1;
+
+      // ⚠️ NÃO cai no `on conflict do update` depois disto, e é de propósito:
+      // aquele caminho sobrescreve nome e e-mail com os da origem. Esta linha
+      // foi posta por uma pessoa, não por carga — é ela que tem a conta do
+      // Supabase e o papel — e trocar o e-mail dela pelo do sistema antigo
+      // mexeria em quem consegue entrar. Dado digitado por gente ganha de dado
+      // importado; a origem preenche o que está vazio e nada mais.
+      //
+      // `migracao_extras` PRECISA ser gravado mesmo assim: é de lá que a fase
+      // `vinculos` lê a Regional, a Organização e a Associação Local. Sem isso
+      // a pessoa ficaria sem vínculo nenhum, invisível em toda tela que lista
+      // por unidade. O `||` mescla em vez de trocar, para não apagar o que
+      // outra fase tenha deixado ali.
+      await destino`
+        update public.pessoas set
+          legado_id   = ${p.legado_id},
+          telefone    = coalesce(telefone, ${p.telefone}),
+          nascimento  = coalesce(nascimento, ${p.nascimento}),
+          logradouro  = coalesce(logradouro, ${p.endereco}),
+          bairro      = coalesce(bairro, ${p.bairro}),
+          cidade      = coalesce(cidade, ${p.cidade}),
+          uf          = coalesce(uf, ${p.estado}),
+          migracao_extras = coalesce(migracao_extras, '{}'::jsonb) || ${destino.json({
+            regional: p.regional_nome,
+            organizacao: p.organizacao_nome,
+            associacao_local: p.associacao_local,
+            primeira_vez: p.primeira_vez,
+            cadastro_anterior_a_carga: true,
+          })}
+        where id = ${jaExiste.id}`;
+
+      jaExiste.legado_id = p.legado_id;
+      porCpf.set(p.cpf!, jaExiste);
+      r.gravadas++;
+      continue;
+    }
+
+    if (jaExiste && jaExiste.legado_id !== p.legado_id) {
+      r.pendencias["CPF repetido na origem — cadastros unificados"] =
+        (r.pendencias["CPF repetido na origem — cadastros unificados"] ?? 0) + 1;
+      rejeicoesDetalhe.push({ fase: "pessoas", legado_id: p.legado_id,
+        motivo: `CPF já é do cadastro ${jaExiste.legado_id ?? "?"}; unificados` });
+
+      {
+        // ⚠️ `coalesce` só PREENCHE buraco, nunca sobrescreve: o cadastro mais
+        // novo costuma ter telefone e endereço atualizados, e o mais antigo
+        // costuma ter campos que o novo deixou em branco. Sobrescrever
+        // trocaria dado bom por vazio em metade dos casos.
+        //
+        // ⚠️ `cod_sni` fica DE FORA do coalesce mesmo estando vazio: ele é
+        // único, e o CodSNI deste cadastro pode já pertencer a uma terceira
+        // pessoa — a carga pararia de novo, agora no meio. Vai para os extras,
+        // onde ninguém o perde e ninguém colide com ele.
+        await destino`
+          update public.pessoas set
+            email       = coalesce(email, ${p.email}),
+            telefone    = coalesce(telefone, ${p.telefone}),
+            nascimento  = coalesce(nascimento, ${p.nascimento}),
+            logradouro  = coalesce(logradouro, ${p.endereco}),
+            bairro      = coalesce(bairro, ${p.bairro}),
+            cidade      = coalesce(cidade, ${p.cidade}),
+            uf          = coalesce(uf, ${p.estado}),
+            migracao_extras = coalesce(migracao_extras, '{}'::jsonb) || jsonb_build_object(
+              'unificados',
+              coalesce(migracao_extras->'unificados', '[]'::jsonb) || jsonb_build_array(
+                jsonb_build_object('legado_id', ${p.legado_id}::integer, 'nome', ${p.nome}::text,
+                                   'cod_sni', ${p.cod_sni}::text, 'conferir', true)))
+          where id = ${jaExiste.id}`;
+      }
+      continue;
+    }
+
     // ⚠️ O endereço vai para as colunas de verdade — `logradouro`, `bairro`,
     // `cidade`, `uf` — e NÃO para um campo único. A versão anterior grudava os
     // quatro numa string e mandava para uma coluna `endereco` que não existe:
@@ -123,25 +244,98 @@ async function fasePessoas() {
     //
     // Regional, organização e associação local seguem em `migracao_extras`: a
     // fase `vinculos` é quem os resolve para a árvore.
+    // ⚠️ Acumula em vez de inserir. `porCpf` é atualizado JÁ, e não depois do
+    // lote: se a origem tiver o mesmo CPF duas vezes dentro do mesmo lote, a
+    // segunda precisa cair na unificação — senão as duas entram no mesmo
+    // comando e o índice único derruba o lote inteiro, com as mil linhas dele.
+    aInserir.push({
+      legado_id: p.legado_id,
+      cpf: p.cpf,
+      cod_sni: p.cod_sni,
+      nome: p.nome,
+      email: p.email,
+      telefone: p.telefone,
+      nascimento: p.nascimento,
+      logradouro: p.endereco,
+      bairro: p.bairro,
+      cidade: p.cidade,
+      uf: p.estado,
+      migracao_extras: destino.json({
+        regional: p.regional_nome,
+        organizacao: p.organizacao_nome,
+        associacao_local: p.associacao_local,
+        primeira_vez: p.primeira_vez,
+      }),
+      criado_em: p.criado_em ?? new Date().toISOString(),
+    });
+    porCpf.set(p.cpf!, { id: "gravada", legado_id: p.legado_id });
+    r.gravadas++;
+  }
+
+  for (const lote of emLotes(aInserir)) {
+    // ⚠️ Colunas EXPLÍCITAS, e não deduzidas do primeiro objeto. Duas razões:
+    // uma chave a mais ou a menos num objeto do meio mudaria calado o conjunto
+    // de colunas do comando; e é por esta lista que o teste
+    // `colunas-da-carga` confere cada nome contra o `create table` — sem ela, a
+    // carga voltaria a poder escrever numa coluna que não existe.
     await destino`
-      insert into public.pessoas (legado_id, cpf, cod_sni, nome, email, telefone, nascimento,
-                                  logradouro, bairro, cidade, uf, migracao_extras, criado_em)
-      values (${p.legado_id}, ${p.cpf}, ${p.cod_sni}, ${p.nome}, ${p.email}, ${p.telefone}, ${p.nascimento},
-              ${p.endereco}, ${p.bairro}, ${p.cidade}, ${p.estado},
-              ${destino.json({ regional: p.regional_nome, organizacao: p.organizacao_nome, associacao_local: p.associacao_local, primeira_vez: p.primeira_vez })},
-              ${p.criado_em ?? new Date().toISOString()})
+      insert into public.pessoas ${destino(lote, "legado_id", "cpf", "cod_sni", "nome", "email", "telefone", "nascimento", "logradouro", "bairro", "cidade", "uf", "migracao_extras", "criado_em")}
       on conflict (legado_id) do update set
         cpf = excluded.cpf, cod_sni = excluded.cod_sni, nome = excluded.nome, email = excluded.email,
         telefone = excluded.telefone, nascimento = excluded.nascimento,
         logradouro = excluded.logradouro, bairro = excluded.bairro,
         cidade = excluded.cidade, uf = excluded.uf,
-        migracao_extras = excluded.migracao_extras
-    `;
-    r.gravadas++;
+        migracao_extras = excluded.migracao_extras`;
   }
 }
 
 // ─── Apoio ────────────────────────────────────────────────────────────────
+
+/**
+ * Quantas linhas vão num comando só.
+ *
+ * ⚠️ Uma inserção por linha custa uma IDA E VOLTA por linha. Com dezesseis mil
+ * pessoas e outras tantas de vínculo, pelo pooler, isso é mais de uma hora — e
+ * uma hora de espera não é um ciclo de trabalho: ninguém roda o ensaio antes
+ * de gravar se o ensaio demora tudo isso, que é justamente o hábito que a
+ * transação desfeita veio criar.
+ *
+ * Mil por vez porque o Postgres tem teto de 65.535 parâmetros por comando: com
+ * treze colunas, mil linhas dão treze mil parâmetros, com folga larga.
+ */
+const LOTE = 1000;
+
+/**
+ * Traduz um valor da origem para uma lista fechada do destino e ANOTA o que não
+ * conhece.
+ *
+ * ⚠️ É o antídoto para a armadilha que já custou execuções: coluna com
+ * `check (x in (...))` recebendo palavra que a origem escolheu. Sem isto, a
+ * primeira divergência de vocabulário derruba a fase inteira, e cada execução
+ * descobre uma. Com isto, a carga atravessa e o relatório diz TODAS as palavras
+ * que faltam traduzir, de uma vez.
+ */
+function daLista(
+  r: Relatorio[string],
+  campo: string,
+  bruto: unknown,
+  permitidos: readonly string[],
+  padrao: string,
+  sinonimos: Record<string, string> = {}
+): string {
+  const { valor, desconhecido } = deLista(bruto, permitidos, padrao, sinonimos);
+  if (desconhecido) {
+    const motivo = `${campo} "${desconhecido}" desconhecido — virou "${padrao}"`;
+    r.pendencias[motivo] = (r.pendencias[motivo] ?? 0) + 1;
+  }
+  return valor;
+}
+
+function emLotes<T>(itens: T[], tamanho = LOTE): T[][] {
+  const lotes: T[][] = [];
+  for (let i = 0; i < itens.length; i += tamanho) lotes.push(itens.slice(i, i + tamanho));
+  return lotes;
+}
 
 async function ler(tabela: string, ordem = "id"): Promise<Record<string, unknown>[]> {
   const [linhas] = await origem.query<mysql.RowDataPacket[]>(
@@ -162,11 +356,7 @@ async function ler(tabela: string, ordem = "id"): Promise<Record<string, unknown
  * Com o mapa da origem, a checagem passa a responder o que interessa de fato:
  * a linha pai EXISTE? Um filho órfão de verdade continua sendo rejeitado.
  */
-async function mapaDe(tabelaDestino: string, tabelaOrigem: string): Promise<Map<number, number>> {
-  if (dryRun) {
-    const linhas = await ler(tabelaOrigem);
-    return new Map(linhas.map((l) => [Number(l.id), Number(l.id)]));
-  }
+async function mapaDe(tabelaDestino: string): Promise<Map<number, number>> {
   const linhas = await destino<{ id: number; legado_id: number }[]>`
     select id, legado_id from ${destino(tabelaDestino)} where legado_id is not null`;
   return new Map(linhas.map((l) => [l.legado_id, l.id]));
@@ -174,21 +364,22 @@ async function mapaDe(tabelaDestino: string, tabelaOrigem: string): Promise<Map<
 
 /** O mesmo, para `pessoas`, cujo id de destino é uuid. */
 async function mapaPessoas(): Promise<Map<number, string>> {
-  if (dryRun) {
-    // No ensaio só entram as que PASSARIAM na validação — assim uma inscrição
-    // de alguém com CPF inválido continua aparecendo como rejeitada, que é o
-    // efeito real que a carga teria.
-    const linhas = await ler("Participant");
-    const mapa = new Map<number, string>();
-    for (const l of linhas) {
-      const r = transformarParticipante(l as unknown as ParticipanteMysql);
-      if (r.ok) mapa.set(r.pessoa.legado_id, "simulado");
-    }
-    return mapa;
+  // ⚠️ Duas entradas por pessoa unificada. Quando a origem tinha o mesmo CPF em
+  // dois cadastros, um deles não virou linha em `pessoas` — virou item em
+  // `migracao_extras.unificados`. Sem mapear esse id também, TODA inscrição
+  // feita pelo cadastro que sumiu seria rejeitada como "pessoa não migrada", e
+  // o histórico dela ficaria pela metade: o pior resultado possível, porque a
+  // unificação existe justamente para juntar os dois.
+  const linhas = await destino<{ id: string; legado_id: number | null; unificados: { legado_id: number }[] | null }[]>`
+    select id, legado_id, migracao_extras->'unificados' as unificados
+      from public.pessoas
+     where legado_id is not null or migracao_extras ? 'unificados'`;
+  const mapa = new Map<number, string>();
+  for (const l of linhas) {
+    if (l.legado_id !== null) mapa.set(l.legado_id, l.id);
+    for (const u of l.unificados ?? []) mapa.set(Number(u.legado_id), l.id);
   }
-  const linhas = await destino<{ id: string; legado_id: number }[]>`
-    select id, legado_id from public.pessoas where legado_id is not null`;
-  return new Map(linhas.map((l) => [l.legado_id, l.id]));
+  return mapa;
 }
 
 // ─── vínculos ─────────────────────────────────────────────────────────────
@@ -258,6 +449,7 @@ async function faseVinculos() {
       .map((v) => v.pessoa_id)
   );
 
+  const vinculos: Record<string, unknown>[] = [];
   const rejeitar = (motivo: string) => { r.rejeitadas[motivo] = (r.rejeitadas[motivo] ?? 0) + 1; };
   const pendente = (motivo: string) => { r.pendencias[motivo] = (r.pendencias[motivo] ?? 0) + 1; };
 
@@ -279,10 +471,14 @@ async function faseVinculos() {
     if (indefinidaId) return indefinidaId;
     const jaTem = organizacoes.get(chaveNucleo("Indefinida"));
     if (jaTem) return (indefinidaId = jaTem);
-    if (dryRun) return (indefinidaId = "simulada:indefinida");
+    // ⚠️ `e_organizacao = false`: a "Indefinida" é uma DÍVIDA a revisar, não uma
+    // Organização doutrinária. Marcada, ela apareceria na lista de escolha de
+    // quem cadastra uma Associação Local — e alguém escolheria, de boa-fé,
+    // transformando o balde temporário em destino permanente.
     const [nova] = await destino<{ id: string }[]>`
-      insert into public.organizacoes (nome, ordem) values ('Indefinida', 900)
-      on conflict (nome) do update set nome = excluded.nome
+      insert into public.organizacoes (nome, ordem, e_organizacao)
+      values ('Indefinida', 900, false)
+      on conflict (nome) do update set ordem = 900, e_organizacao = false
       returning id`;
     organizacoes.set(chaveNucleo("Indefinida"), nova.id);
     return (indefinidaId = nova.id);
@@ -317,16 +513,12 @@ async function faseVinculos() {
     let regionalSede = regionais.get(chaveSede);
     sedeCentral.regionalReaproveitada = Boolean(regionalSede);
     if (!regionalSede) {
-      if (!dryRun) {
-        const [nova] = await destino<{ id: string }[]>`
-          insert into public.unidades (tipo, pai_id, nome, migracao_extras)
-          values ('regional', ${sede.id}, 'Sede Central',
-                  ${destino.json({ origem: "Credenciamento", motivo: "Regional desconhecida na origem", conferir: true })})
-          returning id`;
-        regionalSede = nova.id;
-      } else {
-        regionalSede = "simulada:regional-sede";
-      }
+      const [nova] = await destino<{ id: string }[]>`
+        insert into public.unidades (tipo, pai_id, nome, migracao_extras)
+        values ('regional', ${sede.id}, 'Sede Central',
+                ${destino.json({ origem: "Credenciamento", motivo: "Regional desconhecida na origem", conferir: true })})
+        returning id`;
+      regionalSede = nova.id;
       regionais.set(chaveSede, regionalSede);
       criadas.regionais++;
       if (amostra.regionais.length < 40) amostra.regionais.push("Sede Central");
@@ -338,17 +530,12 @@ async function faseVinculos() {
     sedeCentral.alReaproveitada = Boolean(jaTem);
     if (jaTem) return (alSedeId = jaTem);
 
-    let nova: string;
-    if (!dryRun) {
-      const [linha] = await destino<{ id: string }[]>`
-        insert into public.unidades (tipo, pai_id, organizacao_id, nome, migracao_extras)
-        values ('associacao_local', ${regionalSede}, ${organizacaoId}, 'Sede Central',
-                ${destino.json({ origem: "Credenciamento", motivo: "Regional desconhecida na origem", conferir: true })})
-        returning id`;
-      nova = linha.id;
-    } else {
-      nova = `simulada:${chave}`;
-    }
+    const [linha] = await destino<{ id: string }[]>`
+      insert into public.unidades (tipo, pai_id, organizacao_id, nome, migracao_extras)
+      values ('associacao_local', ${regionalSede}, ${organizacaoId}, 'Sede Central',
+              ${destino.json({ origem: "Credenciamento", motivo: "Regional desconhecida na origem", conferir: true })})
+      returning id`;
+    const nova = linha.id;
     associacoes.set(chave, nova);
     criadas.associacoes++;
     return (alSedeId = nova);
@@ -372,16 +559,12 @@ async function faseVinculos() {
       regionalId = sede.id;
     } else if (!regionalId) {
       const nome = texto(p.regional)!;
-      if (!dryRun) {
-        const [nova] = await destino<{ id: string }[]>`
-          insert into public.unidades (tipo, pai_id, nome, migracao_extras)
-          values ('regional', ${sede.id}, ${nome},
-                  ${destino.json({ origem: "Credenciamento", nome_bruto: nome, conferir: true })})
-          returning id`;
-        regionalId = nova.id;
-      } else {
-        regionalId = `simulada:${chaveRegional}`;
-      }
+      const [nova] = await destino<{ id: string }[]>`
+        insert into public.unidades (tipo, pai_id, nome, migracao_extras)
+        values ('regional', ${sede.id}, ${nome},
+                ${destino.json({ origem: "Credenciamento", nome_bruto: nome, conferir: true })})
+        returning id`;
+      regionalId = nova.id;
       regionais.set(chaveRegional, regionalId);
       criadas.regionais++;
       if (amostra.regionais.length < 40) amostra.regionais.push(nome);
@@ -392,15 +575,11 @@ async function faseVinculos() {
     let organizacaoId = chaveOrg ? organizacoes.get(chaveOrg) : undefined;
     if (chaveOrg && !organizacaoId) {
       const nome = texto(p.organizacao)!;
-      if (!dryRun) {
-        const [nova] = await destino<{ id: string }[]>`
-          insert into public.organizacoes (nome) values (${nome})
-          on conflict (nome) do update set nome = excluded.nome
-          returning id`;
-        organizacaoId = nova.id;
-      } else {
-        organizacaoId = `simulada:${chaveOrg}`;
-      }
+      const [nova] = await destino<{ id: string }[]>`
+        insert into public.organizacoes (nome) values (${nome})
+        on conflict (nome) do update set nome = excluded.nome
+        returning id`;
+      organizacaoId = nova.id;
       organizacoes.set(chaveOrg, organizacaoId);
       criadas.organizacoes++;
       if (amostra.organizacoes.length < 20) amostra.organizacoes.push(nome);
@@ -439,16 +618,12 @@ async function faseVinculos() {
       let alId = associacoes.get(chave);
       if (!alId) {
         const nome = texto(p.associacaoLocal)!;
-        if (!dryRun) {
-          const [nova] = await destino<{ id: string }[]>`
-            insert into public.unidades (tipo, pai_id, organizacao_id, nome, migracao_extras)
-            values ('associacao_local', ${regionalId}, ${organizacaoId}, ${nome},
-                    ${destino.json({ origem: "Credenciamento", nome_bruto: nome, conferir: true })})
-            returning id`;
-          alId = nova.id;
-        } else {
-          alId = `simulada:${chave}`;
-        }
+        const [nova] = await destino<{ id: string }[]>`
+          insert into public.unidades (tipo, pai_id, organizacao_id, nome, migracao_extras)
+          values ('associacao_local', ${regionalId}, ${organizacaoId}, ${nome},
+                  ${destino.json({ origem: "Credenciamento", nome_bruto: nome, conferir: true })})
+          returning id`;
+        alId = nova.id;
         associacoes.set(chave, alId);
         criadas.associacoes++;
       }
@@ -457,13 +632,17 @@ async function faseVinculos() {
       pendente("sem Associação Local na origem — ficou na Regional");
     }
 
-    if (!dryRun) {
-      await destino`
-        insert into public.pessoa_unidade_vinculos (pessoa_id, unidade_id, motivo)
-        values (${pessoa}, ${unidadeDestino}, 'carga do Credenciamento')
-        on conflict do nothing`;
-    }
+    // ⚠️ Em lote, como em `pessoas`: dezesseis mil idas e voltas pelo pooler
+    // levam mais de meia hora, e um ensaio que demora tudo isso ninguém roda.
+    // `jaVinculadas` já garantiu que ninguém entra duas vezes no mesmo lote.
+    vinculos.push({ pessoa_id: pessoa, unidade_id: unidadeDestino, motivo: "carga do Credenciamento" });
     r.gravadas++;
+  }
+
+  for (const lote of emLotes(vinculos)) {
+    await destino`
+      insert into public.pessoa_unidade_vinculos ${destino(lote, "pessoa_id", "unidade_id", "motivo")}
+      on conflict do nothing`;
   }
 
   // As criadas vão para o relatório: são nomes de unidade, não dado pessoal, e
@@ -505,7 +684,6 @@ async function faseEstrutura() {
   const locais = await ler("Local");
   r.lidas += locais.length;
   for (const l of locais) {
-    if (dryRun) { r.gravadas++; continue; }
     // Local do módulo vira local COMUM: a Academia já está lá pelo seed, e
     // duas listas de lugares seriam duas respostas para "onde é o evento?".
     await destino`
@@ -520,7 +698,6 @@ async function faseEstrutura() {
   const orientadores = await ler("Orientador");
   r.lidas += orientadores.length;
   for (const o of orientadores) {
-    if (dryRun) { r.gravadas++; continue; }
     await destino`
       insert into eventos.orientadores (legado_id, nome, foto_url, bio)
       values (${Number(o.id)}, ${texto(o.nome)}, ${texto(o.fotoUrl)}, ${texto(o.bio)})
@@ -544,7 +721,6 @@ async function faseEventos() {
   const eventos = await ler("Evento");
   r.lidas += eventos.length;
   for (const e of eventos) {
-    if (dryRun) { r.gravadas++; continue; }
     await destino`
       insert into eventos.eventos (
         legado_id, nome, slug, data_inicial, data_final, ativo,
@@ -575,14 +751,13 @@ async function faseEventos() {
     r.gravadas++;
   }
 
-  const mapaEvento = await mapaDe("eventos.eventos", "Evento");
+  const mapaEvento = await mapaDe("eventos.eventos");
 
   const tipos = await ler("IngressoTipo");
   r.lidas += tipos.length;
   for (const t of tipos) {
     const evento = mapaEvento.get(Number(t.eventoId));
     if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
-    if (dryRun) { r.gravadas++; continue; }
     await destino`
       insert into eventos.ingresso_tipos (
         legado_id, evento_id, nome, descricao, valor_centavos, max_parcelas, quantidade,
@@ -592,7 +767,7 @@ async function faseEventos() {
               ${centavos(t.valor)}, ${numero(t.maxParcelas) || 1}, ${numero(t.quantidade)},
               ${data(t.vendaInicio)}, ${data(t.vendaFim)},
               ${numero(t.idadeMin)}, ${numero(t.idadeMax)},
-              ${booleano(t.unicoPorCpf)}, ${texto(t.papel) ?? 'adicional'},
+              ${booleano(t.unicoPorCpf)}, ${daLista(r, "papel do ingresso", t.papel, ["principal", "adicional"], "adicional", { main: "principal", extra: "adicional", secundario: "adicional" })},
               ${booleano(t.exigePrincipal)}, ${booleano(t.exibirVendaPublica)},
               ${booleano(t.ativo)}, ${data(t.createdAt) ?? new Date().toISOString()})
       on conflict (legado_id) do update set
@@ -601,17 +776,27 @@ async function faseEventos() {
     r.gravadas++;
   }
 
-  const mapaTipo = await mapaDe("eventos.ingresso_tipos", "IngressoTipo");
+  const mapaTipo = await mapaDe("eventos.ingresso_tipos");
 
   const campos = await ler("IngressoCampo");
   r.lidas += campos.length;
   for (const c of campos) {
     const tipo = mapaTipo.get(Number(c.ingressoTipoId));
     if (!tipo) { r.rejeitadas["tipo de ingresso não migrado"] = (r.rejeitadas["tipo de ingresso não migrado"] ?? 0) + 1; continue; }
-    if (dryRun) { r.gravadas++; continue; }
+    // ⚠️ A origem fala o vocabulário de um formulário HTML ("text", "select",
+    // "checkbox") e o destino fala o da instituição. Passar o valor cru fez a
+    // fase inteira parar no `check` do banco — e derrubar dezesseis mil pessoas
+    // por causa de um rótulo de campo é a troca errada. O que não se traduz
+    // vira `texto`, que aceita o que a pessoa digitou, e SE ANUNCIA.
+    const traduzido = tipoDeCampo(c.tipo);
+    if (traduzido.desconhecido) {
+      r.pendencias[`tipo de campo "${traduzido.desconhecido}" desconhecido — virou texto`] =
+        (r.pendencias[`tipo de campo "${traduzido.desconhecido}" desconhecido — virou texto`] ?? 0) + 1;
+    }
+
     await destino`
       insert into eventos.ingresso_campos (legado_id, ingresso_tipo_id, rotulo, tipo, opcoes, obrigatorio, ordem, ativo)
-      values (${Number(c.id)}, ${tipo}, ${texto(c.label)}, ${texto(c.tipo) ?? 'texto'},
+      values (${Number(c.id)}, ${tipo}, ${texto(c.label)}, ${traduzido.tipo},
               ${c.opcoesJson ? destino.json(JSON.parse(String(c.opcoesJson))) : null},
               ${booleano(c.obrigatorio)}, ${numero(c.ordem) || 0}, ${booleano(c.ativo)})
       on conflict (legado_id) do update set rotulo = excluded.rotulo, ativo = excluded.ativo`;
@@ -623,7 +808,6 @@ async function faseEventos() {
   for (const c of combos) {
     const evento = mapaEvento.get(Number(c.eventoId));
     if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
-    if (dryRun) { r.gravadas++; continue; }
     await destino`
       insert into eventos.combos (legado_id, evento_id, nome, descricao, valor_centavos, quantidade,
                                   venda_inicio, venda_fim, limite_por_cpf, max_parcelas, ativo, criado_em)
@@ -635,7 +819,7 @@ async function faseEventos() {
     r.gravadas++;
   }
 
-  const mapaCombo = await mapaDe("eventos.combos", "Combo");
+  const mapaCombo = await mapaDe("eventos.combos");
 
   const itens = await ler("ComboItem");
   r.lidas += itens.length;
@@ -643,7 +827,6 @@ async function faseEventos() {
     const combo = mapaCombo.get(Number(i.comboId));
     const tipo = mapaTipo.get(Number(i.ingressoTipoId));
     if (!combo || !tipo) { r.rejeitadas["combo ou tipo não migrado"] = (r.rejeitadas["combo ou tipo não migrado"] ?? 0) + 1; continue; }
-    if (dryRun) { r.gravadas++; continue; }
     await destino`
       insert into eventos.combo_itens (combo_id, ingresso_tipo_id, quantidade)
       values (${combo}, ${tipo}, ${numero(i.quantidade) || 1})
@@ -656,11 +839,14 @@ async function faseEventos() {
   for (const c of cupons) {
     const evento = mapaEvento.get(Number(c.eventoId));
     if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
-    if (dryRun) { r.gravadas++; continue; }
     // ⚠️ Percentual fica como número inteiro (0..100); valor vira centavos.
     // A origem guarda os dois na mesma coluna DECIMAL, e multiplicar um
     // percentual por 100 daria 5000% de desconto.
-    const tipo = texto(c.tipo) ?? 'valor';
+    // ⚠️ O padrão é `valor`, e não `percentual`: um cupom de "10" lido como
+    // percentual dá 10% de desconto; lido como valor, dá dez centavos. Errar
+    // para menos é corrigível; errar para mais já saiu do caixa.
+    const tipo = daLista(r, "tipo de cupom", c.tipo, ["percentual", "valor"], "valor",
+      { percent: "percentual", porcentagem: "percentual", pct: "percentual", fixed: "valor", fixo: "valor" });
     await destino`
       insert into eventos.cupons (legado_id, evento_id, codigo, descricao, tipo, valor,
                                   ingresso_tipo_id, combo_id, max_usos_total, max_usos_por_cpf,
@@ -675,14 +861,13 @@ async function faseEventos() {
     r.gravadas++;
   }
 
-  const mapaOrientador = await mapaDe("eventos.orientadores", "Orientador");
+  const mapaOrientador = await mapaDe("eventos.orientadores");
   const vinculos = await ler("EventoOrientador");
   r.lidas += vinculos.length;
   for (const v of vinculos) {
     const evento = mapaEvento.get(Number(v.eventoId));
     const orientador = mapaOrientador.get(Number(v.orientadorId));
     if (!evento || !orientador) { r.rejeitadas["evento ou orientador não migrado"] = (r.rejeitadas["evento ou orientador não migrado"] ?? 0) + 1; continue; }
-    if (dryRun) { r.gravadas++; continue; }
     await destino`
       insert into eventos.evento_orientadores (evento_id, orientador_id, ordem)
       values (${evento}, ${orientador}, ${numero(v.ordem) || 0})
@@ -704,10 +889,10 @@ async function faseCompras() {
   const r = conta("compras");
   const pessoas = await mapaPessoas();
 
-  const mapaEvento = await mapaDe("eventos.eventos", "Evento");
-  const mapaTipo = await mapaDe("eventos.ingresso_tipos", "IngressoTipo");
-  const mapaCombo = await mapaDe("eventos.combos", "Combo");
-  const mapaCupom = await mapaDe("eventos.cupons", "Cupom");
+  const mapaEvento = await mapaDe("eventos.eventos");
+  const mapaTipo = await mapaDe("eventos.ingresso_tipos");
+  const mapaCombo = await mapaDe("eventos.combos");
+  const mapaCupom = await mapaDe("eventos.cupons");
 
   const rejeita = (motivo: string, id: number) => {
     r.rejeitadas[motivo] = (r.rejeitadas[motivo] ?? 0) + 1;
@@ -721,7 +906,6 @@ async function faseCompras() {
     const evento = mapaEvento.get(Number(p.eventoId));
     if (!comprador) { rejeita("comprador não migrado", Number(p.id)); continue; }
     if (!evento) { rejeita("evento não migrado", Number(p.id)); continue; }
-    if (dryRun) { r.gravadas++; continue; }
 
     // `participantesJson` é texto na origem e pode estar malformado numa
     // linha antiga. Um pedido é histórico: perder o snapshot é ruim, perder o
@@ -739,7 +923,7 @@ async function faseCompras() {
               ${mapaTipo.get(Number(p.ingressoTipoId)) ?? null}, ${mapaCombo.get(Number(p.comboId)) ?? null},
               ${numero(p.quantity) || 1}, ${mapaCupom.get(Number(p.cupomId)) ?? null},
               ${centavos(p.valorOriginal)}, ${centavos(p.descontoAplicado)},
-              ${destino.json(participantes as never)}, ${texto(p.status) ?? 'pendente'},
+              ${destino.json(participantes as never)}, ${daLista(r, "status do pedido", p.status, ["pendente", "confirmado", "cancelado", "expirado"], "pendente", { pending: "pendente", paid: "confirmado", confirmed: "confirmado", pago: "confirmado", canceled: "cancelado", cancelled: "cancelado", expired: "expirado" })},
               ${destino.json(cielo(p) as never)},
               ${texto(p.inscricaoIds)?.split(",").map(Number).filter(Number.isFinite) ?? null},
               ${data(p.createdAt) ?? new Date().toISOString()}, ${data(p.updatedAt) ?? new Date().toISOString()})
@@ -749,7 +933,7 @@ async function faseCompras() {
     r.gravadas++;
   }
 
-  const mapaPedido = await mapaDe("eventos.pedidos", "PedidoPendente");
+  const mapaPedido = await mapaDe("eventos.pedidos");
 
   // ── Inscrições ──
   //
@@ -765,7 +949,6 @@ async function faseCompras() {
     const evento = mapaEvento.get(Number(i.eventoId));
     if (!pessoa) { rejeita("participante não migrado", Number(i.id)); continue; }
     if (!evento) { rejeita("evento não migrado", Number(i.id)); continue; }
-    if (dryRun) { r.gravadas++; continue; }
 
     const temEstorno = i.estornoStatus || i.estornoValor;
     await destino`
@@ -783,7 +966,10 @@ async function faseCompras() {
         ${mapaPedido.get(Number(i.pedidoId)) ?? null}, ${mapaCupom.get(Number(i.cupomId)) ?? null},
         ${pessoas.get(Number(i.compradorId)) ?? null},
         ${texto(i.compraGrupoId)}, ${texto(i.numeroConvite)}, ${texto(i.formaPagamento)},
-        ${texto(i.tipoVenda) ?? 'importado'}, ${texto(i.status) ?? 'pago'},
+        ${daLista(r, "tipo de venda", i.tipoVenda, ["online", "balcao", "importado", "cortesia"], "importado",
+          { web: "online", site: "online", internet: "online", presencial: "balcao", counter: "balcao", manual: "balcao", free: "cortesia", gratuito: "cortesia", brinde: "cortesia" })},
+        ${daLista(r, "status da inscrição", i.status, ["pendente", "pago", "cancelado", "expirado", "transferido"], "pendente",
+          { paid: "pago", confirmado: "pago", pending: "pendente", canceled: "cancelado", cancelled: "cancelado", estornado: "cancelado", expired: "expirado", transferred: "transferido" })},
         ${centavos(i.valorOriginal)}, ${centavos(i.descontoAplicado)},
         ${data(i.dataPurchase)}, ${data(i.checkinAt)}, ${texto(i.qrCode)},
         ${texto(i.credenciamentoPedido)}, ${data(i.pixData)}, ${texto(i.pixRecibo)},
@@ -818,7 +1004,7 @@ async function faseCompras() {
     r.gravadas++;
   }
 
-  if (!dryRun) {
+  {
     // Segunda passagem: os ponteiros entre inscrições, agora que todas existem.
     await destino`
       update eventos.inscricoes i set
@@ -835,13 +1021,12 @@ async function faseCompras() {
   }
 
   // ── Respostas dos campos personalizados ──
-  const mapaInscricao = await mapaDe("eventos.inscricoes", "Inscricao");
-  const mapaCampo = await mapaDe("eventos.ingresso_campos", "IngressoCampo");
+  const mapaInscricao = await mapaDe("eventos.inscricoes");
+  const mapaCampo = await mapaDe("eventos.ingresso_campos");
   for (const a of await ler("InscricaoResposta")) {
     r.lidas++;
     const inscricao = mapaInscricao.get(Number(a.inscricaoId));
     if (!inscricao) { rejeita("inscrição não migrada", Number(a.id)); continue; }
-    if (dryRun) { r.gravadas++; continue; }
     await destino`
       insert into eventos.inscricao_respostas (id, inscricao_id, campo_id, rotulo, valor, criado_em)
       values (${Number(a.id)}, ${inscricao}, ${mapaCampo.get(Number(a.campoId)) ?? null},
@@ -855,7 +1040,6 @@ async function faseCompras() {
     r.lidas++;
     const evento = mapaEvento.get(Number(c.eventoId));
     if (!evento) { rejeita("evento não migrado", Number(c.id)); continue; }
-    if (dryRun) { r.gravadas++; continue; }
     await destino`
       insert into eventos.carrinhos_abandonados (
         legado_id, evento_id, ingresso_tipo_id, pessoa_id, nome, email, telefone, cpf,
@@ -878,11 +1062,10 @@ async function faseCompras() {
 async function faseComissao() {
   const r = conta("comissao");
   const pessoas = await mapaPessoas();
-  const mapaEvento = await mapaDe("eventos.eventos", "Evento");
+  const mapaEvento = await mapaDe("eventos.eventos");
 
   for (const s of await ler("ComissaoSetorPadrao")) {
     r.lidas++;
-    if (dryRun) { r.gravadas++; continue; }
     await destino`
       insert into eventos.comissao_setores_padrao (nome, ordem)
       values (${texto(s.nome)}, ${numero(s.ordem) || 0})
@@ -900,7 +1083,6 @@ async function faseComissao() {
 
   for (const f of await ler("ComissaoFuncaoPadrao")) {
     r.lidas++;
-    if (dryRun) { r.gravadas++; continue; }
     await destino`
       insert into eventos.comissao_funcoes_padrao (setor_id, nome, ordem)
       values (${setores.get(setoresAntigos.get(Number(f.setorId)) ?? "") ?? null},
@@ -913,7 +1095,6 @@ async function faseComissao() {
     r.lidas++;
     const evento = mapaEvento.get(Number(m.eventoId));
     if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
-    if (dryRun) { r.gravadas++; continue; }
     const pessoa = pessoas.get(Number(m.participanteId));
     const [nome] = pessoa
       ? await destino<{ nome: string }[]>`select nome from public.pessoas where id = ${pessoa}`
@@ -946,7 +1127,9 @@ async function faseConfiguracao() {
   //
   // Gravar a chave em claro "por enquanto" não é opção: seria exatamente o
   // problema que a origem tem, trazido para o sistema novo.
-  if (!dryRun && !cifragemDisponivel()) {
+  // ⚠️ Vale no ensaio TAMBÉM: o ensaio passou a executar SQL de verdade, e sem
+  // a chave ele estouraria aqui em vez de reproduzir o que a gravação faria.
+  if (!cifragemDisponivel()) {
     r.rejeitadas["fase pulada: sem CREDENCIAIS_ENCRYPTION_KEY"] = 1;
     console.log("(pulada: sem chave de cifra)");
     return;
@@ -957,7 +1140,6 @@ async function faseConfiguracao() {
 
   for (const c of await ler("CieloAccount")) {
     r.lidas++;
-    if (dryRun) { r.gravadas++; continue; }
     if (!prosperidade) { r.rejeitadas["organização promotora não encontrada"] = 1; continue; }
     await destino`
       insert into public.credenciais (servico, ambiente, organizacao_id, publico, segredo)
@@ -984,7 +1166,6 @@ async function faseAuditoria() {
   const r = conta("auditoria");
   for (const a of await ler("AuditLog")) {
     r.lidas++;
-    if (dryRun) { r.gravadas++; continue; }
     const [pessoa] = await destino<{ id: string }[]>`
       select id from public.pessoas where email = ${texto(a.userEmail)} limit 1`;
     await destino`
@@ -1015,7 +1196,6 @@ async function faseSequencias() {
   ];
   for (const t of tabelas) {
     r.lidas++;
-    if (dryRun) { r.gravadas++; continue; }
     await destino.unsafe(
       `select setval(pg_get_serial_sequence('${t}', 'id'),
               greatest((select coalesce(max(id), 0) from ${t}), 1))`
@@ -1040,6 +1220,46 @@ const FASES: Record<string, () => Promise<void>> = {
 
 // ─── Execução ─────────────────────────────────────────────────────────────
 
+/** Sai do `begin` sem commit. Não é erro: é como se pede rollback. */
+class Desfazer extends Error {}
+
+/**
+ * A fase que parou, se alguma parou.
+ *
+ * ⚠️ Guardada em vez de propagada na hora porque o RELATÓRIO ainda precisa ser
+ * impresso: ele diz quantas linhas entraram antes da parada, e é a única
+ * informação que permite retomar. Mas o processo termina com erro — nas duas
+ * últimas execuções a carga parou no meio e o workflow ficou VERDE, o que é
+ * exatamente o tipo de sinal que faz alguém achar que está tudo certo.
+ */
+let paradaFatal: unknown = null;
+
+async function rodarFases() {
+  let rodou = 0;
+  for (const [nome, fase] of Object.entries(FASES)) {
+    if (soFase && soFase !== nome) continue;
+    rodou++;
+    process.stdout.write(`→ ${nome}${dryRun ? " (ensaio)" : ""}… `);
+    try {
+      await fase();
+      console.log("ok");
+    } catch (e) {
+      console.log(`PAROU: ${e instanceof Error ? e.message : e}`);
+      // ⚠️ Interrompe as seguintes: elas dependem desta, e continuar gravaria
+      // filhos órfãos que ninguém sabe de onde vieram.
+      //
+      // No ensaio a exceção precisa SUBIR: dentro de uma transação, um comando
+      // que falha aborta a transação inteira, e todo comando seguinte responde
+      // "current transaction is aborted". Seguir daria uma cascata de erros
+      // falsos que esconderia o de verdade.
+      paradaFatal = e;
+      if (dryRun) throw e;
+      if (!soFase) break;
+    }
+  }
+  if (rodou === 0) throw new Error("Nenhuma fase rodou. Confira o argumento --fase.");
+}
+
 async function principal() {
   // ⚠️ Antes de abrir conexão: um nome de fase que não existe fazia a carga
   // pular TODAS as fases, imprimir um relatório vazio e sair com sucesso. Um
@@ -1052,31 +1272,34 @@ async function principal() {
   }
 
   origem = await mysql.createConnection(ORIGEM!);
-  destino = postgres(DESTINO!, { prepare: false, max: 3 });
+  pool = postgres(DESTINO!, { prepare: false, max: 3 });
 
   const inicio = Date.now();
   try {
-    let rodou = 0;
-    for (const [nome, fase] of Object.entries(FASES)) {
-      if (soFase && soFase !== nome) continue;
-      rodou++;
-      process.stdout.write(`→ ${nome}${dryRun ? " (dry-run)" : ""}… `);
+    if (dryRun) {
+      // A transação executa TUDO e nada fica: `DESFAZER` sai do `begin` por
+      // exceção, que é como o postgres.js pede um rollback. É o único jeito de
+      // o ensaio ver o que só o banco sabe — e ver TODAS as fases de uma vez,
+      // em vez de uma por execução em produção.
       try {
-        await fase();
-        console.log("ok");
+        await pool.begin(async (tx) => {
+          destino = tx as unknown as typeof destino;
+          await rodarFases();
+          throw new Desfazer();
+        });
       } catch (e) {
-        console.log(`PAROU: ${e instanceof Error ? e.message : e}`);
-        // ⚠️ Interrompe as seguintes: elas dependem desta, e continuar
-        // gravaria filhos órfãos que ninguém sabe de onde vieram.
-        if (!soFase) break;
+        // A parada já foi registrada em `paradaFatal` e impressa pela fase; aqui
+        // só se deixa a transação desfeita e segue para o relatório.
+        if (!(e instanceof Desfazer) && e !== paradaFatal) throw e;
       }
+      console.log("   (ensaio: tudo foi executado no banco e DESFEITO — nada ficou)");
+    } else {
+      destino = pool;
+      await rodarFases();
     }
-    // Rede de segurança: se um dia o filtro voltar a não casar com nada, é
-    // aqui que a carga grita em vez de sair calada.
-    if (rodou === 0) throw new Error("Nenhuma fase rodou. Confira o argumento --fase.");
   } finally {
     await origem.end();
-    await destino.end();
+    await pool.end();
   }
 
   const saida = {
@@ -1111,9 +1334,19 @@ async function principal() {
     for (const [motivo, n] of Object.entries(v.pendencias)) console.log(`  ⚠️  ${fase}: ${n} × ${motivo} (gravado, revisar depois)`);
   }
   console.log(`Gravado em ${arquivo} (não contém dado pessoal; não versionar).`);
+
+  // ⚠️ DEPOIS do relatório, e não em vez dele. A carga que para no meio tem de
+  // deixar o workflow VERMELHO: nas execuções anteriores ela parou na primeira
+  // fase e o GitHub marcou sucesso, que é o sinal que faz todo mundo seguir em
+  // frente achando que dezesseis mil pessoas entraram.
+  if (paradaFatal) {
+    throw paradaFatal instanceof Error
+      ? paradaFatal
+      : new Error(String(paradaFatal));
+  }
 }
 
 principal().catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
+  console.error(`\nA carga NÃO terminou: ${e instanceof Error ? e.message : e}`);
   process.exit(1);
 });

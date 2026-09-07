@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import CamposCielo from "@/componentes/CamposCielo";
-import { Campo, Input, Select } from "@/componentes/ui";
+import CamposContato from "@/componentes/CamposContato";
+import CamposEndereco from "@/componentes/CamposEndereco";
+import CampoMascarado from "@/componentes/CampoMascarado";
+import { Campo, GrupoCampos, Input, Select } from "@/componentes/ui";
 import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
 
 /**
@@ -16,6 +19,10 @@ import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/
  * pessoa escolher uma organização para um Núcleo — que não tem — e só
  * descobrir no erro ao salvar.
  */
+function permitidosDe(t?: TipoUnidadeRow): string[] {
+  return t?.pais_permitidos ?? [];
+}
+
 export default function CamposUnidade({
   tipos,
   unidades,
@@ -23,6 +30,7 @@ export default function CamposUnidade({
   unidade,
   cielo,
   podeVerCielo,
+  tipoFixo,
 }: {
   tipos: TipoUnidadeRow[];
   unidades: Pick<UnidadeRow, "id" | "nome" | "tipo">[];
@@ -31,11 +39,27 @@ export default function CamposUnidade({
   /** Parte pública da conta já cadastrada. A chave secreta nunca chega aqui. */
   cielo?: { merchant_id: string; nome_loja: string; temSegredo: boolean };
   podeVerCielo?: boolean;
+  /**
+   * A tela já sabe o tipo — é a de Regionais, a de Núcleos ou a de ALs. Some
+   * o seletor: perguntar "que tipo?" na tela chamada "Nova Regional" é
+   * oferecer à pessoa a chance de responder errado.
+   */
+  tipoFixo?: string;
 }) {
-  const [tipo, setTipo] = useState(unidade?.tipo ?? "");
+  const [tipo, setTipo] = useState(unidade?.tipo ?? tipoFixo ?? "");
   const escolhido = tipos.find((t) => t.codigo === tipo);
 
-  const permitidos = escolhido?.pais_permitidos ?? [];
+  /**
+   * ⚠️ A REGIONAL NÃO PERGUNTA ONDE FICA. Toda Regional é da Sede Central, por
+   * definição da instituição — não há segunda resposta possível. Um seletor
+   * com uma opção só é uma pergunta cuja única serventia é poder ser
+   * respondida errada, ou esquecida. Quem preenche é o servidor.
+   */
+  const escolhePai = escolhido !== undefined
+    && permitidosDe(escolhido).length > 0
+    && escolhido.codigo !== "regional";
+
+  const permitidos = permitidosDe(escolhido);
   const superiores = unidades.filter(
     (u) => u.id !== unidade?.id && permitidos.includes(u.tipo)
   );
@@ -45,22 +69,26 @@ export default function CamposUnidade({
     <>
       {unidade && <input type="hidden" name="id" value={unidade.id} />}
 
-      <Campo label="Tipo" obrigatorio>
-        <Select name="tipo" value={tipo} onChange={(e) => setTipo(e.target.value)} required>
-          <option value="" disabled>
-            Escolha…
-          </option>
-          {tipos.map((t) => (
-            <option key={t.codigo} value={t.codigo}>
-              {t.nome}
+      {tipoFixo ? (
+        <input type="hidden" name="tipo" value={tipoFixo} />
+      ) : (
+        <Campo label="Tipo" obrigatorio>
+          <Select name="tipo" value={tipo} onChange={(e) => setTipo(e.target.value)} required>
+            <option value="" disabled>
+              Escolha…
             </option>
-          ))}
-        </Select>
-      </Campo>
+            {tipos.map((t) => (
+              <option key={t.codigo} value={t.codigo}>
+                {t.nome}
+              </option>
+            ))}
+          </Select>
+        </Campo>
+      )}
 
       {/* Sem tipo escolhido não há o que oferecer: as opções mudam conforme
           ele, e uma lista com tudo convidaria ao erro. */}
-      {escolhido && permitidos.length > 0 && (
+      {escolhePai && (
         <Campo
           label="Dentro de"
           obrigatorio
@@ -78,9 +106,9 @@ export default function CamposUnidade({
           </Select>
         </Campo>
       )}
-      {escolhido && permitidos.length === 0 && (
-        <input type="hidden" name="pai" value="" />
-      )}
+      {/* Sem seletor, o pai vem do servidor: a Sede Central para a Regional,
+          nada para a própria Sede. */}
+      {escolhido && !escolhePai && <input type="hidden" name="pai" value="" />}
 
       {escolhido?.exige_organizacao && (
         <Campo
@@ -115,19 +143,16 @@ export default function CamposUnidade({
             <option value="ja">Japonês</option>
           </Select>
         </Campo>
-        <Campo label="CNPJ" dica="A Regional é filial da Sede Central e tem CNPJ próprio.">
-          <Input name="cnpj" defaultValue={unidade?.cnpj ?? ""} maxLength={18} />
+        <Campo label="CNPJ" dica="A Regional é filial da Sede Central e tem CNPJ próprio. Aceita o formato alfanumérico novo.">
+          <CampoMascarado tipo="cnpj" name="cnpj" defaultValue={unidade?.cnpj} />
         </Campo>
       </div>
 
-      <div className="sni-form-grid">
-        <Campo label="Cidade">
-          <Input name="cidade" defaultValue={unidade?.cidade ?? ""} maxLength={100} />
-        </Campo>
-        <Campo label="UF">
-          <Input name="uf" defaultValue={unidade?.uf ?? ""} maxLength={2} />
-        </Campo>
-      </div>
+      <GrupoCampos titulo="Endereço">
+        <CamposEndereco valores={unidade} />
+      </GrupoCampos>
+
+      <CamposContato valores={unidade} />
 
       <div className="sni-form-grid">
         <Campo label="Código" dica="A numeração própria da instituição, se houver.">

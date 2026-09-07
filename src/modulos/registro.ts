@@ -58,8 +58,15 @@ export const MODULOS: Modulo[] = [
     rotulo: "Administração",
     itens: [
       { href: "/admin/pessoas", rotulo: "Pessoas e acesso", icone: "IconUserCog", capacidade: "pessoa.gerir", pronto: true },
-      { href: "/admin/estrutura", rotulo: "Estrutura", icone: "IconSitemap", capacidade: "estrutura.gerir", pronto: true },
-      { href: "/admin/organizacoes", rotulo: "Organizações", icone: "IconBuildingArch", capacidade: "estrutura.gerir", pronto: true },
+      // ⚠️ Três itens, e não um "Estrutura" só: a Sede trabalha um degrau por
+      // vez, e a árvore inteira numa tela obriga a caçar a Regional certa entre
+      // mil Associações Locais. A árvore continua em /admin/estrutura, ligada
+      // de cada uma das três — ela responde "onde isto fica", que a lista não.
+      { href: "/admin/regionais", rotulo: "Regionais", icone: "IconMap2", capacidade: "estrutura.gerir", pronto: true },
+      { href: "/admin/nucleos", rotulo: "Núcleos", icone: "IconTopologyStar3", capacidade: "estrutura.gerir", pronto: true },
+      { href: "/admin/associacoes", rotulo: "Associações Locais", icone: "IconUsersGroup", capacidade: "estrutura.gerir", pronto: true },
+      { href: "/admin/estrutura", rotulo: "Árvore da instituição", icone: "IconSitemap", capacidade: "estrutura.gerir", pronto: true },
+      { href: "/admin/organizacoes", rotulo: "Departamentos", icone: "IconBuildingArch", capacidade: "estrutura.gerir", pronto: true },
       { href: "/admin/locais", rotulo: "Locais", icone: "IconMapPin", capacidade: "estrutura.gerir", pronto: true },
       { href: "/admin/configuracoes", rotulo: "Configurações", icone: "IconSettings", capacidade: "configuracao.gerir", pronto: true },
       { href: "/admin/auditoria", rotulo: "Auditoria", icone: "IconHistory", capacidade: "auditoria.ver" },

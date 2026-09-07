@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import CamposCielo from "@/componentes/CamposCielo";
-import { Campo, Input, Select } from "@/componentes/ui";
+import CamposContato from "@/componentes/CamposContato";
+import CamposEndereco from "@/componentes/CamposEndereco";
+import CampoMascarado from "@/componentes/CampoMascarado";
+import { Campo, CampoChave, GrupoCampos, Input, Select } from "@/componentes/ui";
 import type { LocalRow, TipoLocalRow, UnidadeRow } from "@/lib/supabase/tipos";
 
 /**
@@ -28,6 +31,15 @@ export default function CamposLocal({
 }) {
   const [tipo, setTipo] = useState(local?.tipo ?? "");
   const escolhido = tipos.find((t) => t.codigo === tipo);
+
+  /**
+   * ⚠️ Próprio da instituição ou de terceiro — e isso MUDA O QUE SE PEDE. O
+   * local próprio é filial da Sede e tem CNPJ com a mesma raiz; um hotel tem
+   * CNPJ de outra empresa, e o gatilho do banco recusaria se ele fosse marcado
+   * como nosso. Do outro lado, salão alugado tem contato e diária, que não
+   * fazem sentido numa Academia.
+   */
+  const [proprio, setProprio] = useState(local?.proprio ?? true);
 
   return (
     <>
@@ -65,50 +77,71 @@ export default function CamposLocal({
         <Input name="nome" defaultValue={local?.nome ?? ""} required maxLength={150} />
       </Campo>
 
+      <CampoChave
+        rotulo="Próprio da SEICHO-NO-IE DO BRASIL"
+        dica="Desmarcado, é local de terceiro — hotel, salão alugado — e o cadastro pede contato e diária em vez de CNPJ de filial."
+        ligado={proprio}
+        onClick={() => setProprio((v) => !v)}
+      />
+      <input type="hidden" name="proprio" value={proprio ? "1" : "0"} />
+
       <div className="sni-form-grid">
-        <Campo label="CEP">
-          <Input name="cep" defaultValue={local?.cep ?? ""} maxLength={9} className="sni-input num" />
+        <Campo label="Capacidade" dica="Quantas pessoas cabem. Ajuda a escolher o local do evento.">
+          <Input
+            name="capacidade"
+            type="number"
+            min={1}
+            defaultValue={local?.capacidade ?? ""}
+            className="sni-input num"
+          />
         </Campo>
-        <Campo label="CNPJ" dica="A Academia é filial da Sede Central e tem CNPJ próprio.">
-          <Input name="cnpj" defaultValue={local?.cnpj ?? ""} maxLength={18} className="sni-input num" />
+        <Campo
+          label="CNPJ"
+          dica={
+            proprio
+              ? "Filial da Sede Central: a raiz tem de ser a mesma."
+              : "CNPJ da empresa dona do local. Pode ser de qualquer raiz."
+          }
+        >
+          <CampoMascarado tipo="cnpj" name="cnpj" defaultValue={local?.cnpj} />
         </Campo>
       </div>
 
-      <div className="sni-form-grid">
-        <Campo label="Logradouro">
-          <Input name="logradouro" defaultValue={local?.logradouro ?? ""} maxLength={150} />
-        </Campo>
-        <Campo label="Número">
-          <Input name="numero" defaultValue={local?.numero ?? ""} maxLength={20} />
-        </Campo>
-      </div>
+      {/* Contato e diária só no que NÃO é nosso: numa Academia não há com quem
+          negociar nem o que pagar. */}
+      {!proprio && (
+        <GrupoCampos titulo="Contratação">
+          <div className="sni-form-grid">
+            <Campo label="Quem atende">
+              <Input name="contato_nome" defaultValue={local?.contato_nome ?? ""} maxLength={150} />
+            </Campo>
+            <Campo label="Telefone de quem atende">
+              <Input
+                name="contato_telefone"
+                defaultValue={local?.contato_telefone ?? ""}
+                maxLength={20}
+                className="sni-input num"
+              />
+            </Campo>
+          </div>
+          <Campo label="Diária" dica="Em reais. Serve de referência para orçar o evento.">
+            <Input
+              name="diaria"
+              type="number"
+              min={0}
+              step="0.01"
+              defaultValue={local?.diaria_centavos != null ? (local.diaria_centavos / 100).toFixed(2) : ""}
+              className="sni-input num"
+            />
+          </Campo>
+        </GrupoCampos>
+      )}
 
-      <div className="sni-form-grid">
-        <Campo label="Complemento">
-          <Input name="complemento" defaultValue={local?.complemento ?? ""} maxLength={80} />
-        </Campo>
-        <Campo label="Bairro">
-          <Input name="bairro" defaultValue={local?.bairro ?? ""} maxLength={80} />
-        </Campo>
-      </div>
+      <GrupoCampos titulo="Endereço">
+        <CamposEndereco valores={local} />
+      </GrupoCampos>
 
-      <div className="sni-form-grid">
-        <Campo label="Cidade">
-          <Input name="cidade" defaultValue={local?.cidade ?? ""} maxLength={100} />
-        </Campo>
-        <Campo label="UF">
-          <Input name="uf" defaultValue={local?.uf ?? ""} maxLength={2} />
-        </Campo>
-      </div>
-
-      <div className="sni-form-grid">
-        <Campo label="Telefone">
-          <Input name="telefone" defaultValue={local?.telefone ?? ""} maxLength={20} className="sni-input num" />
-        </Campo>
-        <Campo label="E-mail">
-          <Input name="email" type="email" defaultValue={local?.email ?? ""} maxLength={150} />
-        </Campo>
-      </div>
+      <CamposContato valores={local} />
 
       <div className="sni-form-grid">
         <Campo label="Código" dica="A numeração própria da instituição, se houver.">
