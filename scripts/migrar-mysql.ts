@@ -22,7 +22,7 @@ import { writeFileSync } from "node:fs";
 import mysql from "mysql2/promise";
 import postgres from "postgres";
 import {
-  bool as booleano, centavos, cielo, data, numero, texto,
+  bool as booleano, centavos, chaveNucleo, cielo, data, numero, texto,
   transformarParticipante, type ParticipanteMysql,
 } from "./lib/transformar";
 
@@ -141,6 +141,173 @@ async function mapaPessoas(): Promise<Map<number, string>> {
   const linhas = await destino<{ id: string; legado_id: number }[]>`
     select id, legado_id from public.pessoas where legado_id is not null`;
   return new Map(linhas.map((l) => [l.legado_id, l.id]));
+}
+
+// ─── vínculos ─────────────────────────────────────────────────────────────
+
+/**
+ * Põe cada pessoa na Regional, Organização e Associação Local dela — criando
+ * as unidades que ainda não existem.
+ *
+ * A origem guarda os três como TEXTO LIVRE em `Participant`. Aqui eles viram
+ * estrutura de verdade: a Regional casa com a árvore que veio do site
+ * institucional, a Organização com o catálogo, e a Associação Local — que não
+ * existe em lugar nenhum ainda — é criada sob a Regional certa.
+ *
+ * ⚠️ O CASAMENTO É POR NOME NORMALIZADO, e é onde mora o risco. "REGIONAL SÃO
+ * PAULO", "Regional Sao Paulo" e "São Paulo" são a mesma coisa para uma pessoa
+ * e três coisas para um `=`. Sem normalizar, a carga criaria Regionais
+ * duplicadas ao lado das verdadeiras, e os relatórios passariam a somar
+ * metade em cada uma — erro que só aparece quando alguém estranha um total.
+ *
+ * ⚠️ A CHAVE DA ASSOCIAÇÃO LOCAL INCLUI A ORGANIZAÇÃO. Toda AL pertence a uma
+ * Organização (regra da instituição), então "AL Centro / Prosperidade" e "AL
+ * Centro / Jovens" são DUAS Associações Locais, não uma com duas organizações.
+ * Tratá-las como uma faria a segunda sumir.
+ */
+
+async function faseVinculos() {
+  const r = conta("vinculos");
+  const criadas = { regionais: [] as string[], organizacoes: [] as string[], associacoes: 0 };
+
+  const [sede] = await destino<{ id: string }[]>`
+    select id from public.unidades where tipo = 'sede_central' limit 1`;
+  if (!sede) throw new Error("Sem Sede Central no destino: aplique as migrações antes.");
+
+  // Catálogos existentes. ⚠️ Lidos do DESTINO mesmo no ensaio, e isso está
+  // certo: as 114 Regionais já estão lá, e é justamente contra elas que o
+  // casamento precisa ser medido antes de gravar.
+  const regionais = new Map<string, string>();
+  for (const u of await destino<{ id: string; nome: string }[]>`
+    select id, nome from public.unidades where tipo = 'regional'`) {
+    regionais.set(chaveNucleo(u.nome), u.id);
+  }
+
+  const organizacoes = new Map<string, string>();
+  for (const o of await destino<{ id: string; nome: string }[]>`
+    select id, nome from public.organizacoes`) {
+    organizacoes.set(chaveNucleo(o.nome), o.id);
+  }
+
+  const associacoes = new Map<string, string>();
+  for (const u of await destino<{ id: string; nome: string; pai_id: string; organizacao_id: string }[]>`
+    select id, nome, pai_id, organizacao_id from public.unidades where tipo = 'associacao_local'`) {
+    associacoes.set(`${u.pai_id}|${u.organizacao_id}|${chaveNucleo(u.nome)}`, u.id);
+  }
+
+  const pessoas = await mapaPessoas();
+  const participantes = await ler("Participant");
+  r.lidas = participantes.length;
+
+  // Quem já tem vínculo ativo não é tocado: a carga é repetível, e sobrescrever
+  // apagaria uma correção feita à mão na tela.
+  const jaVinculadas = new Set(
+    (await destino<{ pessoa_id: string }[]>`
+      select pessoa_id from public.pessoa_unidade_vinculos where data_fim is null`)
+      .map((v) => v.pessoa_id)
+  );
+
+  const contar = (motivo: string) => { r.rejeitadas[motivo] = (r.rejeitadas[motivo] ?? 0) + 1; };
+
+  for (const p of participantes) {
+    const pessoa = pessoas.get(Number(p.id));
+    if (!pessoa) { contar("pessoa não migrada"); continue; }
+    if (jaVinculadas.has(pessoa)) { r.avisos++; continue; }
+
+    const chaveRegional = chaveNucleo(p.regional);
+    if (!chaveRegional) { contar("sem Regional na origem"); continue; }
+
+    // ── Regional ──
+    let regionalId = regionais.get(chaveRegional);
+    if (!regionalId) {
+      const nome = texto(p.regional)!;
+      if (!dryRun) {
+        const [nova] = await destino<{ id: string }[]>`
+          insert into public.unidades (tipo, pai_id, nome, migracao_extras)
+          values ('regional', ${sede.id}, ${nome},
+                  ${destino.json({ origem: "Credenciamento", nome_bruto: nome, conferir: true })})
+          returning id`;
+        regionalId = nova.id;
+      } else {
+        regionalId = `simulada:${chaveRegional}`;
+      }
+      regionais.set(chaveRegional, regionalId);
+      if (criadas.regionais.length < 40) criadas.regionais.push(nome);
+    }
+
+    // ── Organização ──
+    const chaveOrg = chaveNucleo(p.organizacao);
+    let organizacaoId = chaveOrg ? organizacoes.get(chaveOrg) : undefined;
+    if (chaveOrg && !organizacaoId) {
+      const nome = texto(p.organizacao)!;
+      if (!dryRun) {
+        const [nova] = await destino<{ id: string }[]>`
+          insert into public.organizacoes (nome) values (${nome})
+          on conflict (nome) do update set nome = excluded.nome
+          returning id`;
+        organizacaoId = nova.id;
+      } else {
+        organizacaoId = `simulada:${chaveOrg}`;
+      }
+      organizacoes.set(chaveOrg, organizacaoId);
+      if (criadas.organizacoes.length < 20) criadas.organizacoes.push(nome);
+    }
+
+    // ── Associação Local ──
+    //
+    // Sem AL, ou sem Organização, a pessoa fica na REGIONAL. Não é o ideal, e
+    // é melhor que inventar: uma AL sem organização o banco recusa, e chutar
+    // uma organização poria a pessoa no lugar errado — que é pior que num
+    // lugar menos específico.
+    const chaveAl = chaveNucleo(p.associacaoLocal);
+    let unidadeDestino = regionalId;
+
+    if (chaveAl && organizacaoId) {
+      const chave = `${regionalId}|${organizacaoId}|${chaveAl}`;
+      let alId = associacoes.get(chave);
+      if (!alId) {
+        const nome = texto(p.associacaoLocal)!;
+        if (!dryRun) {
+          const [nova] = await destino<{ id: string }[]>`
+            insert into public.unidades (tipo, pai_id, organizacao_id, nome, migracao_extras)
+            values ('associacao_local', ${regionalId}, ${organizacaoId}, ${nome},
+                    ${destino.json({ origem: "Credenciamento", nome_bruto: nome, conferir: true })})
+            returning id`;
+          alId = nova.id;
+        } else {
+          alId = `simulada:${chave}`;
+        }
+        associacoes.set(chave, alId);
+        criadas.associacoes++;
+      }
+      unidadeDestino = alId;
+    } else if (chaveAl && !organizacaoId) {
+      contar("Associação Local sem Organização — pessoa ficou na Regional");
+    } else {
+      contar("sem Associação Local — pessoa ficou na Regional");
+    }
+
+    if (!dryRun) {
+      await destino`
+        insert into public.pessoa_unidade_vinculos (pessoa_id, unidade_id, motivo)
+        values (${pessoa}, ${unidadeDestino}, 'carga do Credenciamento')
+        on conflict do nothing`;
+    }
+    r.gravadas++;
+  }
+
+  // As criadas vão para o relatório: são nomes de unidade, não dado pessoal, e
+  // é a lista que alguém precisa conferir depois — Regional criada por engano
+  // é Regional duplicada ao lado da verdadeira.
+  console.log(
+    `   Regionais novas: ${criadas.regionais.length}` +
+    (criadas.regionais.length ? ` (${criadas.regionais.slice(0, 8).join("; ")}${criadas.regionais.length > 8 ? "; …" : ""})` : "") +
+    ` | Organizações novas: ${criadas.organizacoes.length}` +
+    (criadas.organizacoes.length ? ` (${criadas.organizacoes.join("; ")})` : "") +
+    ` | Associações Locais novas: ${criadas.associacoes}`
+  );
+  rejeicoesDetalhe.push({ fase: "vinculos", legado_id: 0, motivo:
+    `criadas: ${criadas.regionais.length} regionais, ${criadas.organizacoes.length} organizações, ${criadas.associacoes} associações locais` });
 }
 
 // ─── estrutura ────────────────────────────────────────────────────────────
@@ -596,7 +763,19 @@ async function faseConfiguracao() {
   const r = conta("configuracao");
   // ⚠️ `cripto-nucleo`, não `cripto`: o segundo importa `server-only`, que só
   // resolve dentro do Next. Aqui é Node puro.
-  const { cifrar } = await import("../src/lib/cripto-nucleo");
+  const { cifragemDisponivel, cifrar } = await import("../src/lib/cripto-nucleo");
+
+  // ⚠️ Sem chave de cifra a fase se PULA, e não estoura. Ela grava uma linha —
+  // a conta Cielo — e derrubar a carga por causa dela adiaria dezesseis mil
+  // pessoas. Fica declarado no relatório, e roda sozinha depois.
+  //
+  // Gravar a chave em claro "por enquanto" não é opção: seria exatamente o
+  // problema que a origem tem, trazido para o sistema novo.
+  if (!dryRun && !cifragemDisponivel()) {
+    r.rejeitadas["fase pulada: sem CREDENCIAIS_ENCRYPTION_KEY"] = 1;
+    console.log("(pulada: sem chave de cifra)");
+    return;
+  }
 
   const [prosperidade] = await destino<{ id: string }[]>`
     select id from public.organizacoes where nome = 'Associação da Prosperidade' limit 1`;
@@ -672,6 +851,9 @@ async function faseSequencias() {
 
 const FASES: Record<string, () => Promise<void>> = {
   pessoas: fasePessoas,
+  // Depois de `pessoas` porque precisa delas, e antes de `eventos` porque a
+  // estrutura institucional é do sistema inteiro, não do módulo.
+  vinculos: faseVinculos,
   estrutura: faseEstrutura,
   eventos: faseEventos,
   compras: faseCompras,
