@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -34,5 +35,37 @@ describe("carga do Credenciamento", () => {
     // Cobre o caso em que alguém monte a consulta fora de `origem.query(`.
     const proibidos = /\b(INSERT\s+INTO\s+`|UPDATE\s+`|DELETE\s+FROM\s+`|TRUNCATE|DROP\s+TABLE)/i;
     expect(codigo).not.toMatch(proibidos);
+  });
+});
+
+/**
+ * O script CARREGA.
+ *
+ * ⚠️ Parece bobo e não é. A primeira execução real da carga morreu antes de
+ * ler uma linha, com "Top-level await is currently not supported with the cjs
+ * output format" — erro de COMPILAÇÃO, não de execução. `tsc --noEmit`
+ * passava, os testes passavam, o build passava: nada disso executa o script.
+ *
+ * Rodar sem as variáveis de ambiente prova que o arquivo compila e chega até
+ * a primeira decisão, sem tocar em banco nenhum.
+ */
+describe("o script de carga", () => {
+  it("carrega e recusa começar sem as conexões", () => {
+    let saida = "";
+    let codigo = 0;
+    try {
+      saida = execFileSync("npx", ["tsx", "scripts/migrar-mysql.ts", "--dry-run"], {
+        encoding: "utf8",
+        env: { ...process.env, MIGRACAO_MYSQL_URL: "", DATABASE_URL: "" },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (e) {
+      const erro = e as { status?: number; stdout?: string; stderr?: string };
+      codigo = erro.status ?? 1;
+      saida = `${erro.stdout ?? ""}${erro.stderr ?? ""}`;
+    }
+    expect(saida).toContain("Nada foi lido nem gravado");
+    expect(saida).not.toMatch(/Transform failed|not supported/i);
+    expect(codigo).toBe(1);
   });
 });
