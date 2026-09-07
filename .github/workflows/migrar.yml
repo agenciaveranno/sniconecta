@@ -20,9 +20,11 @@ on:
         options: [ensaio, gravar]
         default: ensaio
       fase:
-        description: "Uma fase só (pessoas, estrutura, eventos, compras, comissao, configuracao, auditoria, sequencias). Vazio = todas, em ordem."
-        type: string
-        default: ""
+        description: "Uma fase só, ou 'todas'. Nome que não existe PARA a carga em vez de rodar nada."
+        type: choice
+        # Na ORDEM em que o script executa — o menu é a documentação da ordem.
+        options: [todas, pessoas, vinculos, estrutura, eventos, compras, comissao, configuracao, auditoria, sequencias]
+        default: todas
       regiao_supabase:
         description: "Região do pooler do Supabase. Só mude se o projeto não for de São Paulo."
         type: string
@@ -111,7 +113,9 @@ jobs:
         run: |
           argumentos=""
           [ "${{ inputs.modo }}" = "ensaio" ] && argumentos="$argumentos --dry-run"
-          [ -n "${{ inputs.fase }}" ] && argumentos="$argumentos --fase=${{ inputs.fase }}"
+          # "todas" é o padrão e não vira argumento — o script já roda tudo sem ele.
+          [ -n "${{ inputs.fase }}" ] && [ "${{ inputs.fase }}" != "todas" ] \
+            && argumentos="$argumentos --fase=${{ inputs.fase }}"
           if [ "${{ inputs.modo }}" = "gravar" ]; then
             echo "::warning::Modo GRAVAR: isto escreve no banco de produção."
           fi
