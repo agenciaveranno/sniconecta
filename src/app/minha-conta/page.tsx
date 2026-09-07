@@ -49,24 +49,22 @@ export default async function MinhaContaPage({
 
   const supabase = await criarClienteServidor();
 
-  const { data: minha } = await supabase
-    .from("pessoas")
-    .select("*")
-    .eq("id", eu.id)
-    .maybeSingle();
-  const pessoa = minha as PessoaRow | null;
-
-  const { data: vinculoBruto } = await supabase
-    .from("pessoa_vinculo_atual")
-    .select("*")
-    .eq("pessoa_id", eu.id)
-    .maybeSingle();
-  const vinculo = vinculoBruto as VinculoAtualRow | null;
-
+  // ⚠️ As três JUNTAS. As unidades dos papéis já vêm da sessão, não do
+  // resultado das outras duas, então nada aqui precisa esperar nada — e em
+  // série cada consulta somava sua ida e volta ao banco no tempo de tela em
+  // branco.
   const unidadesDosPapeis = eu.papeis.map((p) => p.unidadeId).filter((x): x is string => !!x);
-  const { data: unidades } = unidadesDosPapeis.length
-    ? await supabase.from("unidades").select("id, nome").in("id", unidadesDosPapeis)
-    : { data: [] };
+  const [rPessoa, rVinculo, rUnidades] = await Promise.all([
+    supabase.from("pessoas").select("*").eq("id", eu.id).maybeSingle(),
+    supabase.from("pessoa_vinculo_atual").select("*").eq("pessoa_id", eu.id).maybeSingle(),
+    unidadesDosPapeis.length
+      ? supabase.from("unidades").select("id, nome").in("id", unidadesDosPapeis)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const pessoa = rPessoa.data as PessoaRow | null;
+  const vinculo = rVinculo.data as VinculoAtualRow | null;
+  const unidades = rUnidades.data;
   const nomeUnidade = new Map(
     ((unidades ?? []) as Pick<UnidadeRow, "id" | "nome">[]).map((u) => [u.id, u.nome])
   );

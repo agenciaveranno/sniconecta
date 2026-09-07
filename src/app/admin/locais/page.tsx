@@ -34,20 +34,17 @@ export default async function LocaisPage({
 
   const supabase = await criarClienteServidor();
 
-  const tipos = exigir(
-    await supabase.from("tipos_local").select("*").eq("ativo", true).order("ordem"),
-    "os tipos de local"
-  ) as TipoLocalRow[];
+  // ⚠️ As três JUNTAS: nenhuma depende do resultado das outras, e em série
+  // cada uma somava sua ida e volta ao banco no tempo de tela em branco.
+  const [rTipos, rLocais, rUnidades] = await Promise.all([
+    supabase.from("tipos_local").select("*").eq("ativo", true).order("ordem"),
+    supabase.from("locais").select("*").order("nome"),
+    supabase.from("unidades").select("id, nome").eq("ativo", true).order("nome"),
+  ]);
 
-  const locais = exigir(
-    await supabase.from("locais").select("*").order("nome"),
-    "os locais"
-  ) as LocalRow[];
-
-  const unidades = exigir(
-    await supabase.from("unidades").select("id, nome").eq("ativo", true).order("nome"),
-    "as unidades"
-  ) as Pick<UnidadeRow, "id" | "nome">[];
+  const tipos = exigir(rTipos, "os tipos de local") as TipoLocalRow[];
+  const locais = exigir(rLocais, "os locais") as LocalRow[];
+  const unidades = exigir(rUnidades, "as unidades") as Pick<UnidadeRow, "id" | "nome">[];
 
   const nomeDoTipo = new Map(tipos.map((t) => [t.codigo, t.nome]));
   const nomeDaUnidade = new Map(unidades.map((u) => [u.id, u.nome]));

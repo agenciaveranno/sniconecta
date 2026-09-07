@@ -38,20 +38,18 @@ export default async function ListaDeUnidades({
 
   const supabase = await criarClienteServidor();
 
-  const unidades = (exigir(
-    await supabase.from("unidades").select("*").eq("tipo", tipo).order("nome"),
-    `as unidades do tipo ${tipo}`
-  ) ?? []) as UnidadeRow[];
+  // ⚠️ As três JUNTAS, e não uma esperando a outra. Nenhuma depende do
+  // resultado das outras, e em série cada uma soma sua ida e volta ao banco no
+  // tempo de tela em branco.
+  const [rUnidades, rTipos, rOrganizacoes] = await Promise.all([
+    supabase.from("unidades").select("*").eq("tipo", tipo).order("nome"),
+    supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
+    supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
+  ]);
 
-  const tipos = (exigir(
-    await supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
-    "os tipos de unidade"
-  ) ?? []) as TipoUnidadeRow[];
-
-  const organizacoes = (exigir(
-    await supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
-    "as organizações"
-  ) ?? []) as OrganizacaoRow[];
+  const unidades = (exigir(rUnidades, `as unidades do tipo ${tipo}`) ?? []) as UnidadeRow[];
+  const tipos = (exigir(rTipos, "os tipos de unidade") ?? []) as TipoUnidadeRow[];
+  const organizacoes = (exigir(rOrganizacoes, "as organizações") ?? []) as OrganizacaoRow[];
 
   // Só os degraus que PODEM receber este tipo entram na lista de superiores —
   // e para a Regional nem isso, porque ela não pergunta onde fica.
