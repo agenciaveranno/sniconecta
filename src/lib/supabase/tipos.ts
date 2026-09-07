@@ -84,6 +84,12 @@ export type LocalRow = {
   latitude: string | null;
   longitude: string | null;
   observacoes: string | null;
+  /** Da instituição (Academia, salão da Regional) ou de terceiro (hotel). */
+  proprio: boolean;
+  capacidade: number | null;
+  contato_nome: string | null;
+  contato_telefone: string | null;
+  diaria_centavos: number | null;
   ativo: boolean;
 };
 

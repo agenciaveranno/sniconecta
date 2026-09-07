@@ -34,6 +34,30 @@ const schema = z.object({
     .optional()
     .transform((v) => (v && v.trim() ? somenteDigitos(v) : null))
     .refine((v) => v === null || cnpjValido(v), "O CNPJ informado não existe. Confira os números."),
+
+  // ⚠️ "1"/"0" e não checkbox: checkbox desmarcado não é enviado pelo
+  // navegador, e a ausência significaria "não mexeu" — nunca "desmarcou".
+  proprio: z.string().optional().transform((v) => v !== "0"),
+  capacidade: z.coerce.number().int().positive().optional().nullable().catch(null),
+
+  contato_nome: z.string().optional().transform((v) => vazioVira(v)),
+  contato_telefone: z.string().optional().transform((v) => vazioVira(v)),
+  // ⚠️ Reais na tela, CENTAVOS no banco. `Math.round` porque 19.90 * 100 dá
+  // 1989.9999999999998 em ponto flutuante, e truncar comeria um centavo.
+  diaria: z
+    .string()
+    .optional()
+    .transform((v) => {
+      if (!v || !v.trim()) return null;
+      const n = Number(v.replace(",", "."));
+      return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
+    }),
+
+  whatsapp: z.string().optional().transform((v) => vazioVira(v)),
+  site: z.string().optional().transform((v) => vazioVira(v)),
+  facebook: z.string().optional().transform((v) => vazioVira(v)),
+  instagram: z.string().optional().transform((v) => vazioVira(v)),
+  tiktok: z.string().optional().transform((v) => vazioVira(v)),
 });
 
 function falhar(mensagem: string): never {
@@ -83,8 +107,11 @@ async function guardarCielo(formData: FormData, localId: string) {
 }
 
 function paraBanco(d: z.infer<typeof schema>) {
-  const { unidade, ...resto } = d;
-  return { ...resto, unidade_id: unidade };
+  // ⚠️ `diaria` (reais, da tela) vira `diaria_centavos` (o que o banco guarda),
+  // e `unidade` vira `unidade_id`. Mandar o objeto cru faria o PostgREST
+  // recusar a linha inteira por causa de duas colunas que não existem.
+  const { unidade, diaria, ...resto } = d;
+  return { ...resto, unidade_id: unidade, diaria_centavos: diaria };
 }
 
 export async function criarLocal(formData: FormData) {
