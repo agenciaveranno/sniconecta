@@ -6,11 +6,14 @@ import {
   IconUserOff,
   IconUsers,
 } from "@tabler/icons-react";
+import Link from "next/link";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
+  AcaoLink,
   Alerta,
   Badge,
+  BotaoLink,
   Campo,
   Celula,
   Input,
@@ -34,12 +37,9 @@ import type {
   UnidadeRow,
   VinculoAtualRow,
 } from "@/lib/supabase/tipos";
-import CamposPessoa from "./CamposPessoa";
 import {
   concederPapel,
-  criarPessoa,
   definirAcesso,
-  editarPessoa,
   moverPessoa,
   revogarPapel,
   tirarAcesso,
@@ -150,17 +150,9 @@ export default async function PessoasPage({
         titulo="Pessoas e acesso"
         descricao="Toda pessoa da instituição vive aqui: quem participa, quem estuda, quem compra ingresso e quem opera o sistema. Ter cadastro não é ter acesso — acesso se concede à parte, e a maioria nunca vai precisar."
         acao={
-          <ModalCadastro
-            rotulo="Nova pessoa"
-            icone={<IconPlus size={18} className="ti" />}
-            titulo="Nova pessoa"
-            descricao="O documento identifica; o resto se completa depois."
-            acao={criarPessoa}
-            rotuloConfirmar="Cadastrar"
-            largura="lg"
-          >
-            <CamposPessoa unidades={associacoes} />
-          </ModalCadastro>
+          <BotaoLink href="/admin/pessoas/nova" icone={<IconPlus size={18} className="ti" />}>
+            Nova pessoa
+          </BotaoLink>
         }
       />
 
@@ -200,7 +192,7 @@ export default async function PessoasPage({
               return (
                 <Linha key={pessoa.id}>
                   <Celula forte>
-                    {pessoa.nome_social || pessoa.nome}
+                    <Link href={`/admin/pessoas/${pessoa.id}`}>{pessoa.nome_social || pessoa.nome}</Link>
                     {pessoa.email && (
                       <span className="sni-hint" style={{ marginTop: 2 }}>
                         {pessoa.email}
@@ -259,15 +251,9 @@ export default async function PessoasPage({
                   </Celula>
                   <Celula alinhar="right">
                     <span style={{ display: "inline-flex", gap: 4, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                      <ModalCadastro
-                        gatilho="link"
-                        rotulo="Editar"
-                        titulo={`Editar ${pessoa.nome}`}
-                        acao={editarPessoa}
-                        largura="lg"
-                      >
-                        <CamposPessoa pessoa={pessoa} />
-                      </ModalCadastro>
+                      {/* Ficha, não modal: mais de trinta campos e anexos
+                          não cabem numa caixa que rola (decisão 0015). */}
+                      <AcaoLink href={`/admin/pessoas/${pessoa.id}`}>Abrir ficha</AcaoLink>
 
                       <ModalCadastro
                         gatilho="link"

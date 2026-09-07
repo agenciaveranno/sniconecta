@@ -255,6 +255,40 @@ export function CampoChave({
   );
 }
 
+/**
+ * Abas por URL, não por estado.
+ *
+ * ⚠️ Cada aba é um LINK. Aba como estado de componente quebraria o botão
+ * Voltar e tornaria impossível mandar a alguém o endereço da aba certa — quem
+ * pede "me manda os documentos dele" precisa receber um link que abre onde
+ * deve, não a primeira aba com a instrução de clicar na segunda.
+ */
+export function Abas({
+  atual,
+  abas,
+}: {
+  atual: string;
+  abas: { chave: string; rotulo: string; href: string; contagem?: number }[];
+}) {
+  return (
+    <nav className="sni-abas" aria-label="Seções desta ficha">
+      {abas.map((a) => (
+        <Link
+          key={a.chave}
+          href={a.href}
+          className="sni-aba"
+          aria-current={a.chave === atual ? "page" : undefined}
+        >
+          {a.rotulo}
+          {a.contagem !== undefined && a.contagem > 0 && (
+            <span className="sni-aba-contagem num">{a.contagem}</span>
+          )}
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
 // ─── Marcadores e alertas ────────────────────────────────────────────────────
 
 /** `navy` e `outline` vêm do módulo ciclo; os demais são do design system. */

@@ -416,6 +416,26 @@ escrita "dois vínculos ativos para a mesma pessoa são recusados" $SEDE \
 # Tabela que ganhe privilégio para anon ou authenticated sem estar aqui
 # reprova. É isto que substitui, mecanicamente, o isolamento de um schema.
 echo
+echo "── Ficha da pessoa: documentos fora do alcance do navegador"
+# ⚠️ Documento de identidade e cache de CEP não se protegem por policy: quem
+# alcança a tabela alcança o caminho do arquivo, e caminho vazado é arquivo
+# vazado. A garantia é não haver GRANT nenhum.
+n_grant_ficha=$(conta "select count(*) from information_schema.role_table_grants where table_schema='public' and table_name in ('pessoa_anexos','ceps') and grantee in ('anon','authenticated');")
+if [ "$n_grant_ficha" = "0" ]; then echo "  ✅ anexos e CEPs sem GRANT nenhum";
+else echo "  ❌ anexos/CEPs concedidos ao navegador ($n_grant_ficha)"; falhas=$((falhas+1)); fi
+
+n_idx_login=$(conta "select count(*) from pg_indexes where tablename='pessoas' and indexdef ilike '%login%';")
+if [ "$n_idx_login" -ge 1 ]; then echo "  ✅ login tem índice único";
+else echo "  ❌ login sem índice: dois logins iguais conviveriam"; falhas=$((falhas+1)); fi
+escrita "login com dois logins iguais em caixas diferentes é recusado" $SEDE \
+  "insert into pessoas (nome, cpf, login) values ('A','52998224725','Vinicius'),('B','11144477735','vinicius');" NEGADO
+escrita "login que começa com número é recusado" $SEDE \
+  "insert into pessoas (nome, cpf, login) values ('C','52998224725','1abc');" NEGADO
+escrita "estado civil fora da lista é recusado" $SEDE \
+  "insert into pessoas (nome, cpf, estado_civil) values ('D','52998224725','amigado');" NEGADO
+escrita "anexo de tipo desconhecido é recusado" $SEDE \
+  "insert into pessoa_anexos (pessoa_id, tipo, caminho, nome_arquivo) values ('d0000000-0000-0000-0000-000000000005','selfie','x/y','y.jpg');" NEGADO
+
 echo "── Superfície de GRANT"
 # Tabelas e visões que PODEM ser lidas ou escritas pelo navegador. Toda a
 # lista é decisão registrada: quem entrar aqui sem estar no arquivo da

@@ -812,3 +812,31 @@ dialog.sni-modal::backdrop {
 .sni-label,
 .sni-hint,
 .sni-error { text-align: left; }
+
+/* Abas da ficha. Linha única com rolagem horizontal no celular: quebrar em
+   duas linhas faz a aba ativa sumir da vista quando há muitas. */
+.sni-abas {
+  display: flex; gap: 4px; overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 24px;
+}
+.sni-aba {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 11px 16px; white-space: nowrap; text-decoration: none;
+  font-size: 15px; font-weight: 600; color: var(--txt-3);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.sni-aba:hover { color: var(--txt-1); }
+.sni-aba[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
+.sni-aba-contagem {
+  font-size: 13px; font-weight: 700; color: var(--txt-4);
+  background: var(--sni-gray-50); border-radius: var(--r-pill); padding: 1px 8px;
+}
+.sni-aba[aria-current="page"] .sni-aba-contagem { background: var(--sni-blue-50); color: var(--accent); }
+
+/* Rodapé de formulário em PÁGINA (a ficha da pessoa). O modal tem o seu; aqui
+   os botões precisam de um lugar próprio, alinhados à direita como lá. */
+.sni-form-rodape {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding-top: 20px; margin-top: 8px; border-top: 1px solid var(--line);
+}

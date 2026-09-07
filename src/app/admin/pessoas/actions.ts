@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { definirSenhaDePessoa, revogarAcesso, sincronizarEmailDeLogin } from "@/lib/acesso";
 import { registrar } from "@/lib/auditoria";
+import { apagarAnexo, guardarAnexo } from "@/lib/anexos";
 import { exigirCapacidade } from "@/lib/auth";
 import { cpfValido, somenteDigitos as somenteDigitosCpf } from "@/lib/dominio/cpf";
 import { codSniValido, normalizarCodSni } from "@/lib/dominio/codsni";
@@ -60,6 +61,36 @@ const schema = z.object({
   bairro: z.string().optional().transform(vazioVira),
   cidade: z.string().optional().transform(vazioVira),
   uf: z.string().optional().transform((v) => (v ? v.trim().toUpperCase() || null : null)),
+
+  // ── Família ──
+  nome_pai: z.string().optional().transform(vazioVira),
+  nome_mae: z.string().optional().transform(vazioVira),
+  nome_conjuge: z.string().optional().transform(vazioVira),
+  estado_civil: z.string().optional().transform((v) =>
+    v && ["solteiro", "casado", "uniao_estavel", "divorciado", "viuvo"].includes(v) ? v : null),
+
+  // ── Na Seicho-No-Ie ──
+  entrada_sni: z.string().optional().transform(vazioVira),
+  motivo_entrada: z.string().optional().transform(vazioVira),
+
+  // ── Vida civil ──
+  profissao: z.string().optional().transform(vazioVira),
+  empresa: z.string().optional().transform(vazioVira),
+  formacao: z.string().optional().transform((v) =>
+    v && ["fundamental", "medio", "superior", "pos", "mestrado", "doutorado"].includes(v) ? v : null),
+
+  // ⚠️ Vazio vira NULL, nunca string vazia: `''` passaria no unique uma vez e
+  // derrubaria a segunda pessoa sem login.
+  login: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : null))
+    .refine((v) => v === null || /^[a-zA-Z][a-zA-Z0-9._-]{2,29}$/.test(v),
+      "O login começa com letra e tem de 3 a 30 caracteres: letras, números, ponto, hífen ou sublinhado."),
+
+  telefone2: z.string().optional().transform(vazioVira),
+  falecimento: z.string().optional().transform(vazioVira),
+  falecimento_causa: z.string().optional().transform(vazioVira),
 }).superRefine((d, ctx) => {
   // Exatamente um documento (decisão 0013). Com os dois, a mesma pessoa cabe
   // duas vezes na tabela sem colidir em nada; com nenhum, não há como
@@ -90,6 +121,12 @@ const schema = z.object({
 function traduzirErro(mensagem: string): string {
   if (mensagem.includes("pessoas_cpf_key")) {
     return "Esse CPF já está cadastrado. Procure a pessoa na lista em vez de criar de novo.";
+  }
+  if (mensagem.includes("pessoas_login_key")) {
+    return "Esse login já é de outra pessoa. Escolha outro.";
+  }
+  if (mensagem.includes("login_formato")) {
+    return "O login começa com letra e tem de 3 a 30 caracteres: letras, números, ponto, hífen ou sublinhado.";
   }
   if (mensagem.includes("uq_pessoa_passaporte")) {
     return "Esse passaporte já está cadastrado. Procure a pessoa na lista em vez de criar de novo.";
@@ -133,6 +170,9 @@ export async function criarPessoa(formData: FormData) {
 
   await registrar({ atorId: eu.id, acao: "pessoa.criada", entidade: "pessoas", entidadeId: criada?.id });
   revalidatePath(ROTA);
+  // Vai para a FICHA, e não de volta para a lista: quem acabou de cadastrar
+  // quase sempre tem mais o que preencher — anexo, foto, o resto dos campos.
+  redirect(`${ROTA}/${criada!.id}?ok=${encodeURIComponent("Pessoa cadastrada.")}`);
 }
 
 export async function editarPessoa(formData: FormData) {
@@ -166,6 +206,8 @@ export async function editarPessoa(formData: FormData) {
 
   await registrar({ atorId: eu.id, acao: "pessoa.editada", entidade: "pessoas", entidadeId: id });
   revalidatePath(ROTA);
+  revalidatePath(`${ROTA}/${id}`);
+  redirect(`${ROTA}/${id}?ok=${encodeURIComponent("Ficha salva.")}`);
 }
 
 /**
@@ -307,4 +349,81 @@ export async function tirarAcesso(formData: FormData) {
 
   revalidatePath(ROTA);
   avisar("Acesso removido. A pessoa continua no cadastro, com todo o histórico.");
+}
+
+
+// ─── Anexos da ficha ─────────────────────────────────────────────────────────
+
+/**
+ * Erro e recado voltam para a FICHA, não para a lista: quem estava anexando
+ * documento perderia o contexto inteiro sendo jogado de volta para a busca.
+ */
+function falharNaFicha(pessoaId: string, mensagem: string): never {
+  redirect(`${ROTA}/${pessoaId}?aba=anexos&erro=${encodeURIComponent(mensagem)}`);
+}
+
+export async function anexarDocumento(formData: FormData) {
+  const eu = await exigirCapacidade("pessoa.gerir");
+
+  const pessoaId = String(formData.get("pessoa_id") ?? "");
+  if (!pessoaId) falhar("Pessoa não informada.");
+
+  const tipo = String(formData.get("tipo") ?? "outros");
+  const arquivo = formData.get("arquivo");
+  if (!(arquivo instanceof File)) falharNaFicha(pessoaId, "Escolha um arquivo.");
+
+  // ⚠️ A capacidade não basta: `pessoa.gerir` é nacional ou de unidade, e o
+  // RLS é quem decide QUAIS pessoas cada operador alcança. Sem esta leitura
+  // pelo cliente do usuário, quem administra uma Regional anexaria documento
+  // na ficha de alguém de outra — o upload é feito com a chave de serviço, que
+  // ignora policy.
+  const supabase = await criarClienteServidor();
+  const { data: alcanca } = await supabase.from("pessoas").select("id").eq("id", pessoaId).maybeSingle();
+  if (!alcanca) falharNaFicha(pessoaId, "Você não alcança essa pessoa: ela está fora das unidades que você administra.");
+
+  const r = await guardarAnexo({
+    pessoaId,
+    tipo,
+    descricao: String(formData.get("descricao") ?? ""),
+    arquivo,
+    atorId: eu.id,
+  });
+  if (!r.ok) falharNaFicha(pessoaId, r.erro);
+
+  await registrar({
+    atorId: eu.id,
+    acao: "pessoa.anexo_adicionado",
+    entidade: "pessoa_anexos",
+    entidadeId: r.id,
+    // ⚠️ O NOME do arquivo não entra na auditoria: "exame-de-sangue.pdf" é
+    // dado sensível, e trilha de auditoria é lida por mais gente que a ficha.
+    detalhe: { pessoa_id: pessoaId, tipo },
+  });
+  revalidatePath(`${ROTA}/${pessoaId}`);
+  redirect(`${ROTA}/${pessoaId}?aba=anexos&ok=${encodeURIComponent("Documento anexado.")}`);
+}
+
+export async function removerAnexo(formData: FormData) {
+  const eu = await exigirCapacidade("pessoa.gerir");
+
+  const id = String(formData.get("id") ?? "");
+  const pessoaId = String(formData.get("pessoa_id") ?? "");
+  if (!id || !pessoaId) falhar("Anexo não informado.");
+
+  const supabase = await criarClienteServidor();
+  const { data: alcanca } = await supabase.from("pessoas").select("id").eq("id", pessoaId).maybeSingle();
+  if (!alcanca) falharNaFicha(pessoaId, "Você não alcança essa pessoa.");
+
+  const r = await apagarAnexo(id);
+  if (!r.ok) falharNaFicha(pessoaId, r.erro ?? "Não foi possível apagar.");
+
+  await registrar({
+    atorId: eu.id,
+    acao: "pessoa.anexo_removido",
+    entidade: "pessoa_anexos",
+    entidadeId: id,
+    detalhe: { pessoa_id: pessoaId },
+  });
+  revalidatePath(`${ROTA}/${pessoaId}`);
+  redirect(`${ROTA}/${pessoaId}?aba=anexos&ok=${encodeURIComponent("Documento removido.")}`);
 }

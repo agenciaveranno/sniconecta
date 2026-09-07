@@ -122,6 +122,18 @@ export type PessoaRow = {
   email: string | null;
   nascimento: string | null;
   sexo: string | null;
+  nome_pai: string | null;
+  nome_mae: string | null;
+  nome_conjuge: string | null;
+  estado_civil: string | null;
+  entrada_sni: string | null;
+  motivo_entrada: string | null;
+  profissao: string | null;
+  empresa: string | null;
+  formacao: string | null;
+  /** Identificador alfabético para entrar, além de CPF e e-mail. */
+  login: string | null;
+  falecimento_causa: string | null;
   telefone: string | null;
   telefone2: string | null;
   cep: string | null;
@@ -143,6 +155,20 @@ export type PessoaRow = {
   ativo: boolean;
   criado_em: string;
   atualizado_em: string;
+};
+
+/** Documento da ficha. O arquivo mora no Storage; aqui fica o caminho. */
+export type PessoaAnexoRow = {
+  id: string;
+  pessoa_id: string;
+  tipo: string;
+  descricao: string | null;
+  caminho: string;
+  nome_arquivo: string;
+  mime: string | null;
+  tamanho: number | null;
+  criado_em: string;
+  criado_por: string | null;
 };
 
 export type PapelRow = {
@@ -235,6 +261,7 @@ export interface Database {
       auditoria: Tabela<AuditoriaRow>;
       notificacoes: Tabela<NotificacaoRow>;
       ceps: Tabela<CepRow>;
+      pessoa_anexos: Tabela<PessoaAnexoRow>;
     };
     Views: {
       pessoa_vinculo_atual: { Row: VinculoAtualRow; Relationships: [] };
