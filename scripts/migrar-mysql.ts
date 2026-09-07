@@ -42,8 +42,12 @@ if (!ORIGEM || !DESTINO) {
   process.exit(1);
 }
 
-const origem = await mysql.createConnection(ORIGEM);
-const destino = postgres(DESTINO, { prepare: false, max: 3 });
+// ⚠️ Declaradas aqui e ABERTAS dentro de `principal()`. O `await` no corpo do
+// módulo obrigaria a saída a ser ESM, e o projeto compila estes scripts como
+// CommonJS — o erro é de compilação, não de execução: o arquivo nem carrega,
+// e nada do que ele faz chega a ser tentado.
+let origem: mysql.Connection;
+let destino: ReturnType<typeof postgres>;
 const relatorio: Relatorio = {};
 const rejeicoesDetalhe: { fase: string; legado_id: number; motivo: string }[] = [];
 
@@ -657,30 +661,61 @@ const FASES: Record<string, () => Promise<void>> = {
 
 // ─── Execução ─────────────────────────────────────────────────────────────
 
-const inicio = Date.now();
-try {
-  for (const [nome, fase] of Object.entries(FASES)) {
-    if (soFase && soFase !== nome) continue;
-    process.stdout.write(`→ ${nome}${dryRun ? " (dry-run)" : ""}… `);
-    try {
-      await fase();
-      console.log("ok");
-    } catch (e) {
-      console.log(`PAROU: ${e instanceof Error ? e.message : e}`);
-      if (!soFase) break; // fases seguintes dependem desta
+async function principal() {
+  origem = await mysql.createConnection(ORIGEM!);
+  destino = postgres(DESTINO!, { prepare: false, max: 3 });
+
+  const inicio = Date.now();
+  try {
+    for (const [nome, fase] of Object.entries(FASES)) {
+      if (soFase && soFase !== nome) continue;
+      process.stdout.write(`→ ${nome}${dryRun ? " (dry-run)" : ""}… `);
+      try {
+        await fase();
+        console.log("ok");
+      } catch (e) {
+        console.log(`PAROU: ${e instanceof Error ? e.message : e}`);
+        // ⚠️ Interrompe as seguintes: elas dependem desta, e continuar
+        // gravaria filhos órfãos que ninguém sabe de onde vieram.
+        if (!soFase) break;
+      }
     }
+  } finally {
+    await origem.end();
+    await destino.end();
   }
-} finally {
-  await origem.end();
-  await destino.end();
+
+  const saida = {
+    executadoEm: new Date().toISOString(),
+    dryRun,
+    duracaoSegundos: Math.round((Date.now() - inicio) / 1000),
+    fases: relatorio,
+    rejeicoes: rejeicoesDetalhe,
+  };
+  const arquivo = `migracao-relatorio-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  writeFileSync(arquivo, JSON.stringify(saida, null, 2));
+
+  console.log("\nRelatório:");
+  console.table(
+    Object.fromEntries(
+      Object.entries(relatorio).map(([k, v]) => [
+        k,
+        {
+          lidas: v.lidas,
+          gravadas: v.gravadas,
+          rejeitadas: Object.values(v.rejeitadas).reduce((a, b) => a + b, 0),
+          avisos: v.avisos,
+        },
+      ])
+    )
+  );
+  for (const [fase, v] of Object.entries(relatorio)) {
+    for (const [motivo, n] of Object.entries(v.rejeitadas)) console.log(`  ${fase}: ${n} × ${motivo}`);
+  }
+  console.log(`Gravado em ${arquivo} (não contém dado pessoal; não versionar).`);
 }
 
-const saida = { executadoEm: new Date().toISOString(), dryRun, duracaoSegundos: Math.round((Date.now() - inicio) / 1000), fases: relatorio, rejeicoes: rejeicoesDetalhe };
-const arquivo = `migracao-relatorio-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-writeFileSync(arquivo, JSON.stringify(saida, null, 2));
-console.log("\nRelatório:");
-console.table(Object.fromEntries(Object.entries(relatorio).map(([k, v]) => [k, { lidas: v.lidas, gravadas: v.gravadas, rejeitadas: Object.values(v.rejeitadas).reduce((a, b) => a + b, 0), avisos: v.avisos }])));
-for (const [fase, v] of Object.entries(relatorio)) {
-  for (const [motivo, n] of Object.entries(v.rejeitadas)) console.log(`  ${fase}: ${n} × ${motivo}`);
-}
-console.log(`Gravado em ${arquivo} (não contém dado pessoal; não versionar).`);
+principal().catch((e) => {
+  console.error(e instanceof Error ? e.message : e);
+  process.exit(1);
+});
