@@ -13,6 +13,16 @@ export interface ItemMenu {
   rotulo: string;
   icone: string;
   capacidade: Capacidade;
+  /**
+   * A tela EXISTE. Falso = está no plano, e a barra lateral não a mostra.
+   *
+   * ⚠️ Sem isto, o registro anuncia o mapa inteiro do sistema e a pessoa
+   * descobre o que não existe clicando: um 404 no meio do menu não distingue
+   * "ainda não foi feito" de "quebrou", e quem viu um passa a desconfiar de
+   * todos os outros. Item novo nasce ausente daqui e ganha a linha no mesmo
+   * commit que cria a rota.
+   */
+  pronto?: boolean;
 }
 
 export interface Modulo {
@@ -47,11 +57,11 @@ export const MODULOS: Modulo[] = [
     chave: "comum",
     rotulo: "Administração",
     itens: [
-      { href: "/admin/pessoas", rotulo: "Pessoas e acesso", icone: "IconUserCog", capacidade: "pessoa.gerir" },
-      { href: "/admin/estrutura", rotulo: "Estrutura", icone: "IconSitemap", capacidade: "estrutura.gerir" },
-      { href: "/admin/organizacoes", rotulo: "Organizações", icone: "IconBuildingArch", capacidade: "estrutura.gerir" },
-      { href: "/admin/locais", rotulo: "Locais", icone: "IconMapPin", capacidade: "estrutura.gerir" },
-      { href: "/admin/configuracoes", rotulo: "Configurações", icone: "IconSettings", capacidade: "configuracao.gerir" },
+      { href: "/admin/pessoas", rotulo: "Pessoas e acesso", icone: "IconUserCog", capacidade: "pessoa.gerir", pronto: true },
+      { href: "/admin/estrutura", rotulo: "Estrutura", icone: "IconSitemap", capacidade: "estrutura.gerir", pronto: true },
+      { href: "/admin/organizacoes", rotulo: "Organizações", icone: "IconBuildingArch", capacidade: "estrutura.gerir", pronto: true },
+      { href: "/admin/locais", rotulo: "Locais", icone: "IconMapPin", capacidade: "estrutura.gerir", pronto: true },
+      { href: "/admin/configuracoes", rotulo: "Configurações", icone: "IconSettings", capacidade: "configuracao.gerir", pronto: true },
       { href: "/admin/auditoria", rotulo: "Auditoria", icone: "IconHistory", capacidade: "auditoria.ver" },
     ],
   },

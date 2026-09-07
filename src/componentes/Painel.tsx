@@ -12,9 +12,14 @@ export default async function Painel({ titulo, acoes, children }: { titulo: stri
   const eu = await pessoaAtual();
   if (!eu) redirect("/login");
 
-  const modulos = MODULOS.map((m) => ({ ...m, itens: m.itens.filter((i) => eu.pode(i.capacidade)) })).filter(
-    (m) => m.itens.length > 0
-  );
+  // `pronto` antes da capacidade: a barra lateral mostra o que EXISTE, não o
+  // que está no plano. Um item que leva a 404 no meio do menu não distingue
+  // "ainda não foi feito" de "quebrou" — e quem vê um passa a desconfiar dos
+  // outros.
+  const modulos = MODULOS.map((m) => ({
+    ...m,
+    itens: m.itens.filter((i) => i.pronto && eu.pode(i.capacidade)),
+  })).filter((m) => m.itens.length > 0);
   // O rótulo vem da matriz (NOME_PAPEL), não de `replace` no código do papel:
   // "presidente_uap" viraria "presidente uap" na tela de quem responde pela
   // instituição.
