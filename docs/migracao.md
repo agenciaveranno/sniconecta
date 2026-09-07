@@ -73,13 +73,42 @@ antigo. É esse arquivo que se compartilha para discutir o resultado.
 | Fase | Origem | Destino | Estado |
 |---|---|---|---|
 | pessoas | `Participant` | `public.pessoas` | implementada |
-| estrutura | `Regional`, `Organizacao`, `Local`, `Promotor`, `Orientador` | `public.regionais`, `public.organizacoes`, `eventos.*` | a fazer |
-| eventos | `Evento`, `IngressoTipo`, `IngressoCampo`, `Combo*`, `Cupom`, `EventoOrientador` | `eventos.*` | a fazer |
-| compras | `PedidoPendente`, `Inscricao`, `InscricaoResposta`, `MagicLink`, `CarrinhoAbandonado` | `eventos.*` | a fazer |
-| comissao | `Comissao*` | `eventos.comissao_*` | a fazer |
-| configuracao | `Configuracao`, `CieloAccount`, `RegionalPromotorEmail` | `public.configuracoes`, segredos cifrados | a fazer |
-| auditoria | `AuditLog` | `public.auditoria` | a fazer |
-| sequencias | — | `setval` por tabela | a fazer |
+| estrutura | `Local`, `Orientador` | `public.locais`, `eventos.orientadores` | implementada |
+| eventos | `Evento`, `IngressoTipo`, `IngressoCampo`, `Combo*`, `Cupom`, `EventoOrientador` | `eventos.*` | implementada |
+| compras | `PedidoPendente`, `Inscricao`, `InscricaoResposta`, `CarrinhoAbandonado` | `eventos.*` | implementada |
+| comissao | `Comissao*` | `eventos.comissao_*` | implementada |
+| configuracao | `CieloAccount` | `public.credenciais` (cifrada) | implementada |
+| auditoria | `AuditLog` | `public.auditoria` | implementada |
+| sequencias | — | `setval` por tabela | implementada |
+
+⚠️ **A ordem não é alfabética, e importa.** Não dá para gravar inscrição antes
+do evento a que ela pertence. Uma fase que falha interrompe as seguintes:
+continuar gravaria filhos órfãos que ninguém sabe de onde vieram.
+
+### O que NÃO é migrado, e por quê
+
+- **`Regional` e `Organizacao`.** São listas de nomes em texto na origem, sem
+  vínculo com a árvore de `unidades` — e a árvore real já veio do site
+  institucional, com 114 Regionais. Importá-las criaria uma segunda verdade
+  sobre a mesma instituição, e ninguém saberia qual consultar. Os nomes que
+  cada participante trazia ficam em `migracao_extras`, para a conciliação em
+  tela.
+- **`Promotor`.** Nome, telefone e e-mail em texto livre. Quem promove agora é
+  uma entidade da estrutura (decisão 0012). Os dois eventos existentes são da
+  Associação da Prosperidade, informado pela Sede.
+- **`MagicLink`.** São tokens de acesso com prazo; os antigos já venceram, e
+  trazer token para um sistema novo aumenta a superfície de ataque sem ganhar
+  nada. Quem precisar pede um link novo.
+- **`User`, `Perfil`, `UserPreferencia`.** O controle de acesso antigo. Senha
+  não migra: o destino autentica pelo Supabase Auth. Cada operador vira pessoa
+  mais papel, em `/admin/pessoas`.
+- **`Configuracao`.** Lida e CONTADA, não aplicada. As chaves do sistema antigo
+  decidiam comportamento que aqui já foi decidido de outro jeito — aplicá-las
+  sem revisão é como um sistema novo volta a se comportar como o velho sem
+  ninguém ter pedido.
+- **`RateLimit`.** Contador de janela deslizante; o histórico não serve.
+- **`cieloPixQrImage`.** Imagem em base64, dezenas de kB por linha, para um QR
+  que expirou. Regenera-se a partir do código quando alguém precisar.
 
 ## Regras de transformação
 

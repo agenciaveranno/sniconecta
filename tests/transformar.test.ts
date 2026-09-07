@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bool, centavos, transformarParticipante, type ParticipanteMysql } from "../scripts/lib/transformar";
+import { bool, centavos, cielo, texto, transformarParticipante, type ParticipanteMysql } from "../scripts/lib/transformar";
 
 const base: ParticipanteMysql = {
   id: 42,
@@ -68,5 +68,48 @@ describe("conversões de tipo do MySQL", () => {
     expect(bool("1")).toBe(true);
     expect(bool(0)).toBe(false);
     expect(bool(null)).toBe(false);
+  });
+});
+
+// ─── Conversões da carga de eventos ───────────────────────────────────────
+
+describe("centavos", () => {
+  it("converte DECIMAL sem perder o centavo do arredondamento binário", () => {
+    // ⚠️ 19.90 * 100 em ponto flutuante dá 1989.9999999999998. Truncar
+    // tiraria um centavo de CADA ingresso vendido, e a soma do fechamento não
+    // bateria — por um valor pequeno demais para alguém desconfiar do código.
+    expect(centavos(19.9)).toBe(1990);
+    expect(centavos("19.90")).toBe(1990);
+    expect(centavos(0.07)).toBe(7);
+    expect(centavos(1234.56)).toBe(123456);
+  });
+  it("nulo, vazio e lixo viram zero, não NaN", () => {
+    // NaN gravado numa coluna `integer` derruba a carga inteira no meio.
+    expect(centavos(null)).toBe(0);
+    expect(centavos("")).toBe(0);
+    expect(centavos("abc")).toBe(0);
+    expect(centavos(undefined)).toBe(0);
+  });
+});
+
+describe("texto", () => {
+  it("apara, e vazio vira null — nunca string vazia", () => {
+    expect(texto("  Maria  ")).toBe("Maria");
+    expect(texto("   ")).toBe(null);
+    expect(texto(null)).toBe(null);
+  });
+});
+
+describe("cielo", () => {
+  it("junta as colunas soltas e omite as ausentes", () => {
+    const r = cielo({ cieloOrderId: "ABC", cieloBrand: "Visa", cieloTid: null });
+    expect(r).toEqual({ order_id: "ABC", bandeira: "Visa" });
+  });
+  it("descarta a imagem do QR do PIX", () => {
+    // longtext com base64, dezenas de kB por linha, para um QR vencido.
+    const r = cielo({ cieloPixQrCode: "000201...", cieloPixQrImage: "data:image/png;base64,AAAA" });
+    expect(r.pix_qrcode).toBe("000201...");
+    expect(Object.keys(r)).not.toContain("pix_qrimage");
+    expect(JSON.stringify(r)).not.toContain("base64");
   });
 });
