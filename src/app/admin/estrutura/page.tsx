@@ -75,20 +75,17 @@ export default async function EstruturaPage({
   // exigir(): a ausência de linhas decide o que a tela mostra. Ler só o `data`
   // faria banco fora do ar virar "a instituição não tem nenhuma unidade" — e
   // alguém cadastraria a Sede Central pela segunda vez.
-  const tipos = exigir(
-    await supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
-    "os tipos de unidade"
-  ) as TipoUnidadeRow[];
+  // ⚠️ As três JUNTAS: nenhuma depende do resultado das outras, e em série
+  // cada uma somava sua ida e volta ao banco no tempo de tela em branco.
+  const [rTipos, rUnidades, rOrganizacoes] = await Promise.all([
+    supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
+    supabase.from("unidades").select("*").order("nome"),
+    supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
+  ]);
 
-  const unidades = exigir(
-    await supabase.from("unidades").select("*").order("nome"),
-    "as unidades"
-  ) as UnidadeRow[];
-
-  const organizacoes = exigir(
-    await supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
-    "as organizações"
-  ) as OrganizacaoRow[];
+  const tipos = exigir(rTipos, "os tipos de unidade") as TipoUnidadeRow[];
+  const unidades = exigir(rUnidades, "as unidades") as UnidadeRow[];
+  const organizacoes = exigir(rOrganizacoes, "as organizações") as OrganizacaoRow[];
 
   const nomeDoTipo = new Map(tipos.map((t) => [t.codigo, t.nome]));
   const nomeDaOrganizacao = new Map(organizacoes.map((o) => [o.id, o.nome_curto ?? o.nome]));

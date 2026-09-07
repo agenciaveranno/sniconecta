@@ -2,7 +2,6 @@ import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { criarClienteServidor } from "@/lib/supabase/server";
-import { exigir } from "@/lib/supabase/consulta";
 import {
   capacidadesDe,
   papelPrincipal,
@@ -56,29 +55,29 @@ export const pessoaAtual = cache(async (): Promise<PessoaSessao | null> => {
 
   // maybeSingle: "não achou" é resultado legítimo (conta ainda sem pessoa),
   // então aqui o erro é separado do vazio à mão, em vez de passar por exigir().
+  // ⚠️ Os papéis vêm EMBUTIDOS, e não numa segunda consulta. O servidor roda
+  // a um oceano do banco em qualquer região que não seja a dele, e cada ida e
+  // volta custa tempo de tela em BRANCO: duas consultas em série custam o
+  // dobro de uma, e esta roda em TODA página do painel.
+  //
+  // ⚠️ `papeis.ativo` filtra as linhas EMBUTIDAS, sem `!inner`: quem não tem
+  // papel nenhum continua sendo uma pessoa com sessão — com `!inner` ela
+  // sumiria, e o sistema a trataria como quem nunca entrou.
   const busca = await supabase
     .from("pessoas")
-    .select("id, nome, email")
+    .select("id, nome, email, papeis(tipo, unidade_id)")
     .eq("auth_user_id", user.id)
+    .eq("papeis.ativo", true)
     .maybeSingle();
   if (busca.error) {
     throw new Error(`Não foi possível ler a pessoa da sessão: ${busca.error.message}`);
   }
-  const pessoa = busca.data;
+  const pessoa = busca.data as
+    | { id: string; nome: string; email: string | null; papeis: { tipo: string; unidade_id: string | null }[] }
+    | null;
   if (!pessoa) return null;
 
-  // ⚠️ `ativo` é filtrado aqui. Sem isso, papel revogado continua valendo até
-  // a linha ser apagada — e revogar passa a não revogar nada.
-  const linhas = exigir(
-    await supabase
-      .from("papeis")
-      .select("tipo, unidade_id")
-      .eq("pessoa_id", pessoa.id)
-      .eq("ativo", true),
-    "os papéis da pessoa"
-  );
-
-  const papeis: Papel[] = linhas.map((p) => ({
+  const papeis: Papel[] = (pessoa.papeis ?? []).map((p) => ({
     tipo: p.tipo as TipoPapel,
     unidadeId: p.unidade_id ?? null,
   }));

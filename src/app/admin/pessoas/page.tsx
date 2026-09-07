@@ -99,39 +99,34 @@ export default async function PessoasPage({
 
   const ids = pessoas.map((x) => x.id);
 
-  const papeis = ids.length
-    ? ((
-        await supabase.from("papeis").select("*").in("pessoa_id", ids).eq("ativo", true)
-      ).data ?? [])
-    : [];
+  // ⚠️ As cinco JUNTAS, e não uma esperando a outra. Só papéis e vínculos
+  // dependem de algo — dos `ids` da página —, e nenhuma delas depende das
+  // outras: em série, cada uma somava sua ida e volta ao banco no tempo de
+  // tela em branco. Esta é a tela mais pesada do sistema, e era a mais lenta
+  // por isto, não pelo volume.
+  //
+  // ⚠️ E `unidades` traz o `tipo`, do qual as Associações Locais são um
+  // FILTRO em memória. Buscar as duas listas separadas pedia ao banco a mesma
+  // tabela duas vezes, e a segunda vinha inteira dentro da primeira.
+  const [rPapeis, rVinculos, rTiposPapel, rUnidades] = await Promise.all([
+    ids.length
+      ? supabase.from("papeis").select("*").in("pessoa_id", ids).eq("ativo", true)
+      : Promise.resolve({ data: [], error: null }),
+    ids.length
+      ? supabase.from("pessoa_vinculo_atual").select("*").in("pessoa_id", ids)
+      : Promise.resolve({ data: [], error: null }),
+    supabase.from("tipos_papel").select("*").eq("ativo", true).order("ordem"),
+    supabase.from("unidades").select("id, nome, tipo").eq("ativo", true).order("nome"),
+  ]);
 
-  const vinculos = ids.length
-    ? ((
-        await supabase.from("pessoa_vinculo_atual").select("*").in("pessoa_id", ids)
-      ).data ?? [])
-    : [];
-
-  const tiposPapel = exigir(
-    await supabase.from("tipos_papel").select("*").eq("ativo", true).order("ordem"),
-    "os tipos de papel"
-  ) as TipoPapelRow[];
+  const papeis = rPapeis.data ?? [];
+  const vinculos = rVinculos.data ?? [];
+  const tiposPapel = exigir(rTiposPapel, "os tipos de papel") as TipoPapelRow[];
+  const unidades = exigir(rUnidades, "as unidades") as Pick<UnidadeRow, "id" | "nome" | "tipo">[];
 
   // Só Associação Local recebe pessoa: é ela que carrega a Organização, e é
   // dela que a Regional é deduzida subindo a árvore.
-  const associacoes = exigir(
-    await supabase
-      .from("unidades")
-      .select("id, nome, tipo")
-      .eq("tipo", "associacao_local")
-      .eq("ativo", true)
-      .order("nome"),
-    "as Associações Locais"
-  ) as Pick<UnidadeRow, "id" | "nome" | "tipo">[];
-
-  const unidades = exigir(
-    await supabase.from("unidades").select("id, nome").eq("ativo", true).order("nome"),
-    "as unidades"
-  ) as Pick<UnidadeRow, "id" | "nome">[];
+  const associacoes = unidades.filter((u) => u.tipo === "associacao_local");
 
   const nomeUnidade = new Map(unidades.map((u) => [u.id, u.nome]));
   const papeisDe = (id: string) => (papeis as PapelRow[]).filter((r) => r.pessoa_id === id);
