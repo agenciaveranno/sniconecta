@@ -113,6 +113,7 @@ antigo. É esse arquivo que se compartilha para discutir o resultado.
 | Fase | Origem | Destino | Estado |
 |---|---|---|---|
 | pessoas | `Participant` | `public.pessoas` | implementada |
+| vinculos | `Participant.regional`, `.organizacao`, `.associacaoLocal` | `public.unidades`, `public.pessoa_unidade_vinculos` | implementada |
 | estrutura | `Local`, `Orientador` | `public.locais`, `eventos.orientadores` | implementada |
 | eventos | `Evento`, `IngressoTipo`, `IngressoCampo`, `Combo*`, `Cupom`, `EventoOrientador` | `eventos.*` | implementada |
 | compras | `PedidoPendente`, `Inscricao`, `InscricaoResposta`, `CarrinhoAbandonado` | `eventos.*` | implementada |
@@ -127,12 +128,23 @@ continuar gravaria filhos órfãos que ninguém sabe de onde vieram.
 
 ### O que NÃO é migrado, e por quê
 
-- **`Regional` e `Organizacao`.** São listas de nomes em texto na origem, sem
-  vínculo com a árvore de `unidades` — e a árvore real já veio do site
-  institucional, com 114 Regionais. Importá-las criaria uma segunda verdade
-  sobre a mesma instituição, e ninguém saberia qual consultar. Os nomes que
-  cada participante trazia ficam em `migracao_extras`, para a conciliação em
-  tela.
+- **As tabelas `Regional` e `Organizacao`.** São listas soltas, sem vínculo com
+  ninguém. O que a carga usa são os campos de TEXTO em `Participant`, na fase
+  `vinculos` — é ali que está a informação de onde cada pessoa fica.
+
+  ⚠️ **O casamento é por nome normalizado**, e é onde uma carga cria estrutura
+  duplicada. "REGIONAL SÃO PAULO", "Regional Sao Paulo" e "São Paulo" são a
+  mesma coisa para uma pessoa e três coisas para um `=`. Duplicar não derruba
+  nada na hora: faz os relatórios somarem metade em cada uma, e só aparece
+  quando alguém estranha um total.
+
+  ⚠️ **A chave da Associação Local inclui a Organização.** Toda AL pertence a
+  uma (regra da instituição), então "AL Centro / Prosperidade" e "AL Centro /
+  Jovens" são DUAS Associações Locais. Tratá-las como uma faria a segunda
+  sumir.
+
+  Unidade criada pela carga nasce com `migracao_extras.conferir = true` e o
+  nome bruto da origem — é a lista que alguém precisa olhar depois.
 - **`Promotor`.** Nome, telefone e e-mail em texto livre. Quem promove agora é
   uma entidade da estrutura (decisão 0012). Os dois eventos existentes são da
   Associação da Prosperidade, informado pela Sede.

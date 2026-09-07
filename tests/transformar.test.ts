@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bool, centavos, cielo, texto, transformarParticipante, type ParticipanteMysql } from "../scripts/lib/transformar";
+import { bool, centavos, chaveNucleo, cielo, texto, transformarParticipante, type ParticipanteMysql } from "../scripts/lib/transformar";
 
 const base: ParticipanteMysql = {
   id: 42,
@@ -111,5 +111,33 @@ describe("cielo", () => {
     expect(r.pix_qrcode).toBe("000201...");
     expect(Object.keys(r)).not.toContain("pix_qrimage");
     expect(JSON.stringify(r)).not.toContain("base64");
+  });
+});
+
+// ─── Casamento de nomes da estrutura ──────────────────────────────────────
+
+describe("chaveNucleo", () => {
+  it("iguala grafias que uma pessoa lê como a mesma Regional", () => {
+    // ⚠️ Sem isto, a carga criaria uma Regional duplicada ao lado da
+    // verdadeira, e os relatórios passariam a somar metade em cada uma — erro
+    // que só aparece quando alguém estranha um total, meses depois.
+    const paulo = chaveNucleo("Regional São Paulo");
+    expect(chaveNucleo("REGIONAL SAO PAULO")).toBe(paulo);
+    expect(chaveNucleo("  regional   são paulo  ")).toBe(paulo);
+    expect(chaveNucleo("São Paulo")).toBe(paulo);
+  });
+  it("iguala a Organização com e sem o rótulo", () => {
+    const prosp = chaveNucleo("Associação da Prosperidade");
+    expect(chaveNucleo("Prosperidade")).toBe(prosp);
+    expect(chaveNucleo("ASSOCIAÇÃO DA PROSPERIDADE")).toBe(prosp);
+  });
+  it("não junta o que é diferente de verdade", () => {
+    expect(chaveNucleo("Regional Norte")).not.toBe(chaveNucleo("Regional Nordeste"));
+    expect(chaveNucleo("Associação dos Jovens")).not.toBe(chaveNucleo("Associação Pomba Branca"));
+  });
+  it("vazio continua vazio, e não vira uma unidade sem nome", () => {
+    expect(chaveNucleo(null)).toBe("");
+    expect(chaveNucleo("   ")).toBe("");
+    expect(chaveNucleo("Regional")).toBe("");
   });
 });

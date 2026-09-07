@@ -168,3 +168,41 @@ export function cielo(l: Record<string, unknown>): Record<string, unknown> {
   for (const k of Object.keys(campos)) if (campos[k] === null) delete campos[k];
   return campos;
 }
+
+
+// ─── Casamento de nomes com a estrutura institucional ─────────────────────
+//
+// A origem guarda Regional, Organização e Associação Local como TEXTO LIVRE.
+// Estas funções decidem quando dois textos são a mesma unidade.
+//
+// ⚠️ É aqui que uma carga cria estrutura duplicada. "REGIONAL SÃO PAULO",
+// "Regional Sao Paulo" e "São Paulo" são a mesma coisa para uma pessoa e três
+// coisas para um `=`. Duplicar não derruba nada na hora — faz os relatórios
+// somarem metade em cada uma, e só aparece quando alguém estranha um total.
+
+/** Nome comparável: sem acento, sem caixa, sem espaço duplo, sem pontuação. */
+export function chaveNome(v: unknown): string {
+  return (texto(v) ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/**
+ * A mesma chave, sem as palavras que a instituição usa como rótulo.
+ *
+ * "Regional São Paulo" e "São Paulo" são a mesma Regional; "Associação da
+ * Prosperidade" e "Prosperidade" são a mesma Organização. Comparar sem tirar
+ * o rótulo duplicaria quase tudo.
+ */
+export function chaveNucleo(v: unknown): string {
+  return chaveNome(v)
+    // ⚠️ `(\s+|$)`, e não `\s+`: o texto "Regional" sozinho — lixo que a
+    // origem tem — viraria uma unidade chamada "Regional" pendurada na Sede.
+    // Com o `$`, ele se reduz a vazio e a pessoa é contada como sem Regional.
+    .replace(/^(regional|associacao local|associacao|organizacao|nucleo|al)(\s+|$)/, "")
+    .replace(/^(da|de|do|dos|das)(\s+|$)/, "")
+    .trim();
+}
