@@ -24,6 +24,7 @@ import postgres from "postgres";
 import {
   bool as booleano, centavos, chaveNucleo, cielo, data, deLista, numero, texto,
   tipoDeCampo, transformarParticipante, type ParticipanteMysql,
+  type PessoaDestino,
 } from "./lib/transformar";
 
 /**
@@ -126,13 +127,34 @@ async function fasePessoas() {
    * Começa com o que JÁ ESTÁ no destino para a carga ser repetível: rodar de
    * novo não pode duplicar o que a execução anterior unificou.
    */
+  // ⚠️ Marca para "esta linha ainda vai ser inserida, o id real não existe".
+  // Antes era a string "gravada", que ia parar num `where id = …` de coluna
+  // uuid e derrubava a fase com `invalid input syntax for type uuid`.
+  const PENDENTE = "(ainda-nao-inserida)";
   const porCpf = new Map<string, { id: string; legado_id: number | null }>();
+  // ⚠️ `cod_sni` é ÚNICO no destino e tem check de só-dígitos. A origem tem os
+  // dois problemas: CodSNI com letra, e o mesmo CodSNI em duas pessoas de CPF
+  // diferente. Qualquer um dos dois derruba o `insert` de mil linhas INTEIRO —
+  // não a linha, o lote. Aqui o valor é conferido antes de entrar; o recusado
+  // vai para `migracao_extras`, onde ninguém o perde, e se anuncia no relatório.
+  const codSniDe = new Map<string, number | null>();
+  const pendente = (motivo: string) => { r.pendencias[motivo] = (r.pendencias[motivo] ?? 0) + 1; };
   for (const l of await destino<{ id: string; cpf: string; legado_id: number | null }[]>`
     select id, cpf, legado_id from public.pessoas where cpf is not null`) {
     porCpf.set(l.cpf, { id: l.id, legado_id: l.legado_id });
   }
+  // ⚠️ Guarda de QUEM é cada CodSNI, não só que ele existe. Numa segunda
+  // execução o número da própria pessoa já está no banco: um `Set` o acusaria
+  // de colidir consigo mesmo, e o `on conflict … do update` o apagaria.
+  for (const l of await destino<{ cod_sni: string; legado_id: number | null }[]>`
+    select cod_sni, legado_id from public.pessoas where cod_sni is not null`) {
+    codSniDe.set(l.cod_sni, l.legado_id);
+  }
 
   const aInserir: Record<string, unknown>[] = [];
+  // Unificações de CPF repetido, aplicadas depois do lote — ver o bloco no fim
+  // desta função.
+  const unificacoes: { dono: { id: string; legado_id: number | null }; p: PessoaDestino }[] = [];
 
   const lote: ReturnType<typeof transformarParticipante>[] = linhas.map((l) => transformarParticipante(l as ParticipanteMysql));
   for (const item of lote) {
@@ -202,34 +224,17 @@ async function fasePessoas() {
       rejeicoesDetalhe.push({ fase: "pessoas", legado_id: p.legado_id,
         motivo: `CPF já é do cadastro ${jaExiste.legado_id ?? "?"}; unificados` });
 
-      {
-        // ⚠️ `coalesce` só PREENCHE buraco, nunca sobrescreve: o cadastro mais
-        // novo costuma ter telefone e endereço atualizados, e o mais antigo
-        // costuma ter campos que o novo deixou em branco. Sobrescrever
-        // trocaria dado bom por vazio em metade dos casos.
-        //
-        // ⚠️ `cod_sni` fica DE FORA do coalesce mesmo estando vazio: ele é
-        // único, e o CodSNI deste cadastro pode já pertencer a uma terceira
-        // pessoa — a carga pararia de novo, agora no meio. Vai para os extras,
-        // onde ninguém o perde e ninguém colide com ele.
-        await destino`
-          update public.pessoas set
-            email       = coalesce(email, ${p.email}),
-            telefone    = coalesce(telefone, ${p.telefone}),
-            nascimento  = coalesce(nascimento, ${p.nascimento}),
-            logradouro  = coalesce(logradouro, ${p.endereco}),
-            bairro      = coalesce(bairro, ${p.bairro}),
-            cidade      = coalesce(cidade, ${p.cidade}),
-            uf          = coalesce(uf, ${p.estado}),
-            migracao_extras = coalesce(migracao_extras, '{}'::jsonb) || jsonb_build_object(
-              'unificados',
-              coalesce(migracao_extras->'unificados', '[]'::jsonb) || jsonb_build_array(
-                jsonb_build_object('legado_id', ${p.legado_id}::integer, 'nome', ${p.nome}::text,
-                                   'cod_sni', ${p.cod_sni}::text, 'conferir', true)))
-          where id = ${jaExiste.id}`;
-      }
+      // ⚠️ A unificação fica PARA DEPOIS do lote. O dono pode ser uma linha
+      // que ainda não foi inserida — o `porCpf` a registra com um id de
+      // mentira, porque o id real só existe depois do `insert`. Rodando aqui,
+      // o `where id = 'gravada'` estourava com `invalid input syntax for type
+      // uuid` e derrubava a fase inteira. Não apareceu na carga de verdade só
+      // porque o banco já tinha as pessoas da tentativa anterior; numa base
+      // limpa, com dois cadastros de mesmo CPF na origem, ela morre na hora.
+      unificacoes.push({ dono: jaExiste, p });
       continue;
     }
+
 
     // ⚠️ O endereço vai para as colunas de verdade — `logradouro`, `bairro`,
     // `cidade`, `uf` — e NÃO para um campo único. A versão anterior grudava os
@@ -248,10 +253,26 @@ async function fasePessoas() {
     // lote: se a origem tiver o mesmo CPF duas vezes dentro do mesmo lote, a
     // segunda precisa cair na unificação — senão as duas entram no mesmo
     // comando e o índice único derruba o lote inteiro, com as mil linhas dele.
+    // ⚠️ CodSNI conferido ANTES de entrar no lote: só dígitos, e ainda não
+    // usado. Recusado, ele vai para os extras — perder o número seria pior que
+    // guardá-lo fora da coluna, e mantê-lo derrubaria as mil linhas do lote.
+    let codSni = p.cod_sni;
+    let codSniRecusado: string | null = null;
+    if (codSni && !/^\d+$/.test(codSni)) {
+      codSniRecusado = codSni;
+      codSni = null;
+      pendente("CodSNI com caractere não numérico — guardado nos extras");
+    } else if (codSni && codSniDe.has(codSni) && codSniDe.get(codSni) !== p.legado_id) {
+      codSniRecusado = codSni;
+      codSni = null;
+      pendente("CodSNI repetido na origem — guardado nos extras do segundo");
+    }
+    if (codSni) codSniDe.set(codSni, p.legado_id);
+
     aInserir.push({
       legado_id: p.legado_id,
       cpf: p.cpf,
-      cod_sni: p.cod_sni,
+      cod_sni: codSni,
       nome: p.nome,
       email: p.email,
       telefone: p.telefone,
@@ -265,10 +286,11 @@ async function fasePessoas() {
         organizacao: p.organizacao_nome,
         associacao_local: p.associacao_local,
         primeira_vez: p.primeira_vez,
+        ...(codSniRecusado ? { cod_sni_recusado: codSniRecusado, conferir: true } : {}),
       }),
       criado_em: p.criado_em ?? new Date().toISOString(),
     });
-    porCpf.set(p.cpf!, { id: "gravada", legado_id: p.legado_id });
+    porCpf.set(p.cpf!, { id: PENDENTE, legado_id: p.legado_id });
     r.gravadas++;
   }
 
@@ -286,6 +308,38 @@ async function fasePessoas() {
         logradouro = excluded.logradouro, bairro = excluded.bairro,
         cidade = excluded.cidade, uf = excluded.uf,
         migracao_extras = excluded.migracao_extras`;
+  }
+
+  // ⚠️ AGORA, com as linhas gravadas e com id de verdade. O dono é achado pelo
+  // `legado_id` quando ele entrou nesta execução, e pelo id quando já estava no
+  // banco — as duas formas existem porque `porCpf` mistura as duas origens.
+  //
+  // ⚠️ `coalesce` só PREENCHE buraco, nunca sobrescreve: o cadastro mais novo
+  // costuma ter telefone e endereço atualizados, e o mais antigo costuma ter
+  // campos que o novo deixou em branco. Sobrescrever trocaria dado bom por
+  // vazio em metade dos casos.
+  //
+  // ⚠️ `cod_sni` fica DE FORA do coalesce mesmo estando vazio: ele é único, e o
+  // CodSNI deste cadastro pode já pertencer a uma terceira pessoa — a carga
+  // pararia de novo, agora no meio. Vai para os extras, onde ninguém o perde e
+  // ninguém colide com ele.
+  for (const { dono, p } of unificacoes) {
+    const alvo = dono.id === PENDENTE ? null : dono.id;
+    await destino`
+      update public.pessoas set
+        email       = coalesce(email, ${p.email}),
+        telefone    = coalesce(telefone, ${p.telefone}),
+        nascimento  = coalesce(nascimento, ${p.nascimento}),
+        logradouro  = coalesce(logradouro, ${p.endereco}),
+        bairro      = coalesce(bairro, ${p.bairro}),
+        cidade      = coalesce(cidade, ${p.cidade}),
+        uf          = coalesce(uf, ${p.estado}),
+        migracao_extras = coalesce(migracao_extras, '{}'::jsonb) || jsonb_build_object(
+          'unificados',
+          coalesce(migracao_extras->'unificados', '[]'::jsonb) || jsonb_build_array(
+            jsonb_build_object('legado_id', ${p.legado_id}::integer, 'nome', ${p.nome}::text,
+                               'cod_sni', ${p.cod_sni}::text, 'conferir', true)))
+      where ${alvo ? destino`id = ${alvo}::uuid` : destino`legado_id = ${dono.legado_id}`}`;
   }
 }
 
@@ -700,12 +754,22 @@ async function faseEstrutura() {
   for (const l of locais) {
     // Local do módulo vira local COMUM: a Academia já está lá pelo seed, e
     // duas listas de lugares seriam duas respostas para "onde é o evento?".
+    //
+    // ⚠️ Conflita por `legado_id`, e não `do nothing` solto. O insert não
+    // trazia NENHUMA coluna única preenchida — `codigo`, `slug` e `legado_id`
+    // ficavam todas vazias —, então o `on conflict` nunca podia disparar: a
+    // segunda execução duplicava todos os locais, contra a promessa do
+    // cabeçalho de que a carga é repetível. A coluna existe na tabela
+    // exatamente para isto e estava sem uso.
     await destino`
-      insert into public.locais (tipo, nome, logradouro, bairro, cidade, uf, telefone, email, observacoes)
-      values ('outro', ${texto(l.nome)}, ${texto(l.endereco)}, ${texto(l.bairro)},
+      insert into public.locais (legado_id, tipo, nome, logradouro, bairro, cidade, uf, telefone, email, observacoes)
+      values (${Number(l.id)}, 'outro', ${texto(l.nome)}, ${texto(l.endereco)}, ${texto(l.bairro)},
               ${texto(l.cidade)}, ${texto(l.estado)}, ${texto(l.telefone)}, ${texto(l.email)},
               ${`Importado do Credenciamento (id ${l.id}).` + (texto(l.contaCielo) ? " Tinha conta Cielo em texto livre." : "")})
-      on conflict do nothing`;
+      on conflict (legado_id) do update set
+        nome = excluded.nome, logradouro = excluded.logradouro, bairro = excluded.bairro,
+        cidade = excluded.cidade, uf = excluded.uf, telefone = excluded.telefone,
+        email = excluded.email`;
     r.gravadas++;
   }
 
@@ -722,6 +786,30 @@ async function faseEstrutura() {
 }
 
 // ─── eventos ──────────────────────────────────────────────────────────────
+
+/**
+ * As opções de um campo personalizado, vindas de uma coluna de texto livre.
+ *
+ * ⚠️ `JSON.parse` solto derrubava a fase inteira de eventos. A coluna é texto
+ * na origem, e uma linha antiga com "Sim,Não" em vez de JSON estourava um
+ * `SyntaxError` sem ninguém pegar — e `compras`, `comissao` e `sequencias`
+ * nunca chegavam a rodar. O mesmo risco em `participantesJson` já era tratado
+ * com `try/catch` a poucas linhas daqui, com a razão escrita: perder o pedido
+ * inteiro é pior que perder o campo.
+ *
+ * Aqui vale o mesmo. O campo entra sem opções e a linha SE ANUNCIA no
+ * relatório, para alguém abrir e conferir.
+ */
+function opcoesDoCampo(r: ReturnType<typeof conta>, bruto: unknown) {
+  if (bruto == null || String(bruto).trim() === "") return null;
+  try {
+    return destino.json(JSON.parse(String(bruto)));
+  } catch {
+    r.pendencias["opções do campo em formato ilegível — campo ficou sem opções"] =
+      (r.pendencias["opções do campo em formato ilegível — campo ficou sem opções"] ?? 0) + 1;
+    return null;
+  }
+}
 
 async function faseEventos() {
   const r = conta("eventos");
@@ -811,7 +899,7 @@ async function faseEventos() {
     await destino`
       insert into eventos.ingresso_campos (legado_id, ingresso_tipo_id, rotulo, tipo, opcoes, obrigatorio, ordem, ativo)
       values (${Number(c.id)}, ${tipo}, ${texto(c.label)}, ${traduzido.tipo},
-              ${c.opcoesJson ? destino.json(JSON.parse(String(c.opcoesJson))) : null},
+              ${opcoesDoCampo(r, c.opcoesJson)},
               ${booleano(c.obrigatorio)}, ${numero(c.ordem) || 0}, ${booleano(c.ativo)})
       on conflict (legado_id) do update set rotulo = excluded.rotulo, ativo = excluded.ativo`;
     r.gravadas++;
@@ -989,7 +1077,12 @@ async function faseCompras() {
         ${texto(i.credenciamentoPedido)}, ${data(i.pixData)}, ${texto(i.pixRecibo)},
         ${texto(i.cortesiaMotivo)}, ${destino.json(cielo(i) as never)},
         ${data(i.canceladoEm)}, ${null}, ${texto(i.cancelamentoMotivo)}, ${numero(i.cancelamentoAncoraId)},
-        ${texto(i.estornoStatus)},
+        ${i.estornoStatus == null || String(i.estornoStatus).trim() === ""
+          ? null
+          : daLista(r, "status do estorno", i.estornoStatus, ["pendente", "feito", "recusado"], "pendente",
+              { refunded: "feito", refund: "feito", done: "feito", concluido: "feito", efetuado: "feito",
+                pending: "pendente", solicitado: "pendente", aberto: "pendente",
+                denied: "recusado", rejected: "recusado", negado: "recusado" })},
         ${temEstorno ? destino.json({
             valor_centavos: centavos(i.estornoValor),
             forma: texto(i.estornoForma),

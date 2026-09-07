@@ -64,6 +64,14 @@ export default function CamposLocal({
         >
           <Select name="unidade" defaultValue={local?.unidade_id ?? ""}>
             <option value="">De terceiro</option>
+            {/* ⚠️ A unidade ATUAL entra mesmo desativada. A lista traz só as
+                ativas; um local cuja unidade responsável foi desativada abria
+                o `<select>` em "De terceiro" — e salvar o endereço APAGAVA o
+                responsável, transformando um imóvel da instituição em imóvel
+                alugado sem ninguém decidir isso. */}
+            {local?.unidade_id && !unidades.some((u) => u.id === local.unidade_id) && (
+              <option value={local.unidade_id}>Unidade desativada — a revisar</option>
+            )}
             {unidades.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.nome}

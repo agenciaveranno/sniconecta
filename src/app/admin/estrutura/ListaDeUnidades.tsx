@@ -53,12 +53,7 @@ export default async function ListaDeUnidades({
   const [rUnidades, rTipos, rOrganizacoes, rTodas, contas] = await Promise.all([
     supabase.from("unidades").select("*").eq("tipo", tipo).order("nome"),
     supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
-    // ⚠️ `e_organizacao`: a lista de escolha é de ORGANIZAÇÕES doutrinárias —
-    // Fraternidade, Pomba Branca, Jovens, Prosperidade —, não dos Departamentos
-    // administrativos da Sede. Sem o filtro, quem cadastra uma Associação Local
-    // podia pendurá-la na Controladoria, ou na "Indefinida" que a carga criou
-    // como dívida a revisar — e escolher a dívida de boa-fé a tornaria destino.
-    supabase.from("organizacoes").select("*").eq("ativo", true).eq("e_organizacao", true).order("ordem"),
+    supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
     supabase.from("unidades").select("id, nome, tipo").order("nome"),
     contasCieloVisiveis(podeVerCielo),
   ]);
