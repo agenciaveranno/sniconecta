@@ -803,3 +803,12 @@ dialog.sni-modal::backdrop {
 .sni-field-chave { gap: 0; }
 .sni-chave-linha { display: flex; align-items: center; gap: 12px; }
 .sni-chave-linha .sni-label { margin-bottom: 0; cursor: pointer; }
+
+/* ⚠️ Rótulo à ESQUERDA, sempre. Não havia `text-align: right` em lugar nenhum
+   do sistema e mesmo assim os rótulos apareciam à direita na tela de cadastro:
+   veio de herança, de fora daqui. Declarar explicitamente resolve na origem e
+   impede que a próxima herança faça o mesmo. */
+.sni-field,
+.sni-label,
+.sni-hint,
+.sni-error { text-align: left; }

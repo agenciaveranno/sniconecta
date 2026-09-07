@@ -27,3 +27,18 @@ export function formatarCpf(v: string | null | undefined): string {
   if (d.length !== 11) return v ?? "";
   return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
 }
+
+/**
+ * Máscara progressiva, para aplicar a cada tecla.
+ *
+ * Aceita o que já foi digitado e devolve com a pontuação até ali, sem exigir
+ * que esteja completo. Ver a pontuação aparecer é o que faz a pessoa perceber
+ * na hora que digitou caractere a mais ou a menos — e não depois de salvar.
+ */
+export function mascararCpf(v: string): string {
+  const d = somenteDigitos(v).slice(0, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
+  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}

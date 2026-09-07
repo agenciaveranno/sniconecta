@@ -99,6 +99,18 @@ export type OrganizacaoRow = {
   ativo: boolean;
 };
 
+/** Endereço já consultado. Cache e porta de entrada da base dos Correios. */
+export type CepRow = {
+  cep: string;
+  logradouro: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string;
+  uf: string;
+  fonte: string;
+  criado_em: string;
+};
+
 export type PessoaRow = {
   id: string;
   /** Nulo só em quem é estrangeiro — aí o passaporte identifica (decisão 0013). */
@@ -222,6 +234,7 @@ export interface Database {
       locais: Tabela<LocalRow>;
       auditoria: Tabela<AuditoriaRow>;
       notificacoes: Tabela<NotificacaoRow>;
+      ceps: Tabela<CepRow>;
     };
     Views: {
       pessoa_vinculo_atual: { Row: VinculoAtualRow; Relationships: [] };
