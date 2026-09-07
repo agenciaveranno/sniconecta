@@ -305,6 +305,12 @@ escrita "AL direto na Regional é aceita (núcleo é opcional)" $SEDE \
   "insert into unidades (tipo, pai_id, organizacao_id, nome) values ('associacao_local','22220000-0000-0000-0000-000000000002',$ORG_PROSP,'AL Nova');" OK
 escrita "unidade raiz que não é sede central é recusada" $SEDE \
   "insert into unidades (tipo, nome) values ('regional','Sem pai');" NEGADO
+# ⚠️ É a regra que obriga a carga do Credenciamento a criar uma Regional de
+# espera "Sede Central": sem ela, a Associação Local "Sede Central" — onde ficam
+# as pessoas cuja Regional a origem não diz — seria recusada no meio da carga,
+# com metade da base já gravada.
+escrita "AL direto na Sede Central é recusada" $SEDE \
+  "insert into unidades (tipo, pai_id, organizacao_id, nome) values ('associacao_local','11110000-0000-0000-0000-000000000001',$ORG_PROSP,'AL órfã');" NEGADO
 
 echo "── CNPJ: toda unidade é filial da Sede Central"
 escrita "Sede define o CNPJ da matriz" $SEDE \

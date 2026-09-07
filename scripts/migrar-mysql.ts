@@ -183,7 +183,10 @@ async function mapaPessoas(): Promise<Map<number, string>> {
 
 async function faseVinculos() {
   const r = conta("vinculos");
-  const criadas = { regionais: [] as string[], organizacoes: [] as string[], associacoes: 0 };
+  // Conta e amostra são campos separados de propósito: a amostra é truncada
+  // para o relatório caber, e somar pelo tamanho dela mentiria o total.
+  const criadas = { regionais: 0, organizacoes: 0, associacoes: 0 };
+  const amostra = { regionais: [] as string[], organizacoes: [] as string[] };
 
   const [sede] = await destino<{ id: string }[]>`
     select id from public.unidades where tipo = 'sede_central' limit 1`;
@@ -252,6 +255,64 @@ async function faseVinculos() {
     return (indefinidaId = nova.id);
   };
 
+  /**
+   * Onde ficam as pessoas cuja Regional a origem não diz.
+   *
+   * ⚠️ Associação Local só existe dentro de Regional ou Núcleo — regra do
+   * catálogo `tipos_unidade`, e o gatilho recusa o contrário. Para a AL
+   * "Sede Central" existir, precisa haver uma Regional entre ela e a Sede.
+   * Ela é um degrau de espera com o mesmo nome, não uma Regional de verdade:
+   * `conferir` marca as duas para a tela de reconciliação.
+   *
+   * A alternativa seria afrouxar `pais_permitidos` para deixar AL pender da
+   * Sede Central. Isso mudaria a árvore para sempre — a tela de cadastro
+   * passaria a oferecer a Sede como pai de qualquer AL nova — por causa de
+   * um balde temporário de 144 pessoas. Duas linhas de dado se apagam quando
+   * a Sede disser a Regional certa; uma regra afrouxada não.
+   */
+  let alSedeId: string | undefined;
+  const associacaoSedeCentral = async (): Promise<string> => {
+    if (alSedeId) return alSedeId;
+
+    const chaveSede = chaveNucleo("Sede Central");
+    let regionalSede = regionais.get(chaveSede);
+    if (!regionalSede) {
+      if (!dryRun) {
+        const [nova] = await destino<{ id: string }[]>`
+          insert into public.unidades (tipo, pai_id, nome, migracao_extras)
+          values ('regional', ${sede.id}, 'Sede Central',
+                  ${destino.json({ origem: "Credenciamento", motivo: "Regional desconhecida na origem", conferir: true })})
+          returning id`;
+        regionalSede = nova.id;
+      } else {
+        regionalSede = "simulada:regional-sede";
+      }
+      regionais.set(chaveSede, regionalSede);
+      criadas.regionais++;
+      if (amostra.regionais.length < 40) amostra.regionais.push("Sede Central");
+    }
+
+    const organizacaoId = await organizacaoIndefinida();
+    const chave = `${regionalSede}|${organizacaoId}|${chaveSede}`;
+    const jaTem = associacoes.get(chave);
+    if (jaTem) return (alSedeId = jaTem);
+
+    let nova: string;
+    if (!dryRun) {
+      const [linha] = await destino<{ id: string }[]>`
+        insert into public.unidades (tipo, pai_id, organizacao_id, nome, migracao_extras)
+        values ('associacao_local', ${regionalSede}, ${organizacaoId}, 'Sede Central',
+                ${destino.json({ origem: "Credenciamento", motivo: "Regional desconhecida na origem", conferir: true })})
+        returning id`;
+      nova = linha.id;
+    } else {
+      nova = `simulada:${chave}`;
+    }
+    associacoes.set(chave, nova);
+    criadas.associacoes++;
+    return (alSedeId = nova);
+  };
+
   for (const p of participantes) {
     const pessoa = pessoas.get(Number(p.id));
     if (!pessoa) { rejeitar("pessoa não migrada"); continue; }
@@ -266,7 +327,7 @@ async function faseVinculos() {
     const chaveRegional = chaveNucleo(p.regional);
     let regionalId = chaveRegional ? regionais.get(chaveRegional) : sede.id;
     if (!chaveRegional) {
-      pendente("sem Regional na origem — ficou na Sede Central");
+      pendente("sem Regional na origem — ficou na Associação Local Sede Central");
       regionalId = sede.id;
     } else if (!regionalId) {
       const nome = texto(p.regional)!;
@@ -281,7 +342,8 @@ async function faseVinculos() {
         regionalId = `simulada:${chaveRegional}`;
       }
       regionais.set(chaveRegional, regionalId);
-      if (criadas.regionais.length < 40) criadas.regionais.push(nome);
+      criadas.regionais++;
+      if (amostra.regionais.length < 40) amostra.regionais.push(nome);
     }
 
     // ── Organização ──
@@ -299,7 +361,8 @@ async function faseVinculos() {
         organizacaoId = `simulada:${chaveOrg}`;
       }
       organizacoes.set(chaveOrg, organizacaoId);
-      if (criadas.organizacoes.length < 20) criadas.organizacoes.push(nome);
+      criadas.organizacoes++;
+      if (amostra.organizacoes.length < 20) amostra.organizacoes.push(nome);
     }
 
     // ── Associação Local ──
@@ -311,7 +374,21 @@ async function faseVinculos() {
     const chaveAl = chaveNucleo(p.associacaoLocal);
     let unidadeDestino = regionalId;
 
-    if (chaveAl) {
+    // Sem Regional na origem, a pessoa vai para a Associação Local "Sede
+    // Central" — decisão da Sede. Toda pessoa fica numa AL, como todo mundo,
+    // e o balde a revisar é UMA unidade, não 144 pessoas soltas.
+    //
+    // ⚠️ Criar aqui a AL que a origem traz seria pior: sem saber a Regional,
+    // ela nasceria sob a Regional de espera e viraria uma segunda "AL Centro"
+    // ao lado da verdadeira, que alguém teria de fundir depois. O nome que a
+    // origem tem vai para o detalhe do relatório, que é a lista de conferência.
+    if (!chaveRegional) {
+      unidadeDestino = await associacaoSedeCentral();
+      if (chaveAl) {
+        rejeicoesDetalhe.push({ fase: "vinculos", legado_id: Number(p.id),
+          motivo: `sem Regional; AL da origem preservada só no relatório: ${texto(p.associacaoLocal)}` });
+      }
+    } else if (chaveAl) {
       // Sem Organização na origem, a AL nasce sob "Indefinida" — ver acima.
       if (!organizacaoId) {
         organizacaoId = await organizacaoIndefinida();
@@ -352,14 +429,14 @@ async function faseVinculos() {
   // é a lista que alguém precisa conferir depois — Regional criada por engano
   // é Regional duplicada ao lado da verdadeira.
   console.log(
-    `   Regionais novas: ${criadas.regionais.length}` +
-    (criadas.regionais.length ? ` (${criadas.regionais.slice(0, 8).join("; ")}${criadas.regionais.length > 8 ? "; …" : ""})` : "") +
-    ` | Organizações novas: ${criadas.organizacoes.length}` +
-    (criadas.organizacoes.length ? ` (${criadas.organizacoes.join("; ")})` : "") +
+    `   Regionais novas: ${criadas.regionais}` +
+    (amostra.regionais.length ? ` (${amostra.regionais.slice(0, 8).join("; ")}${criadas.regionais > 8 ? "; …" : ""})` : "") +
+    ` | Organizações novas: ${criadas.organizacoes}` +
+    (amostra.organizacoes.length ? ` (${amostra.organizacoes.join("; ")})` : "") +
     ` | Associações Locais novas: ${criadas.associacoes}`
   );
   rejeicoesDetalhe.push({ fase: "vinculos", legado_id: 0, motivo:
-    `criadas: ${criadas.regionais.length} regionais, ${criadas.organizacoes.length} organizações, ${criadas.associacoes} associações locais` });
+    `criadas: ${criadas.regionais} regionais, ${criadas.organizacoes} organizações, ${criadas.associacoes} associações locais` });
 }
 
 // ─── estrutura ────────────────────────────────────────────────────────────
