@@ -109,7 +109,7 @@ export default async function ListaDeUnidades({
 
       <Recado erro={erro} ok={ok} />
 
-      <p className="sni-hint" style={{ marginBottom: 20 }}>
+      <p className="hint" style={{ marginBottom: 20 }}>
         <Link href="/admin/estrutura">
           <IconSitemap size={15} className="ti" aria-hidden="true" /> Ver a árvore inteira
         </Link>
@@ -136,7 +136,7 @@ export default async function ListaDeUnidades({
               <Celula forte>
                 {u.nome}
                 {u.idioma === "ja" && (
-                  <span className="sni-hint" style={{ marginTop: 2 }}>Atividades em japonês</span>
+                  <span className="hint" style={{ marginTop: 2 }}>Atividades em japonês</span>
                 )}
               </Celula>
               {tipo !== "regional" && (

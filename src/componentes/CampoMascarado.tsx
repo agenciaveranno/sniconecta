@@ -48,7 +48,7 @@ export default function CampoMascarado({
         required={required}
         // Um a mais que a forma completa, para a pontuação caber.
         maxLength={tipo === "cpf" ? 14 : 18}
-        className="sni-input num"
+        className="num"
         // ⚠️ `inputMode` numérico só no CPF: no CNPJ alfanumérico o teclado do
         // celular precisa ter letras, senão a pessoa não consegue digitar o
         // próprio documento.

@@ -35,7 +35,7 @@ export default function CamposCielo({
       descricao="Onde entra o dinheiro dos ingressos vendidos por esta entidade. Sem conta cadastrada, ela não vende — só recebe inscrição gratuita."
     >
       <input type="hidden" name="cielo_na_tela" value="1" />
-      <div className="sni-form-grid">
+      <div className="form-grid">
         <Campo label="Merchant ID" dica="O identificador da loja, no painel da Cielo.">
           <Input name="cielo_merchant_id" defaultValue={merchantId ?? ""} maxLength={80} />
         </Campo>

@@ -133,7 +133,7 @@ export default function CamposUnidade({
         <Input name="nome" defaultValue={unidade?.nome ?? ""} required maxLength={150} />
       </Campo>
 
-      <div className="sni-form-grid">
+      <div className="form-grid">
         <Campo
           label="Idioma das atividades"
           dica="Decide em que língua esta unidade recebe convite, comprovante e certificado."
@@ -154,7 +154,7 @@ export default function CamposUnidade({
 
       <CamposContato valores={unidade} />
 
-      <div className="sni-form-grid">
+      <div className="form-grid">
         <Campo label="Código" dica="A numeração própria da instituição, se houver.">
           <Input name="codigo" defaultValue={unidade?.codigo ?? ""} maxLength={30} />
         </Campo>

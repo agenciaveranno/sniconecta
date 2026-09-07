@@ -35,14 +35,14 @@ export default async function ConfiguracoesPage({
       <TituloSecao>Envio de e-mail</TituloSecao>
 
       <Card>
-        <p className="sni-hint" style={{ marginBottom: 20, maxWidth: "68ch" }}>
+        <p className="hint" style={{ marginBottom: 20, maxWidth: "68ch" }}>
           É por aqui que saem convite, comprovante de compra e certificado.
           Enquanto não estiver preenchido, as mensagens ficam esperando na fila —
           nenhuma se perde, mas nenhuma chega.
         </p>
 
         <form action={salvarSmtp} style={{ display: "grid", gap: 16 }}>
-          <div className="sni-form-grid">
+          <div className="form-grid">
             <Campo label="Servidor" obrigatorio dica="O host SMTP do provedor.">
               <Input name="host" defaultValue={p?.host ?? ""} required maxLength={150} placeholder="smtp.provedor.com.br" />
             </Campo>
@@ -54,12 +54,12 @@ export default async function ConfiguracoesPage({
                 max={65535}
                 defaultValue={p?.porta ?? 587}
                 required
-                className="sni-input num"
+                className="num"
               />
             </Campo>
           </div>
 
-          <div className="sni-form-grid">
+          <div className="form-grid">
             <Campo
               label="Segurança"
               dica="465 fala TLS desde o primeiro byte; 587 começa em claro e sobe com STARTTLS. Errar aqui dá conexão encerrada sem explicação."
@@ -92,7 +92,7 @@ export default async function ConfiguracoesPage({
             />
           </Campo>
 
-          <div className="sni-form-grid">
+          <div className="form-grid">
             <Campo label="Nome do remetente" obrigatorio dica="Quem a pessoa vê assinando a mensagem.">
               <Input
                 name="remetente_nome"

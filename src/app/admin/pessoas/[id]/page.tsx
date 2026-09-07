@@ -110,7 +110,7 @@ export default async function FichaPessoaPage({
             />
             <form action={anexarDocumento}>
               <input type="hidden" name="pessoa_id" value={id} />
-              <div className="sni-form-grid">
+              <div className="form-grid">
                 <Campo label="Tipo" obrigatorio>
                   <Select name="tipo" defaultValue="rg" required>
                     {TIPOS_ANEXO.map((t) => (
@@ -155,7 +155,7 @@ export default async function FichaPessoaPage({
                       <Celula forte>
                         {NOME_TIPO[a.tipo] ?? a.tipo}
                         {a.descricao && (
-                          <span className="sni-hint" style={{ marginTop: 2 }}>
+                          <span className="hint" style={{ marginTop: 2 }}>
                             {a.descricao}
                           </span>
                         )}
@@ -168,7 +168,7 @@ export default async function FichaPessoaPage({
                             <IconFile size={15} className="ti" aria-hidden="true" /> {a.nome_arquivo}
                           </Link>
                         ) : (
-                          <span className="sni-hint">{a.nome_arquivo} (indisponível)</span>
+                          <span className="hint">{a.nome_arquivo} (indisponível)</span>
                         )}
                       </Celula>
                       <Celula>
@@ -202,7 +202,7 @@ export default async function FichaPessoaPage({
         <form action={editarPessoa}>
           <CamposPessoa pessoa={pessoa} />
           <GrupoCampos titulo="Endereço gravado">
-            <p className="sni-hint">
+            <p className="hint">
               CEP <Num>{formatarCep(pessoa.cep)}</Num>
               {pessoa.cidade && ` · ${pessoa.cidade}`}
               {pessoa.uf && `/${pessoa.uf}`}

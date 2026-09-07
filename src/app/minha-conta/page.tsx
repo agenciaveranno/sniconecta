@@ -106,7 +106,7 @@ export default async function MinhaContaPage({
         {/* Quem corrige o cadastro é quem administra pessoas: o CPF identifica
             no sistema inteiro, e uma correção errada aqui espalharia por todos
             os módulos de uma vez. */}
-        <p className="sni-hint" style={{ marginTop: 16 }}>
+        <p className="hint" style={{ marginTop: 16 }}>
           Algum dado errado? Quem administra pessoas corrige — o CPF identifica você
           no sistema inteiro, e a correção precisa passar por quem responde por ela.
         </p>
@@ -132,7 +132,7 @@ export default async function MinhaContaPage({
             </div>
           </dl>
         ) : (
-          <p className="sni-hint">
+          <p className="hint">
             Você ainda não foi vinculado a uma Associação Local. É esse vínculo que
             define sua Regional e sua Organização.
           </p>
@@ -143,7 +143,7 @@ export default async function MinhaContaPage({
       <Card>
         <CardCabecalho icone={<IconShieldCheck size={20} className="ti" />} titulo={eu.rotuloPapel} />
         {eu.papeis.length === 0 ? (
-          <p className="sni-hint">
+          <p className="hint">
             Você entra no sistema, mas ainda não tem papel nenhum — por isso as telas
             aparecem vazias. Quem administra os papéis concede o seu.
           </p>
@@ -157,7 +157,7 @@ export default async function MinhaContaPage({
                 </Badge>
               ))}
             </span>
-            <p className="sni-hint" style={{ marginTop: 12 }}>
+            <p className="hint" style={{ marginTop: 12 }}>
               Papel concedido numa unidade vale também nas unidades abaixo dela.
             </p>
           </>
@@ -166,7 +166,7 @@ export default async function MinhaContaPage({
 
       <TituloSecao>Trocar minha senha</TituloSecao>
       <Card>
-        <p className="sni-hint" style={{ marginBottom: 20, maxWidth: "68ch" }}>
+        <p className="hint" style={{ marginBottom: 20, maxWidth: "68ch" }}>
           A senha atual é pedida porque a sessão pode estar aberta num computador
           emprestado. Sem ela, quem passasse por uma tela destrancada tomaria a conta.
         </p>
