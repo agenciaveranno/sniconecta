@@ -483,11 +483,48 @@ n_secr=$(conta "select count(*) from colegiados c where not exists (select 1 fro
 [ "$n_secr" = "0" ] || { echo "  ❌ $n_secr colegiado(s) sem cargo de Secretário — a ata não saberia quem a lavrou"; falhas=$((falhas+1)); }
 echo "  ✅ $n_cargos cargos catalogados, e todo conselho tem Secretário"
 
+echo "── Missão Sagrada, contas bancárias, revistas e reuniões"
+# ⚠️ Quanto cada pessoa contribui e onde a instituição guarda dinheiro NÃO se
+# protegem por policy de leitura: quem alcança a tabela alcança o dado. A
+# garantia é não haver GRANT nenhum, e é isto que se afirma.
+n_grant_dinheiro=$(conta "select count(*) from information_schema.role_table_grants where table_schema in ('public','missao') and table_name in ('contas_bancarias','chaves_pix','maquininhas','categorias','adesoes','contribuicoes','rateio') and grantee in ('anon','authenticated');")
+if [ "$n_grant_dinheiro" = "0" ]; then echo "  ✅ contas, Pix, maquininhas e Missão Sagrada sem GRANT nenhum";
+else echo "  ❌ dado bancário/contribuição concedido ao navegador ($n_grant_dinheiro)"; falhas=$((falhas+1)); fi
+
+n_missao=$(conta "select count(*) from missao.categorias;")
+[ "$n_missao" = "7" ] || { echo "  ❌ esperava 7 categorias da Missão Sagrada, veio $n_missao"; falhas=$((falhas+1)); }
+echo "  ✅ $n_missao categorias da Missão Sagrada"
+
+escrita "rateio que não fecha em 100% é recusado" $SEDE \
+  "insert into missao.rateio (vigencia_inicio, pct_sede, pct_regional, pct_local) values ('2027-01-01', 50, 25, 20);" NEGADO
+escrita "categoria com valor E percentual é recusada" $SEDE \
+  "insert into missao.categorias (nome, valor_min_centavos, percentual_renda) values ('Impossível', 100, 10);" NEGADO
+escrita "conta bancária sem dono é recusada" $SEDE \
+  "insert into contas_bancarias (apelido) values ('Órfã');" NEGADO
+escrita "conta bancária com dois donos é recusada" $SEDE \
+  "insert into contas_bancarias (apelido, unidade_id, organizacao_id) values ('Dupla','22220000-0000-0000-0000-000000000001',$ORG_PROSP);" NEGADO
+escrita "banco com código de dois dígitos é recusado" $SEDE \
+  "insert into contas_bancarias (apelido, unidade_id, banco_codigo) values ('BB','22220000-0000-0000-0000-000000000001','1');" NEGADO
+escrita "cotista pagando mais que a capa é recusado" $SEDE \
+  "insert into revista_precos (vigencia_inicio, capa_centavos, cotista_centavos) values ('2027-01-01', 200, 250);" NEGADO
+escrita "reunião semanal sem dia da semana é recusada" $SEDE \
+  "insert into reunioes (unidade_id, frequencia, hora_inicio) values ('33330000-0000-0000-0000-000000000001','semanal','20:00');" NEGADO
+escrita "reunião que termina antes de começar é recusada" $SEDE \
+  "insert into reunioes (unidade_id, frequencia, dia_semana, hora_inicio, hora_fim) values ('33330000-0000-0000-0000-000000000001','semanal',2,'20:00','19:00');" NEGADO
+escrita "reunião semanal com dia da semana é aceita" $SEDE \
+  "insert into reunioes (unidade_id, frequencia, dia_semana, hora_inicio, hora_fim) values ('33330000-0000-0000-0000-000000000001','semanal',2,'20:00','21:30');" OK
+# ⚠️ A herança da árvore vale aqui como vale em pessoas: a coordenadora da
+# Regional Sul alcança as ALs abaixo dela, e nenhuma de outra Regional.
+escrita "coordenadora da Regional Sul cadastra reunião de AL dela" $CSUL \
+  "insert into reunioes (unidade_id, frequencia, dia_semana, hora_inicio) values ('33330000-0000-0000-0000-000000000001','semanal',3,'19:30');" OK
+escrita "coordenadora da Regional Sul NÃO cadastra reunião em Campinas" $CSUL \
+  "insert into reunioes (unidade_id, frequencia, dia_semana, hora_inicio) values ('33330000-0000-0000-0000-000000000003','semanal',3,'19:30');" NEGADO
+
 echo "── Superfície de GRANT"
 # Tabelas e visões que PODEM ser lidas ou escritas pelo navegador. Toda a
 # lista é decisão registrada: quem entrar aqui sem estar no arquivo da
 # migração reprova.
-PERMITIDAS="auditoria,cargos,colegiados,configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,mandato_atual,mandatos,organizacoes,papeis,pessoa_funcao_atual,pessoa_funcao_hist,pessoa_unidade_vinculos,pessoa_vinculo_atual,pessoas,secoes,solicitacoes_exclusao,tipos_local,tipos_papel,tipos_unidade,unidades"
+PERMITIDAS="auditoria,cargos,colegiados,configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,mandato_atual,mandatos,organizacoes,papeis,pessoa_funcao_atual,pessoa_funcao_hist,pessoa_unidade_vinculos,pessoa_vinculo_atual,pessoas,reunioes,revista_cotas,revista_minimos,revista_pedidos,revista_precos,revistas,secoes,solicitacoes_exclusao,tipos_local,tipos_papel,tipos_unidade,unidades"
 inesperadas=$(P -t -A <<SQL
 select string_agg(distinct table_name, ', ' order by table_name)
   from information_schema.role_table_grants
