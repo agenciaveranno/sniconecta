@@ -279,9 +279,14 @@ async function principal() {
       const categoriaId = await categoriaDe(raiz, assunto);
 
       if (dryRun) {
+        // ⚠️ A categoria CRUA da loja sai junto no ensaio. Sem ela não dá para
+        // escrever regra nenhuma de reclassificação: eu veria "Artigos
+        // Religiosos" — o resultado da minha própria regra — e não o que a
+        // loja de fato diz, que é a única base para mudá-la.
         console.log(
           `   ${raiz}${assunto ? ` / ${assunto}` : ""} · ${p.nome} · ` +
-          `R$ ${(p.preco_centavos / 100).toFixed(2)}${p.codigo_barras ? ` · ${p.codigo_barras}` : ""}`
+          `R$ ${(p.preco_centavos / 100).toFixed(2)}${p.codigo_barras ? ` · ${p.codigo_barras}` : ""}` +
+          `   [loja: ${p.categorias.join(" > ") || "sem categoria"}]`
         );
         relatorio.gravados++;
         continue;
