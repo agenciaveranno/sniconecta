@@ -15,6 +15,10 @@ on:
         type: choice
         options: [ensaio, gravar]
         default: ensaio
+      loja_url:
+        description: "Endereço da loja. Só mude para testar outra."
+        type: string
+        default: https://livraria.sni.org.br
       regiao_supabase:
         description: "Região do pooler do Supabase."
         type: string
@@ -44,6 +48,8 @@ jobs:
           echo "DATABASE_URL=postgresql://postgres.${REF}:${SENHA_URL}@aws-0-${{ inputs.regiao_supabase }}.pooler.supabase.com:6543/postgres" >> "$GITHUB_ENV"
 
       - name: Importar
+        env:
+          LOJA_URL: ${{ inputs.loja_url }}
         run: |
           if [ "${{ inputs.modo }}" = "gravar" ]; then
             echo "::warning::Modo GRAVAR: isto escreve no banco de produção."
