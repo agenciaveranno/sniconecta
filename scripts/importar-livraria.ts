@@ -16,6 +16,7 @@
  */
 import "dotenv/config";
 import postgres from "postgres";
+import { classificar } from "./lib/livraria";
 
 const LOJA = (process.env.LOJA_URL ?? "https://livraria.sni.org.br").replace(/\/+$/, "");
 const dryRun = process.argv.includes("--dry-run");
@@ -226,89 +227,6 @@ async function lerWoo(): Promise<Produto[] | null> {
  * Abelinda" e erraria no dia em que entrasse um infantil chamado "Preceitos".
  * Título é texto de marketing; categoria é classificação.
  */
-
-/** Prateleira de vitrine, não tipo de produto. Ver `classificar`. */
-const VITRINE = /^(lan[çc]amentos?|promo[çc][õo]es?|ofertas?|destaques?|mais vendidos?|novidades?)$/i;
-
-/** Sem acento, sem caixa, sem espaço dobrado — para comparar nome com nome. */
-function chave(nome: string): string {
-  return nome
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/**
- * O que a Sede decidiu, um a um, sobre produtos que a loja NÃO classifica.
- *
- * ⚠️ Lista explícita porque não há dado de onde derivar: estes títulos estão só
- * em "Lançamentos", que é prateleira de vitrine. A loja não diz o que eles são,
- * e uma pessoa decidiu olhando. Encodar a decisão dela é honesto; inventar uma
- * regra que a reproduza por acaso, não.
- *
- * ⚠️ E o casamento é pelo nome INTEIRO, nunca por trecho. "Kit: Livro A Fé que
- * muda o seu destino + Pingente de Acrílico Azul" CONTÉM "A Fé que muda o seu
- * Destino": por trecho, o kit — que tem pingente dentro — viraria livro.
- *
- * Some sozinha no dia em que a loja classificar o produto: quem tem categoria
- * de verdade nem chega aqui.
- */
-const DECISOES_DA_SEDE = new Map<string, { raiz: string; assunto: string | null }>(
-  [
-    "A fé que muda o seu Destino",
-    "Podemos Ser Mais Felizes",
-    "Educação da vida: Um tesouro valioso",
-    "A Potencialidade Latente do Ser Humano",
-  ].map((nome) => [chave(nome), { raiz: "Livros", assunto: null }])
-);
-
-function classificar(nome: string, categorias: string[]): {
-  raiz: string;
-  assunto: string | null;
-  vitrineSoZinha: boolean;
-} {
-  const decidido = DECISOES_DA_SEDE.get(chave(nome));
-  if (decidido) return { ...decidido, vitrineSoZinha: false };
-
-  const tem = (re: RegExp) => categorias.some((c) => re.test(c.trim()));
-
-  // ⚠️ ASSINATURA DE REVISTA NÃO É COTA DE REVISTA. A assinatura são 12
-  // exemplares enviados pelo Correio — produto, com preço, comprado na
-  // livraria. A cota é o mínimo mensal retirado na Associação Local conforme a
-  // função doutrinária, e mora no módulo de revistas. Mesmo substantivo, coisas
-  // diferentes: sem categoria própria, a assinatura ficaria ao lado do incenso,
-  // e quem conferisse as revistas do mês acharia que há duas verdades sobre
-  // revista no sistema.
-  if (tem(/assinatura/i)) {
-    return { raiz: "Assinaturas de Revista", assunto: null, vitrineSoZinha: false };
-  }
-
-  // ⚠️ A loja guarda os infantis em "Contos infantis", FORA da árvore de
-  // Livros. Seguir a loja ao pé da letra os deixaria entre incenso e talismã, e
-  // ninguém procura livro infantil ali. Decisão da Sede: `Livros / Livros
-  // Infantis`.
-  if (tem(/contos?\s*infantis|infanto/i)) {
-    return { raiz: "Livros", assunto: "Livros Infantis", vitrineSoZinha: false };
-  }
-
-  // ⚠️ "Lançamentos" é PRATELEIRA DE VITRINE, não tipo: cabe livro e cabe
-  // pingente, e o produto sai de lá quando deixa de ser novidade. O que está
-  // SÓ nela não tem classificação de verdade na loja — vai para Artigos
-  // Religiosos, que é o destino de tudo que não é livro, mas SE ANUNCIA no
-  // relatório: são poucos, e alguém decide um a um em vez de o script chutar
-  // pelo título.
-  const semVitrine = categorias.filter((c) => !VITRINE.test(c.trim()));
-  const vitrineSoZinha = categorias.length > 0 && semVitrine.length === 0;
-
-  const eLivro = semVitrine.some((c) => /livro|book/i.test(c));
-  if (!eLivro) return { raiz: "Artigos Religiosos", assunto: null, vitrineSoZinha };
-
-  // A subcategoria é a mais funda que NÃO é a palavra "Livros" em si.
-  const assunto = [...semVitrine].reverse().find((c) => !/^livros?$/i.test(c.trim()));
-  return { raiz: "Livros", assunto: assunto ?? null, vitrineSoZinha: false };
-}
 
 // ─── Execução ────────────────────────────────────────────────────────────────
 
