@@ -132,6 +132,8 @@ async function fasePessoas() {
     porCpf.set(l.cpf, { id: l.id, legado_id: l.legado_id });
   }
 
+  const aInserir: Record<string, unknown>[] = [];
+
   const lote: ReturnType<typeof transformarParticipante>[] = linhas.map((l) => transformarParticipante(l as ParticipanteMysql));
   for (const item of lote) {
     if (!item.ok) {
@@ -242,26 +244,72 @@ async function fasePessoas() {
     //
     // Regional, organização e associação local seguem em `migracao_extras`: a
     // fase `vinculos` é quem os resolve para a árvore.
+    // ⚠️ Acumula em vez de inserir. `porCpf` é atualizado JÁ, e não depois do
+    // lote: se a origem tiver o mesmo CPF duas vezes dentro do mesmo lote, a
+    // segunda precisa cair na unificação — senão as duas entram no mesmo
+    // comando e o índice único derruba o lote inteiro, com as mil linhas dele.
+    aInserir.push({
+      legado_id: p.legado_id,
+      cpf: p.cpf,
+      cod_sni: p.cod_sni,
+      nome: p.nome,
+      email: p.email,
+      telefone: p.telefone,
+      nascimento: p.nascimento,
+      logradouro: p.endereco,
+      bairro: p.bairro,
+      cidade: p.cidade,
+      uf: p.estado,
+      migracao_extras: destino.json({
+        regional: p.regional_nome,
+        organizacao: p.organizacao_nome,
+        associacao_local: p.associacao_local,
+        primeira_vez: p.primeira_vez,
+      }),
+      criado_em: p.criado_em ?? new Date().toISOString(),
+    });
+    porCpf.set(p.cpf!, { id: "gravada", legado_id: p.legado_id });
+    r.gravadas++;
+  }
+
+  for (const lote of emLotes(aInserir)) {
+    // ⚠️ Colunas EXPLÍCITAS, e não deduzidas do primeiro objeto. Duas razões:
+    // uma chave a mais ou a menos num objeto do meio mudaria calado o conjunto
+    // de colunas do comando; e é por esta lista que o teste
+    // `colunas-da-carga` confere cada nome contra o `create table` — sem ela, a
+    // carga voltaria a poder escrever numa coluna que não existe.
     await destino`
-      insert into public.pessoas (legado_id, cpf, cod_sni, nome, email, telefone, nascimento,
-                                  logradouro, bairro, cidade, uf, migracao_extras, criado_em)
-      values (${p.legado_id}, ${p.cpf}, ${p.cod_sni}, ${p.nome}, ${p.email}, ${p.telefone}, ${p.nascimento},
-              ${p.endereco}, ${p.bairro}, ${p.cidade}, ${p.estado},
-              ${destino.json({ regional: p.regional_nome, organizacao: p.organizacao_nome, associacao_local: p.associacao_local, primeira_vez: p.primeira_vez })},
-              ${p.criado_em ?? new Date().toISOString()})
+      insert into public.pessoas ${destino(lote, "legado_id", "cpf", "cod_sni", "nome", "email", "telefone", "nascimento", "logradouro", "bairro", "cidade", "uf", "migracao_extras", "criado_em")}
       on conflict (legado_id) do update set
         cpf = excluded.cpf, cod_sni = excluded.cod_sni, nome = excluded.nome, email = excluded.email,
         telefone = excluded.telefone, nascimento = excluded.nascimento,
         logradouro = excluded.logradouro, bairro = excluded.bairro,
         cidade = excluded.cidade, uf = excluded.uf,
-        migracao_extras = excluded.migracao_extras
-    `;
-    porCpf.set(p.cpf!, { id: "gravada", legado_id: p.legado_id });
-    r.gravadas++;
+        migracao_extras = excluded.migracao_extras`;
   }
 }
 
 // ─── Apoio ────────────────────────────────────────────────────────────────
+
+/**
+ * Quantas linhas vão num comando só.
+ *
+ * ⚠️ Uma inserção por linha custa uma IDA E VOLTA por linha. Com dezesseis mil
+ * pessoas e outras tantas de vínculo, pelo pooler, isso é mais de uma hora — e
+ * uma hora de espera não é um ciclo de trabalho: ninguém roda o ensaio antes
+ * de gravar se o ensaio demora tudo isso, que é justamente o hábito que a
+ * transação desfeita veio criar.
+ *
+ * Mil por vez porque o Postgres tem teto de 65.535 parâmetros por comando: com
+ * treze colunas, mil linhas dão treze mil parâmetros, com folga larga.
+ */
+const LOTE = 1000;
+
+function emLotes<T>(itens: T[], tamanho = LOTE): T[][] {
+  const lotes: T[][] = [];
+  for (let i = 0; i < itens.length; i += tamanho) lotes.push(itens.slice(i, i + tamanho));
+  return lotes;
+}
 
 async function ler(tabela: string, ordem = "id"): Promise<Record<string, unknown>[]> {
   const [linhas] = await origem.query<mysql.RowDataPacket[]>(
@@ -375,6 +423,7 @@ async function faseVinculos() {
       .map((v) => v.pessoa_id)
   );
 
+  const vinculos: Record<string, unknown>[] = [];
   const rejeitar = (motivo: string) => { r.rejeitadas[motivo] = (r.rejeitadas[motivo] ?? 0) + 1; };
   const pendente = (motivo: string) => { r.pendencias[motivo] = (r.pendencias[motivo] ?? 0) + 1; };
 
@@ -552,11 +601,17 @@ async function faseVinculos() {
       pendente("sem Associação Local na origem — ficou na Regional");
     }
 
-    await destino`
-      insert into public.pessoa_unidade_vinculos (pessoa_id, unidade_id, motivo)
-      values (${pessoa}, ${unidadeDestino}, 'carga do Credenciamento')
-      on conflict do nothing`;
+    // ⚠️ Em lote, como em `pessoas`: dezesseis mil idas e voltas pelo pooler
+    // levam mais de meia hora, e um ensaio que demora tudo isso ninguém roda.
+    // `jaVinculadas` já garantiu que ninguém entra duas vezes no mesmo lote.
+    vinculos.push({ pessoa_id: pessoa, unidade_id: unidadeDestino, motivo: "carga do Credenciamento" });
     r.gravadas++;
+  }
+
+  for (const lote of emLotes(vinculos)) {
+    await destino`
+      insert into public.pessoa_unidade_vinculos ${destino(lote, "pessoa_id", "unidade_id", "motivo")}
+      on conflict do nothing`;
   }
 
   // As criadas vão para o relatório: são nomes de unidade, não dado pessoal, e
