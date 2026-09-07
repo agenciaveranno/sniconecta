@@ -109,6 +109,39 @@ Vercel, o link do e-mail leva a pessoa para fora do domínio da instituição.
    que o sistema manda depois (comprovante, certificado) sai pela fila, e a
    fila precisa desses dados.
 
+## ⚠️ O e-mail embutido do Supabase tem cota de brinquedo
+
+Poucas mensagens por hora, e o erro é `email rate limit exceeded`. Duas
+tentativas de convite já esgotam. **Não serve para convidar os operadores** —
+com ele, cadastrar vinte pessoas levaria dias.
+
+### Como entrar sem depender de e-mail nenhum
+
+Quem administra o projeto no Supabase não precisa se convidar. Em
+*Authentication → Users*:
+
+1. Apague a conta pendente, se houver uma em estado *Invited*. Apagar é seguro:
+   `pessoas.auth_user_id` é `on delete set null`, então a pessoa continua
+   inteira no cadastro e apenas se desvincula da conta.
+2. **Add user → Create new user**, com o mesmo e-mail, uma senha à escolha, e
+   **Auto Confirm User** marcado.
+3. Entre normalmente. O gatilho reamarra conta e pessoa pelo e-mail — o mesmo
+   mecanismo do convite, sem o e-mail no meio.
+
+No login vale digitar o **CPF** em lugar do e-mail: o sistema resolve CPF →
+e-mail antes de autenticar. É assim que a maioria dos operadores vai entrar.
+
+### SMTP são DOIS lugares, e é isso que confunde
+
+| Onde | Quais e-mails |
+|---|---|
+| Supabase → Project Settings → Authentication → SMTP Settings | convite e recuperação de senha: quem manda é o *Auth* |
+| `/admin/configuracoes`, no nosso sistema | comprovante, certificado, convite de evento: quem manda é a nossa fila |
+
+Os mesmos dados de servidor, preenchidos duas vezes. Não dá para unificar: o
+Auth roda dentro do Supabase e não enxerga a nossa tabela de configurações.
+Enquanto o primeiro não estiver configurado, nenhum convite sai.
+
 ## Os demais operadores não passam mais pelo painel do Supabase
 
 Só a PRIMEIRA pessoa precisa do convite pelo painel — porque é a única que
