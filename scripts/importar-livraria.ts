@@ -16,7 +16,7 @@
  */
 import "dotenv/config";
 import postgres from "postgres";
-import { classificar } from "./lib/livraria";
+import { arbitroDeUnicos, classificar } from "./lib/livraria";
 
 const LOJA = (process.env.LOJA_URL ?? "https://livraria.sni.org.br").replace(/\/+$/, "");
 const dryRun = process.argv.includes("--dry-run");
@@ -248,7 +248,24 @@ async function principal() {
   }
 
   const destino = postgres(DESTINO!, { prepare: false, max: 3 });
-  const relatorio = { lidos: produtos.length, gravados: 0, semNome: 0, semPreco: 0, semEstoque: 0, teste: 0, semClassificacao: [] as string[] };
+  const relatorio = {
+    lidos: produtos.length, gravados: 0, semNome: 0, semPreco: 0,
+    semEstoque: 0, teste: 0,
+    semClassificacao: [] as string[],
+    colisoes: [] as { campo: string; valor: string; nome: string; dono: string }[],
+  };
+
+  // ⚠️ A primeira gravação parou no meio com `produtos_codigo_key`: a loja
+  // repete o mesmo código interno em produtos diferentes (kits, sobretudo), e
+  // o banco exige que ele seja único — com razão, porque é por ele que a Sede
+  // identifica um item no estoque. O `on conflict (origem_url)` não socorre:
+  // o choque é em OUTRA chave.
+  //
+  // Repetido não é motivo para parar a carga inteira nem para inventar um
+  // código: o item entra sem código e a colisão sai no relatório, com quem
+  // ficou com ele, para a Sede corrigir na loja. `paradaFatal` abaixo garante
+  // que qualquer outra falha ainda pare tudo — e diga quanto já entrou.
+  let paradaFatal: unknown = null;
 
   try {
     const categorias = new Map<string, string>();
@@ -271,7 +288,26 @@ async function principal() {
       return nova.id;
     };
 
-    for (const p of produtos) {
+    // Quem já é dono de cada valor único, no banco e nesta mesma execução.
+    const donoDe = new Map<string, string>();
+    if (!dryRun) {
+      for (const r of await destino<{ origem_url: string | null; codigo: string | null; codigo_barras: string | null }[]>`
+        select origem_url, codigo, codigo_barras from produtos
+         where codigo is not null or codigo_barras is not null`) {
+        const dono = r.origem_url ?? "(cadastrado à mão)";
+        if (r.codigo) donoDe.set(`codigo:${r.codigo}`, dono);
+        if (r.codigo_barras) donoDe.set(`codigo_barras:${r.codigo_barras}`, dono);
+      }
+    }
+
+    const arbitro = arbitroDeUnicos(donoDe, relatorio.colisoes);
+
+    // ⚠️ Ordem determinística: com a lista ordenada por URL, rodar de novo
+    // escolhe SEMPRE o mesmo dono do código repetido. Sem isso, cada execução
+    // o daria a um produto diferente e o estoque nunca assentaria.
+    const emOrdem = [...produtos].sort((a, b) => a.url.localeCompare(b.url));
+
+    for (const p of emOrdem) {
       if (!p.nome) { relatorio.semNome++; continue; }
 
       // ⚠️ A loja tem produto de teste publicado ("PRODUTO DE TESTE - FAVOR NÃO
@@ -306,13 +342,16 @@ async function principal() {
         continue;
       }
 
+      const codigo = arbitro.reservar("codigo", p.codigo, p.url, p.nome);
+      const codigoBarras = arbitro.reservar("codigo_barras", p.codigo_barras, p.url, p.nome);
+
       // ⚠️ Repetível pela URL: rodar de novo ATUALIZA em vez de duplicar. Sem
       // isto, a segunda execução dobraria o catálogo inteiro.
       await destino`
         insert into produtos (categoria_id, nome, codigo, codigo_barras,
                               descricao_curta, descricao_longa, preco_capa_centavos, origem_url,
                               disponivel)
-        values (${categoriaId}, ${p.nome}, ${p.codigo}, ${p.codigo_barras},
+        values (${categoriaId}, ${p.nome}, ${codigo}, ${codigoBarras},
                 ${p.descricao_curta}, ${p.descricao_longa}, ${p.preco_centavos}, ${p.url},
                 ${p.disponivel})
         on conflict (origem_url) do update set
@@ -326,11 +365,19 @@ async function principal() {
           atualizado_em = now()`;
       relatorio.gravados++;
     }
+  } catch (e) {
+    // ⚠️ Diferente da migração, esta carga NÃO roda dentro de transação: o que
+    // já entrou ficou. Morrer sem relatório deixaria o catálogo pela metade
+    // sem ninguém saber quanto entrou nem onde parou.
+    paradaFatal = e;
   } finally {
     await destino.end();
   }
 
-  console.log(`\n${dryRun ? "Ensaio" : "Gravado"}: ${relatorio.gravados} de ${relatorio.lidos} produtos.`);
+  console.log(
+    `\n${dryRun ? "Ensaio" : "Gravado"}: ${relatorio.gravados} de ${relatorio.lidos} produtos` +
+    (paradaFatal !== null ? " — e a carga PAROU aqui: o catálogo está pela metade." : ".")
+  );
   if (relatorio.semNome) console.log(`  ❌ ${relatorio.semNome} sem nome — não dá para cadastrar.`);
   if (relatorio.semPreco) console.log(`  ⚠️  ${relatorio.semPreco} sem preço, com zero — conferir na tela.`);
   if (relatorio.semEstoque) console.log(`  ⟨⟩ ${relatorio.semEstoque} sem estoque na loja, no catálogo e marcados como tal.`);
@@ -343,6 +390,17 @@ async function principal() {
     );
     for (const n of relatorio.semClassificacao) console.log(`       · ${n}`);
   }
+  if (relatorio.colisoes.length) {
+    console.log(
+      `  ⚠️  ${relatorio.colisoes.length} código(s) repetido(s) na loja. O item entrou ` +
+      `SEM código — dois produtos não podem dividir o mesmo. Corrija na loja e repita a carga:`
+    );
+    for (const c of relatorio.colisoes) {
+      console.log(`       · ${c.nome} — ${c.campo} ${c.valor} já é de ${c.dono}`);
+    }
+  }
+
+  if (paradaFatal !== null) throw paradaFatal;
 }
 
 principal().catch((e) => {

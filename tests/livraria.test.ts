@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chave, classificar } from "../scripts/lib/livraria";
+import { arbitroDeUnicos, chave, classificar, type Colisao } from "../scripts/lib/livraria";
 
 describe("classificação da livraria", () => {
   it("põe o conto infantil em Livros, e não entre incenso e talismã", () => {
@@ -63,5 +63,51 @@ describe("classificação da livraria", () => {
     // Produto sem categoria nenhuma não é o mesmo caso: não há o que revisar,
     // a loja simplesmente não o classificou em lugar nenhum.
     expect(classificar("Solto", []).vitrineSoZinha).toBe(false);
+  });
+});
+
+describe("códigos únicos do catálogo", () => {
+  it("dá o código ao primeiro e tira do repetido, anotando quem ficou com ele", () => {
+    const arbitro = arbitroDeUnicos();
+    expect(arbitro.reservar("codigo", "020072026", "/kit-a/p", "Kit A")).toBe("020072026");
+    expect(arbitro.reservar("codigo", "020072026", "/kit-b/p", "Kit B")).toBeNull();
+    expect(arbitro.colisoes).toEqual([
+      { campo: "codigo", valor: "020072026", nome: "Kit B", dono: "/kit-a/p" },
+    ]);
+  });
+
+  it("respeita quem já é dono no banco: o produto novo é que cede", () => {
+    const arbitro = arbitroDeUnicos(new Map([["codigo:123", "/livro-antigo/p"]]));
+    expect(arbitro.reservar("codigo", "123", "/livro-novo/p", "Livro novo")).toBeNull();
+    expect(arbitro.colisoes[0].dono).toBe("/livro-antigo/p");
+  });
+
+  it("o mesmo produto reservando de novo não colide consigo mesmo", () => {
+    const arbitro = arbitroDeUnicos(new Map([["codigo:123", "/livro/p"]]));
+    expect(arbitro.reservar("codigo", "123", "/livro/p", "Livro")).toBe("123");
+    expect(arbitro.colisoes).toHaveLength(0);
+  });
+
+  it("campos diferentes não disputam o mesmo valor", () => {
+    const arbitro = arbitroDeUnicos();
+    expect(arbitro.reservar("codigo", "7898", "/a/p", "A")).toBe("7898");
+    expect(arbitro.reservar("codigo_barras", "7898", "/b/p", "B")).toBe("7898");
+    expect(arbitro.colisoes).toHaveLength(0);
+  });
+
+  it("sem código não há colisão nenhuma", () => {
+    const arbitro = arbitroDeUnicos();
+    expect(arbitro.reservar("codigo", null, "/a/p", "A")).toBeNull();
+    expect(arbitro.reservar("codigo", null, "/b/p", "B")).toBeNull();
+    expect(arbitro.colisoes).toHaveLength(0);
+  });
+
+  it("escreve as colisões na lista que o relatório já tem em mãos", () => {
+    // ⚠️ É o que garante o relatório mesmo se a carga morrer no meio do laço.
+    const doRelatorio: Colisao[] = [];
+    const arbitro = arbitroDeUnicos(new Map(), doRelatorio);
+    arbitro.reservar("codigo", "9", "/a/p", "A");
+    arbitro.reservar("codigo", "9", "/b/p", "B");
+    expect(doRelatorio).toHaveLength(1);
   });
 });
