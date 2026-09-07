@@ -183,7 +183,10 @@ async function mapaPessoas(): Promise<Map<number, string>> {
 
 async function faseVinculos() {
   const r = conta("vinculos");
-  const criadas = { regionais: [] as string[], organizacoes: [] as string[], associacoes: 0 };
+  // Conta e amostra são campos separados de propósito: a amostra é truncada
+  // para o relatório caber, e somar pelo tamanho dela mentiria o total.
+  const criadas = { regionais: 0, organizacoes: 0, associacoes: 0 };
+  const amostra = { regionais: [] as string[], organizacoes: [] as string[] };
 
   const [sede] = await destino<{ id: string }[]>`
     select id from public.unidades where tipo = 'sede_central' limit 1`;
@@ -281,7 +284,8 @@ async function faseVinculos() {
         regionalId = `simulada:${chaveRegional}`;
       }
       regionais.set(chaveRegional, regionalId);
-      if (criadas.regionais.length < 40) criadas.regionais.push(nome);
+      criadas.regionais++;
+      if (amostra.regionais.length < 40) amostra.regionais.push(nome);
     }
 
     // ── Organização ──
@@ -299,7 +303,8 @@ async function faseVinculos() {
         organizacaoId = `simulada:${chaveOrg}`;
       }
       organizacoes.set(chaveOrg, organizacaoId);
-      if (criadas.organizacoes.length < 20) criadas.organizacoes.push(nome);
+      criadas.organizacoes++;
+      if (amostra.organizacoes.length < 20) amostra.organizacoes.push(nome);
     }
 
     // ── Associação Local ──
@@ -311,7 +316,14 @@ async function faseVinculos() {
     const chaveAl = chaveNucleo(p.associacaoLocal);
     let unidadeDestino = regionalId;
 
-    if (chaveAl) {
+    // ⚠️ Associação Local só existe dentro de Regional ou Núcleo — é regra do
+    // catálogo `tipos_unidade`, e o banco recusa o contrário. Quem não tem
+    // Regional na origem foi para a Sede Central, e pendurar a AL ali estouraria
+    // a carga no meio. Fica na Sede Central com o nome da AL registrado na
+    // pendência: chutar uma Regional para ela poria a pessoa no estado errado.
+    if (chaveAl && !chaveRegional) {
+      pendente("sem Regional — Associação Local não pôde ser criada");
+    } else if (chaveAl) {
       // Sem Organização na origem, a AL nasce sob "Indefinida" — ver acima.
       if (!organizacaoId) {
         organizacaoId = await organizacaoIndefinida();
@@ -352,14 +364,14 @@ async function faseVinculos() {
   // é a lista que alguém precisa conferir depois — Regional criada por engano
   // é Regional duplicada ao lado da verdadeira.
   console.log(
-    `   Regionais novas: ${criadas.regionais.length}` +
-    (criadas.regionais.length ? ` (${criadas.regionais.slice(0, 8).join("; ")}${criadas.regionais.length > 8 ? "; …" : ""})` : "") +
-    ` | Organizações novas: ${criadas.organizacoes.length}` +
-    (criadas.organizacoes.length ? ` (${criadas.organizacoes.join("; ")})` : "") +
+    `   Regionais novas: ${criadas.regionais}` +
+    (amostra.regionais.length ? ` (${amostra.regionais.slice(0, 8).join("; ")}${criadas.regionais > 8 ? "; …" : ""})` : "") +
+    ` | Organizações novas: ${criadas.organizacoes}` +
+    (amostra.organizacoes.length ? ` (${amostra.organizacoes.join("; ")})` : "") +
     ` | Associações Locais novas: ${criadas.associacoes}`
   );
   rejeicoesDetalhe.push({ fase: "vinculos", legado_id: 0, motivo:
-    `criadas: ${criadas.regionais.length} regionais, ${criadas.organizacoes.length} organizações, ${criadas.associacoes} associações locais` });
+    `criadas: ${criadas.regionais} regionais, ${criadas.organizacoes} organizações, ${criadas.associacoes} associações locais` });
 }
 
 // ─── estrutura ────────────────────────────────────────────────────────────
