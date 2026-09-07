@@ -22,8 +22,8 @@ import { writeFileSync } from "node:fs";
 import mysql from "mysql2/promise";
 import postgres from "postgres";
 import {
-  bool as booleano, centavos, chaveNucleo, cielo, data, numero, texto,
-  transformarParticipante, type ParticipanteMysql,
+  bool as booleano, centavos, chaveNucleo, cielo, data, deLista, numero, texto,
+  tipoDeCampo, transformarParticipante, type ParticipanteMysql,
 } from "./lib/transformar";
 
 /**
@@ -304,6 +304,32 @@ async function fasePessoas() {
  * treze colunas, mil linhas dão treze mil parâmetros, com folga larga.
  */
 const LOTE = 1000;
+
+/**
+ * Traduz um valor da origem para uma lista fechada do destino e ANOTA o que não
+ * conhece.
+ *
+ * ⚠️ É o antídoto para a armadilha que já custou execuções: coluna com
+ * `check (x in (...))` recebendo palavra que a origem escolheu. Sem isto, a
+ * primeira divergência de vocabulário derruba a fase inteira, e cada execução
+ * descobre uma. Com isto, a carga atravessa e o relatório diz TODAS as palavras
+ * que faltam traduzir, de uma vez.
+ */
+function daLista(
+  r: Relatorio[string],
+  campo: string,
+  bruto: unknown,
+  permitidos: readonly string[],
+  padrao: string,
+  sinonimos: Record<string, string> = {}
+): string {
+  const { valor, desconhecido } = deLista(bruto, permitidos, padrao, sinonimos);
+  if (desconhecido) {
+    const motivo = `${campo} "${desconhecido}" desconhecido — virou "${padrao}"`;
+    r.pendencias[motivo] = (r.pendencias[motivo] ?? 0) + 1;
+  }
+  return valor;
+}
 
 function emLotes<T>(itens: T[], tamanho = LOTE): T[][] {
   const lotes: T[][] = [];
@@ -736,7 +762,7 @@ async function faseEventos() {
               ${centavos(t.valor)}, ${numero(t.maxParcelas) || 1}, ${numero(t.quantidade)},
               ${data(t.vendaInicio)}, ${data(t.vendaFim)},
               ${numero(t.idadeMin)}, ${numero(t.idadeMax)},
-              ${booleano(t.unicoPorCpf)}, ${texto(t.papel) ?? 'adicional'},
+              ${booleano(t.unicoPorCpf)}, ${daLista(r, "papel do ingresso", t.papel, ["principal", "adicional"], "adicional", { main: "principal", extra: "adicional", secundario: "adicional" })},
               ${booleano(t.exigePrincipal)}, ${booleano(t.exibirVendaPublica)},
               ${booleano(t.ativo)}, ${data(t.createdAt) ?? new Date().toISOString()})
       on conflict (legado_id) do update set
@@ -752,9 +778,20 @@ async function faseEventos() {
   for (const c of campos) {
     const tipo = mapaTipo.get(Number(c.ingressoTipoId));
     if (!tipo) { r.rejeitadas["tipo de ingresso não migrado"] = (r.rejeitadas["tipo de ingresso não migrado"] ?? 0) + 1; continue; }
+    // ⚠️ A origem fala o vocabulário de um formulário HTML ("text", "select",
+    // "checkbox") e o destino fala o da instituição. Passar o valor cru fez a
+    // fase inteira parar no `check` do banco — e derrubar dezesseis mil pessoas
+    // por causa de um rótulo de campo é a troca errada. O que não se traduz
+    // vira `texto`, que aceita o que a pessoa digitou, e SE ANUNCIA.
+    const traduzido = tipoDeCampo(c.tipo);
+    if (traduzido.desconhecido) {
+      r.pendencias[`tipo de campo "${traduzido.desconhecido}" desconhecido — virou texto`] =
+        (r.pendencias[`tipo de campo "${traduzido.desconhecido}" desconhecido — virou texto`] ?? 0) + 1;
+    }
+
     await destino`
       insert into eventos.ingresso_campos (legado_id, ingresso_tipo_id, rotulo, tipo, opcoes, obrigatorio, ordem, ativo)
-      values (${Number(c.id)}, ${tipo}, ${texto(c.label)}, ${texto(c.tipo) ?? 'texto'},
+      values (${Number(c.id)}, ${tipo}, ${texto(c.label)}, ${traduzido.tipo},
               ${c.opcoesJson ? destino.json(JSON.parse(String(c.opcoesJson))) : null},
               ${booleano(c.obrigatorio)}, ${numero(c.ordem) || 0}, ${booleano(c.ativo)})
       on conflict (legado_id) do update set rotulo = excluded.rotulo, ativo = excluded.ativo`;
@@ -800,7 +837,11 @@ async function faseEventos() {
     // ⚠️ Percentual fica como número inteiro (0..100); valor vira centavos.
     // A origem guarda os dois na mesma coluna DECIMAL, e multiplicar um
     // percentual por 100 daria 5000% de desconto.
-    const tipo = texto(c.tipo) ?? 'valor';
+    // ⚠️ O padrão é `valor`, e não `percentual`: um cupom de "10" lido como
+    // percentual dá 10% de desconto; lido como valor, dá dez centavos. Errar
+    // para menos é corrigível; errar para mais já saiu do caixa.
+    const tipo = daLista(r, "tipo de cupom", c.tipo, ["percentual", "valor"], "valor",
+      { percent: "percentual", porcentagem: "percentual", pct: "percentual", fixed: "valor", fixo: "valor" });
     await destino`
       insert into eventos.cupons (legado_id, evento_id, codigo, descricao, tipo, valor,
                                   ingresso_tipo_id, combo_id, max_usos_total, max_usos_por_cpf,
@@ -877,7 +918,7 @@ async function faseCompras() {
               ${mapaTipo.get(Number(p.ingressoTipoId)) ?? null}, ${mapaCombo.get(Number(p.comboId)) ?? null},
               ${numero(p.quantity) || 1}, ${mapaCupom.get(Number(p.cupomId)) ?? null},
               ${centavos(p.valorOriginal)}, ${centavos(p.descontoAplicado)},
-              ${destino.json(participantes as never)}, ${texto(p.status) ?? 'pendente'},
+              ${destino.json(participantes as never)}, ${daLista(r, "status do pedido", p.status, ["pendente", "confirmado", "cancelado", "expirado"], "pendente", { pending: "pendente", paid: "confirmado", confirmed: "confirmado", pago: "confirmado", canceled: "cancelado", cancelled: "cancelado", expired: "expirado" })},
               ${destino.json(cielo(p) as never)},
               ${texto(p.inscricaoIds)?.split(",").map(Number).filter(Number.isFinite) ?? null},
               ${data(p.createdAt) ?? new Date().toISOString()}, ${data(p.updatedAt) ?? new Date().toISOString()})
@@ -920,7 +961,10 @@ async function faseCompras() {
         ${mapaPedido.get(Number(i.pedidoId)) ?? null}, ${mapaCupom.get(Number(i.cupomId)) ?? null},
         ${pessoas.get(Number(i.compradorId)) ?? null},
         ${texto(i.compraGrupoId)}, ${texto(i.numeroConvite)}, ${texto(i.formaPagamento)},
-        ${texto(i.tipoVenda) ?? 'importado'}, ${texto(i.status) ?? 'pago'},
+        ${daLista(r, "tipo de venda", i.tipoVenda, ["online", "balcao", "importado", "cortesia"], "importado",
+          { web: "online", site: "online", internet: "online", presencial: "balcao", counter: "balcao", manual: "balcao", free: "cortesia", gratuito: "cortesia", brinde: "cortesia" })},
+        ${daLista(r, "status da inscrição", i.status, ["pendente", "pago", "cancelado", "expirado", "transferido"], "pendente",
+          { paid: "pago", confirmado: "pago", pending: "pendente", canceled: "cancelado", cancelled: "cancelado", estornado: "cancelado", expired: "expirado", transferred: "transferido" })},
         ${centavos(i.valorOriginal)}, ${centavos(i.descontoAplicado)},
         ${data(i.dataPurchase)}, ${data(i.checkinAt)}, ${texto(i.qrCode)},
         ${texto(i.credenciamentoPedido)}, ${data(i.pixData)}, ${texto(i.pixRecibo)},
