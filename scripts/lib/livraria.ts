@@ -89,3 +89,46 @@ export function classificar(nome: string, categorias: string[]): Classificacao {
   const assunto = [...semVitrine].reverse().find((c) => !/^livros?$/i.test(c.trim()));
   return { raiz: "Livros", assunto: assunto ?? null, vitrineSoZinha: false };
 }
+
+// ─── Códigos únicos ──────────────────────────────────────────────────────────
+
+export type Colisao = { campo: string; valor: string; nome: string; dono: string };
+
+/**
+ * Árbitro dos campos que o banco exige únicos (`codigo`, `codigo_barras`).
+ *
+ * ⚠️ A loja repete o mesmo código interno em produtos diferentes — kits,
+ * principalmente. O banco recusa, e recusava a carga INTEIRA: a primeira
+ * gravação morreu em `produtos_codigo_key` com o catálogo pela metade. Único é
+ * a regra certa (é por esse código que a Sede acha o item no estoque), então
+ * quem cede é a carga: o segundo produto entra sem código e a colisão vira
+ * linha de relatório, para a Sede corrigir na loja.
+ *
+ * `dono` é a URL do produto. Chamando na mesma ordem, a mesma execução e as
+ * seguintes escolhem sempre o mesmo dono — sem isso, o código pularia de
+ * produto a cada carga e o estoque nunca assentaria.
+ */
+export function arbitroDeUnicos(
+  jaUsados: Map<string, string> = new Map(),
+  // ⚠️ A lista das colisões vem de fora porque quem imprime o relatório
+  // precisa dela mesmo se a carga morrer no meio do laço — o `finally` de lá
+  // não alcança nada que só exista dentro do árbitro.
+  colisoes: Colisao[] = [],
+) {
+  const donoDe = new Map(jaUsados);
+
+  return {
+    colisoes,
+    reservar(campo: string, valor: string | null, dono: string, nome: string): string | null {
+      if (!valor) return null;
+      const chave = `${campo}:${valor}`;
+      const atual = donoDe.get(chave);
+      if (atual !== undefined && atual !== dono) {
+        colisoes.push({ campo, valor, nome, dono: atual });
+        return null;
+      }
+      donoDe.set(chave, dono);
+      return valor;
+    },
+  };
+}
