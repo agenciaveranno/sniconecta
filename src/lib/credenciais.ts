@@ -66,6 +66,35 @@ export type CredencialVisivel<T> = {
   atualizado_em: string;
 };
 
+/**
+ * Aplica o filtro do dono a uma consulta.
+ *
+ * ⚠️ `.match({ unidade_id: null })` NÃO procura por vazio. O PostgREST traduz
+ * aquilo para `unidade_id=eq.null`, e o Postgres lê `null` como TEXTO: a
+ * consulta morre com `invalid input syntax for type uuid: "null"`.
+ *
+ * E isso não atingia só o SMTP. TODA credencial tem pelo menos duas das três
+ * colunas de dono vazias — a Cielo da Regional tem `organizacao_id` e
+ * `local_id` vazios, a do SMTP tem as três —, então ler ou gravar credencial
+ * nenhuma funcionava. A tela de Configurações abria com erro 500.
+ *
+ * Coluna vazia se procura com `.is(coluna, null)`. Como o dono é sempre
+ * "uma coluna preenchida e as outras vazias", o filtro é montado aqui, uma vez,
+ * em vez de repetido em cada consulta — onde a próxima esqueceria de novo.
+ */
+type ConsultaFiltravel = {
+  eq(coluna: string, valor: string): ConsultaFiltravel;
+  is(coluna: string, valor: null): ConsultaFiltravel;
+};
+
+function porDono<Q extends ConsultaFiltravel>(consulta: Q, dono: Dono): Q {
+  let q: ConsultaFiltravel = consulta;
+  for (const [coluna, valor] of Object.entries(colunasDoDono(dono))) {
+    q = valor === null ? q.is(coluna, null) : q.eq(coluna, valor);
+  }
+  return q as Q;
+}
+
 function colunasDoDono(dono: Dono) {
   if ("organizacao" in dono) return { organizacao_id: dono.organizacao, unidade_id: null, local_id: null };
   if ("unidade" in dono) return { organizacao_id: null, unidade_id: dono.unidade, local_id: null };
@@ -94,11 +123,13 @@ export async function lerCredencial<S extends Servico>(
   ambiente: Ambiente = "producao"
 ): Promise<CredencialVisivel<z.infer<(typeof FORMATOS)[S]>> | null> {
   const supabase = criarClienteServico();
-  const { data, error } = await supabase
-    .from("credenciais" as never)
-    .select("id, servico, ambiente, publico, segredo, ativo, atualizado_em")
-    .match({ servico, ambiente, ...colunasDoDono(dono) })
-    .maybeSingle();
+  const { data, error } = await porDono(
+    supabase
+      .from("credenciais" as never)
+      .select("id, servico, ambiente, publico, segredo, ativo, atualizado_em")
+      .match({ servico, ambiente }),
+    dono
+  ).maybeSingle();
 
   if (error) throw new Error(`Não foi possível ler a credencial de ${servico}: ${error.message}`);
   if (!data) return null;
@@ -121,11 +152,13 @@ export async function lerCredencial<S extends Servico>(
  */
 export async function abrirSegredo(servico: Servico, dono: Dono, ambiente: Ambiente = "producao") {
   const supabase = criarClienteServico();
-  const { data, error } = await supabase
-    .from("credenciais" as never)
-    .select("segredo, ativo")
-    .match({ servico, ambiente, ...colunasDoDono(dono) })
-    .maybeSingle();
+  const { data, error } = await porDono(
+    supabase
+      .from("credenciais" as never)
+      .select("segredo, ativo")
+      .match({ servico, ambiente }),
+    dono
+  ).maybeSingle();
 
   if (error) throw new Error(`Não foi possível ler a credencial de ${servico}: ${error.message}`);
   const linha = data as unknown as { segredo: string | null; ativo: boolean } | null;
@@ -149,11 +182,13 @@ export async function salvarCredencial<S extends Servico>(
   const supabase = criarClienteServico();
   const chave = { servico, ambiente, ...colunasDoDono(dono) };
 
-  const atual = await supabase
-    .from("credenciais" as never)
-    .select("id, segredo")
-    .match(chave)
-    .maybeSingle();
+  const atual = await porDono(
+    supabase
+      .from("credenciais" as never)
+      .select("id, segredo")
+      .match({ servico, ambiente }),
+    dono
+  ).maybeSingle();
   const anterior = atual.data as unknown as { id: string; segredo: string | null } | null;
 
   const segredo = dados.segredo?.trim()
@@ -178,10 +213,10 @@ export async function salvarCredencial<S extends Servico>(
 
 export async function removerCredencial(servico: Servico, dono: Dono, ambiente: Ambiente = "producao") {
   const supabase = criarClienteServico();
-  const { error } = await supabase
-    .from("credenciais" as never)
-    .delete()
-    .match({ servico, ambiente, ...colunasDoDono(dono) });
+  const { error } = await porDono(
+    supabase.from("credenciais" as never).delete().match({ servico, ambiente }),
+    dono
+  );
   if (error) throw new Error(`Não foi possível remover a credencial de ${servico}: ${error.message}`);
 }
 
