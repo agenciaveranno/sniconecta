@@ -458,9 +458,9 @@ async function faseCompras() {
       where alvo.legado_id = (i.migracao_extras->>'transferido_para_legado')::integer
         and i.migracao_extras->>'transferido_para_legado' is not null`;
     await destino`
-      update eventos.inscricoes i set transferido_de_id = origem.id
-      from eventos.inscricoes origem
-      where origem.legado_id = (i.migracao_extras->>'transferido_de_legado')::integer
+      update eventos.inscricoes i set transferido_de_id = anterior.id
+      from eventos.inscricoes anterior
+      where anterior.legado_id = (i.migracao_extras->>'transferido_de_legado')::integer
         and i.migracao_extras->>'transferido_de_legado' is not null`;
   }
 

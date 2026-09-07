@@ -6,20 +6,45 @@ Ver a decisão em `docs/decisoes/0006-migracao-repetivel.md`.
 
 São dois lugares diferentes, e confundi-los é a primeira pedra do caminho:
 
-### A carga roda no GitHub, não na sua máquina
+### A carga roda no GitHub — e pede UM segredo
 
 `Actions → Migrar dados do Credenciamento → Run workflow`, escolhendo **ensaio**
 ou **gravar**. O padrão é ensaio, que lê tudo e não grava nada.
 
-⚠️ **Por que ali e não num computador.** O runner alcança as duas pontas — o
-proxy público do Railway e o pooler do Supabase — e já guarda os segredos. A
-alternativa seria clonar o repositório, instalar Node e colar duas strings de
-conexão de produção num arquivo local: mais passos, e a credencial do banco de
-dezesseis mil pessoas passando por mais um computador.
+O único segredo novo é `MIGRACAO_MYSQL_URL`, e é um copiar-e-colar: no Railway,
+serviço MySQL → aba **Variables** → o valor de **`MYSQL_PUBLIC_URL`**.
 
-O relatório fica como artefato da execução, por 30 dias. Ele traz contagens por
-fase e as rejeições com motivo e id antigo — **sem dado pessoal**, que é o que
-permite compartilhá-lo.
+⚠️ `MYSQL_PUBLIC_URL`, não `MYSQL_URL`. A segunda usa o host `.internal`, que
+só funciona dentro da rede do Railway — e o runner do GitHub está fora dela.
+
+A conexão com o Supabase é **montada** a partir de `SUPABASE_PROJECT_REF` e
+`SUPABASE_DB_PASSWORD`, que já existem para aplicar as migrações. Pedir uma
+`DATABASE_URL` à parte seria pedir de novo, com outro nome, a mesma senha.
+
+`CREDENCIAIS_ENCRYPTION_KEY` só é exigida quando a fase `configuracao` GRAVA —
+é ela que cifra a chave da Cielo. Um ensaio não precisa dela.
+
+### Sobre usar o usuário administrador do MySQL
+
+O `MYSQL_PUBLIC_URL` é do `root`, que também escreve. O ideal continua sendo um
+usuário somente leitura — duas linhas no Console do Railway:
+
+```sql
+CREATE USER 'sni_leitura'@'%' IDENTIFIED BY 'senha-longa';
+GRANT SELECT ON railway.* TO 'sni_leitura'@'%';
+```
+
+Mas depender só disso é depender de alguém ter criado o usuário certo, e quem
+não criou não recebe aviso nenhum. Por isso a garantia é de CÓDIGO, verificada
+a cada CI (`tests/migracao-so-le.test.ts`): a conexão de origem só aceita
+`SELECT`, e nenhum comando de escrita de MySQL existe no script. Vale mesmo com
+credencial de administrador.
+
+Isso importa porque **a base do Credenciamento está no ar**: há gente comprando
+ingresso enquanto a carga roda. Um `UPDATE` acidental ali não estragaria um
+rascunho — derrubaria a compra de quem está no checkout naquele minuto.
+
+### Detalhes
 
 | O quê | Onde | Precisa instalar? |
 |---|---|---|
