@@ -18,14 +18,31 @@ export type UnidadeRow = {
   nome_curto: string | null;
   codigo: string | null;
   slug: string | null;
+  cep: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
   cidade: string | null;
   uf: string | null;
   pais: string;
   cnpj: string | null;
   telefone: string | null;
+  email: string | null;
+  /** Número que RECEBE WhatsApp — separado do fixo de propósito. */
+  whatsapp: string | null;
+  facebook: string | null;
+  instagram: string | null;
+  tiktok: string | null;
+  site: string | null;
   /** 'pt-BR' ou 'ja': parte das Regionais conduz as atividades em japonês. */
   idioma: string;
   ativo: boolean;
+  /**
+   * De onde a unidade veio quando nasceu de uma carga: o nome bruto da origem e
+   * `conferir: true` enquanto ninguém olhou. Nulo em unidade cadastrada na tela.
+   */
+  migracao_extras: Record<string, unknown> | null;
   criado_em: string;
   atualizado_em: string;
 };
@@ -57,6 +74,11 @@ export type LocalRow = {
   uf: string | null;
   telefone: string | null;
   email: string | null;
+  whatsapp: string | null;
+  facebook: string | null;
+  instagram: string | null;
+  tiktok: string | null;
+  site: string | null;
   /** A Academia é filial da Sede Central e tem CNPJ próprio, como a Regional. */
   cnpj: string | null;
   latitude: string | null;

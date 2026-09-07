@@ -24,9 +24,25 @@ const schema = z.object({
   nome: z.string().trim().min(2, "Informe o nome da unidade."),
   codigo: z.string().trim().optional().transform((v) => v || null),
   slug: z.string().trim().optional().transform((v) => v || null),
+  cep: z.string().trim().optional().transform((v) => (v ? v.replace(/\D/g, "") || null : null)),
+  logradouro: z.string().trim().optional().transform((v) => v || null),
+  numero: z.string().trim().optional().transform((v) => v || null),
+  complemento: z.string().trim().optional().transform((v) => v || null),
+  bairro: z.string().trim().optional().transform((v) => v || null),
   cidade: z.string().trim().optional().transform((v) => v || null),
   uf: z.string().trim().toUpperCase().optional().transform((v) => v || null),
   idioma: z.string().trim().optional().transform((v) => v || "pt-BR"),
+
+  telefone: z.string().trim().optional().transform((v) => v || null),
+  email: z.string().trim().optional().transform((v) => v?.toLowerCase() || null),
+  whatsapp: z.string().trim().optional().transform((v) => v || null),
+  // ⚠️ URL vazia vira NULL, nunca string vazia: o `check` do banco exige
+  // `^https?://` quando preenchido, e `''` não é nulo nem é URL — recusaria o
+  // cadastro inteiro de quem não tem Instagram.
+  site: z.string().trim().optional().transform((v) => v || null),
+  facebook: z.string().trim().optional().transform((v) => v || null),
+  instagram: z.string().trim().optional().transform((v) => v || null),
+  tiktok: z.string().trim().optional().transform((v) => v || null),
   // O banco guarda o CNPJ só com dígitos, e o `check` dele olha só o formato.
   // A máscara que a pessoa digita some aqui, e o dígito verificador é
   // conferido aqui: um CNPJ com DV errado passaria pelo banco e só apareceria
@@ -116,6 +132,52 @@ function traduzirErro(mensagem: string): string {
   return `Não foi possível salvar: ${mensagem}`;
 }
 
+/**
+ * O pai da unidade.
+ *
+ * ⚠️ A REGIONAL NÃO PERGUNTA onde fica: toda Regional é da Sede Central, por
+ * definição da instituição. A tela não mostra o campo (não há segunda resposta
+ * possível), então é aqui que ele é preenchido — e é aqui, e não na tela,
+ * porque `formData` vem do navegador: um seletor escondido continua sendo um
+ * valor que alguém pode mandar diferente.
+ */
+async function paiDe(tipo: string, informado: string | null): Promise<string | null> {
+  if (tipo !== "regional") return informado;
+
+  const supabase = await criarClienteServidor();
+  const { data } = await supabase
+    .from("unidades")
+    .select("id")
+    .eq("tipo", "sede_central")
+    .limit(1)
+    .maybeSingle();
+  if (!data) falhar("A Sede Central não está cadastrada — sem ela não há onde pendurar uma Regional.");
+  return data.id;
+}
+
+const CAMPOS_COMUNS = (d: z.infer<typeof schema>) => ({
+  organizacao_id: d.organizacao,
+  nome: d.nome,
+  codigo: d.codigo,
+  slug: d.slug,
+  cep: d.cep,
+  logradouro: d.logradouro,
+  numero: d.numero,
+  complemento: d.complemento,
+  bairro: d.bairro,
+  cidade: d.cidade,
+  uf: d.uf,
+  idioma: d.idioma,
+  cnpj: d.cnpj,
+  telefone: d.telefone,
+  email: d.email,
+  whatsapp: d.whatsapp,
+  site: d.site,
+  facebook: d.facebook,
+  instagram: d.instagram,
+  tiktok: d.tiktok,
+});
+
 export async function criarUnidade(formData: FormData) {
   await exigirCapacidade("estrutura.gerir");
 
@@ -127,15 +189,8 @@ export async function criarUnidade(formData: FormData) {
     .from("unidades")
     .insert({
       tipo: dados.data.tipo,
-      pai_id: dados.data.pai,
-      organizacao_id: dados.data.organizacao,
-      nome: dados.data.nome,
-      codigo: dados.data.codigo,
-      slug: dados.data.slug,
-      cidade: dados.data.cidade,
-      uf: dados.data.uf,
-      idioma: dados.data.idioma,
-      cnpj: dados.data.cnpj,
+      pai_id: await paiDe(dados.data.tipo, dados.data.pai),
+      ...CAMPOS_COMUNS(dados.data),
     })
     .select("id")
     .single();
@@ -160,15 +215,8 @@ export async function editarUnidade(formData: FormData) {
     .from("unidades")
     .update({
       tipo: dados.data.tipo,
-      pai_id: dados.data.pai,
-      organizacao_id: dados.data.organizacao,
-      nome: dados.data.nome,
-      codigo: dados.data.codigo,
-      slug: dados.data.slug,
-      cidade: dados.data.cidade,
-      uf: dados.data.uf,
-      idioma: dados.data.idioma,
-      cnpj: dados.data.cnpj,
+      pai_id: await paiDe(dados.data.tipo, dados.data.pai),
+      ...CAMPOS_COMUNS(dados.data),
     })
     .eq("id", id);
   if (error) falhar(traduzirErro(error.message));
