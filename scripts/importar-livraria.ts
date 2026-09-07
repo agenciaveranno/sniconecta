@@ -16,7 +16,11 @@
  */
 import "dotenv/config";
 import postgres from "postgres";
+<<<<<<< HEAD
 import { arbitroDeUnicos, classificar } from "./lib/livraria";
+=======
+import { classificar } from "./lib/livraria";
+>>>>>>> origin/main
 
 const LOJA = (process.env.LOJA_URL ?? "https://livraria.sni.org.br").replace(/\/+$/, "");
 const dryRun = process.argv.includes("--dry-run");
@@ -248,6 +252,7 @@ async function principal() {
   }
 
   const destino = postgres(DESTINO!, { prepare: false, max: 3 });
+<<<<<<< HEAD
   const relatorio = {
     lidos: produtos.length, gravados: 0, semNome: 0, semPreco: 0,
     semEstoque: 0, teste: 0,
@@ -266,6 +271,9 @@ async function principal() {
   // ficou com ele, para a Sede corrigir na loja. `paradaFatal` abaixo garante
   // que qualquer outra falha ainda pare tudo — e diga quanto já entrou.
   let paradaFatal: unknown = null;
+=======
+  const relatorio = { lidos: produtos.length, gravados: 0, semNome: 0, semPreco: 0, semEstoque: 0, teste: 0, semClassificacao: [] as string[] };
+>>>>>>> origin/main
 
   try {
     const categorias = new Map<string, string>();
@@ -288,6 +296,7 @@ async function principal() {
       return nova.id;
     };
 
+<<<<<<< HEAD
     // Quem já é dono de cada valor único, no banco e nesta mesma execução.
     const donoDe = new Map<string, string>();
     if (!dryRun) {
@@ -310,6 +319,11 @@ async function principal() {
     for (const p of emOrdem) {
       if (!p.nome) { relatorio.semNome++; continue; }
 
+=======
+    for (const p of produtos) {
+      if (!p.nome) { relatorio.semNome++; continue; }
+
+>>>>>>> origin/main
       // ⚠️ A loja tem produto de teste publicado ("PRODUTO DE TESTE - FAVOR NÃO
       // COMPRAR"). Ele não é catálogo, e entraria ao lado dos livros de verdade
       // — na tela, na busca e em qualquer relatório de vendas.
@@ -351,7 +365,11 @@ async function principal() {
         insert into produtos (categoria_id, nome, codigo, codigo_barras,
                               descricao_curta, descricao_longa, preco_capa_centavos, origem_url,
                               disponivel)
+<<<<<<< HEAD
         values (${categoriaId}, ${p.nome}, ${codigo}, ${codigoBarras},
+=======
+        values (${categoriaId}, ${p.nome}, ${p.codigo}, ${p.codigo_barras},
+>>>>>>> origin/main
                 ${p.descricao_curta}, ${p.descricao_longa}, ${p.preco_centavos}, ${p.url},
                 ${p.disponivel})
         on conflict (origem_url) do update set
@@ -390,6 +408,7 @@ async function principal() {
     );
     for (const n of relatorio.semClassificacao) console.log(`       · ${n}`);
   }
+<<<<<<< HEAD
   if (relatorio.colisoes.length) {
     console.log(
       `  ⚠️  ${relatorio.colisoes.length} código(s) repetido(s) na loja. O item entrou ` +
@@ -401,6 +420,8 @@ async function principal() {
   }
 
   if (paradaFatal !== null) throw paradaFatal;
+=======
+>>>>>>> origin/main
 }
 
 principal().catch((e) => {
