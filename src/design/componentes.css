@@ -797,3 +797,9 @@ dialog.sni-modal::backdrop {
 .sni-modal-body { max-height: 60vh; }
 .sni-modal-foot { background: var(--sni-gray-50); flex-wrap: wrap; align-items: center; }
 :root[data-theme="dark"] .sni-modal-foot { background: rgba(255,255,255,.04); }
+
+/* Pergunta de sim ou não: a chave anda na mesma linha do texto, senão o
+   rótulo fica acima de um controle que sozinho não diz do que ele é. */
+.sni-field-chave { gap: 0; }
+.sni-chave-linha { display: flex; align-items: center; gap: 12px; }
+.sni-chave-linha .sni-label { margin-bottom: 0; cursor: pointer; }

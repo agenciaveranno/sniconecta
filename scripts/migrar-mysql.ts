@@ -66,6 +66,21 @@ let destino: ReturnType<typeof postgres>;
 const relatorio: Relatorio = {};
 const rejeicoesDetalhe: { fase: string; legado_id: number; motivo: string }[] = [];
 
+/**
+ * O que fazer com quem foi recusado. Um número sozinho no relatório vira
+ * "quatro pessoas se perderam"; com a saída ao lado, vira uma tarefa.
+ *
+ * ⚠️ Estrangeiro agora tem lugar no cadastro (decisão 0013), mas o sistema de
+ * ORIGEM não tem campo de passaporte — não há o que migrar. As quatro entram
+ * pela tela com o documento na mão. Inventar documento seria dado falso para
+ * sempre.
+ */
+const SAIDA: Record<string, string> = {
+  sem_cpf: "sem CPF na origem; se for estrangeira, cadastrar pela tela com o passaporte",
+  cpf_invalido: "CPF não confere; se for estrangeira, cadastrar pela tela com o passaporte",
+  sem_nome: "sem nome na origem; nada identifica essa linha",
+};
+
 function conta(fase: string) {
   relatorio[fase] ??= { lidas: 0, gravadas: 0, rejeitadas: {}, pendencias: {}, avisos: 0 };
   return relatorio[fase];
@@ -271,11 +286,18 @@ async function faseVinculos() {
    * a Sede disser a Regional certa; uma regra afrouxada não.
    */
   let alSedeId: string | undefined;
+  // Como a AL "Sede Central" chegou a existir: criada por esta carga, ou já
+  // vinda da origem porque alguém tem "SEDE CENTRAL" escrito na Regional. As
+  // duas são corretas, e a diferença muda o que a tela de conferência mostra —
+  // por isso o relatório diz qual foi, em vez de deixar o total explicar.
+  const sedeCentral = { pessoas: 0, regionalReaproveitada: false, alReaproveitada: false };
   const associacaoSedeCentral = async (): Promise<string> => {
+    sedeCentral.pessoas++;
     if (alSedeId) return alSedeId;
 
     const chaveSede = chaveNucleo("Sede Central");
     let regionalSede = regionais.get(chaveSede);
+    sedeCentral.regionalReaproveitada = Boolean(regionalSede);
     if (!regionalSede) {
       if (!dryRun) {
         const [nova] = await destino<{ id: string }[]>`
@@ -295,6 +317,7 @@ async function faseVinculos() {
     const organizacaoId = await organizacaoIndefinida();
     const chave = `${regionalSede}|${organizacaoId}|${chaveSede}`;
     const jaTem = associacoes.get(chave);
+    sedeCentral.alReaproveitada = Boolean(jaTem);
     if (jaTem) return (alSedeId = jaTem);
 
     let nova: string;
@@ -434,6 +457,11 @@ async function faseVinculos() {
     ` | Organizações novas: ${criadas.organizacoes}` +
     (amostra.organizacoes.length ? ` (${amostra.organizacoes.join("; ")})` : "") +
     ` | Associações Locais novas: ${criadas.associacoes}`
+  );
+  console.log(
+    `   Sede Central: ${sedeCentral.pessoas} pessoas sem Regional na origem` +
+    ` | Regional ${sedeCentral.regionalReaproveitada ? "já existia" : "criada agora"}` +
+    ` | AL ${sedeCentral.alReaproveitada ? "já existia" : "criada agora"}`
   );
   rejeicoesDetalhe.push({ fase: "vinculos", legado_id: 0, motivo:
     `criadas: ${criadas.regionais} regionais, ${criadas.organizacoes} organizações, ${criadas.associacoes} associações locais` });
@@ -1044,7 +1072,9 @@ async function principal() {
     )
   );
   for (const [fase, v] of Object.entries(relatorio)) {
-    for (const [motivo, n] of Object.entries(v.rejeitadas)) console.log(`  ❌ ${fase}: ${n} × ${motivo}`);
+    for (const [motivo, n] of Object.entries(v.rejeitadas)) {
+      console.log(`  ❌ ${fase}: ${n} × ${motivo}${SAIDA[motivo] ? ` — ${SAIDA[motivo]}` : ""}`);
+    }
     for (const [motivo, n] of Object.entries(v.pendencias)) console.log(`  ⚠️  ${fase}: ${n} × ${motivo} (gravado, revisar depois)`);
   }
   console.log(`Gravado em ${arquivo} (não contém dado pessoal; não versionar).`);

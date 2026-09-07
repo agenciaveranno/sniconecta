@@ -101,7 +101,9 @@ export type OrganizacaoRow = {
 
 export type PessoaRow = {
   id: string;
-  cpf: string;
+  /** Nulo só em quem é estrangeiro — aí o passaporte identifica (decisão 0013). */
+  cpf: string | null;
+  passaporte: string | null;
   cod_sni: string | null;
   nome: string;
   nome_social: string | null;

@@ -332,6 +332,26 @@ escrita "Sede cria organização nova" $SEDE \
 escrita "coordenadora NÃO cria organização" $CSUL \
   "insert into organizacoes (nome) values ('Associação Paralela');" NEGADO
 
+echo "── Documento: CPF ou passaporte, exatamente um (decisão 0013)"
+escrita "estrangeira com passaporte é aceita" $SEDE \
+  "insert into pessoas (nome, passaporte) values ('Kenji Watanabe','TR1234567');" OK
+escrita "pessoa sem documento nenhum é recusada" $SEDE \
+  "insert into pessoas (nome) values ('Sem documento');" NEGADO
+escrita "pessoa com CPF e passaporte é recusada" $SEDE \
+  "insert into pessoas (nome, cpf, passaporte) values ('Dois documentos','52998224725','FH123456');" NEGADO
+# ⚠️ As duas linhas na MESMA instrução de propósito: `escrita` desfaz a
+# transação, então um insert feito na asserção anterior não existe mais aqui.
+escrita "passaporte repetido é recusado" $SEDE \
+  "insert into pessoas (nome, passaporte) values ('Um','TR1234567'),('Outro','TR1234567');" NEGADO
+escrita "passaporte com pontuação é recusado" $SEDE \
+  "insert into pessoas (nome, passaporte) values ('Pontuado','FH-123456');" NEGADO
+escrita "passaporte em minúscula é recusado" $SEDE \
+  "insert into pessoas (nome, passaporte) values ('Minuscula','fh123456');" NEGADO
+# ⚠️ Duas pessoas sem CPF precisam conviver: o índice único do CPF passou a
+# aceitar NULL, e um índice cheio derrubaria a segunda estrangeira do país.
+escrita "duas estrangeiras convivem" $SEDE \
+  "insert into pessoas (nome, passaporte) values ('Ana Silva','XDB005112'),('Maria Costa','AB987654');" OK
+
 echo "── Organização: da Associação Local, nunca do Núcleo"
 escrita "AL sem organização é recusada" $SEDE \
   "insert into unidades (tipo, pai_id, nome) values ('associacao_local','22220000-0000-0000-0000-000000000001','Sem org');" NEGADO

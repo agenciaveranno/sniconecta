@@ -8,6 +8,7 @@ import { registrar } from "@/lib/auditoria";
 import { exigirCapacidade } from "@/lib/auth";
 import { cpfValido, somenteDigitos as somenteDigitosCpf } from "@/lib/dominio/cpf";
 import { codSniValido, normalizarCodSni } from "@/lib/dominio/codsni";
+import { normalizarPassaporte, passaporteValido } from "@/lib/dominio/passaporte";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import type { TipoPapel } from "@/lib/permissoes";
 
@@ -25,10 +26,18 @@ const vazioVira = (v?: string) => (v && v.trim().length > 0 ? v.trim() : null);
 const schema = z.object({
   nome: z.string().trim().min(3, "Informe o nome completo."),
   nome_social: z.string().optional().transform(vazioVira),
+  // ⚠️ Os dois são opcionais AQUI e exatamente um é exigido no `superRefine`
+  // abaixo. A tela manda um ou outro — o campo que não aparece é desmontado,
+  // não escondido — e marcar qualquer um como obrigatório recusaria metade
+  // dos cadastros legítimos.
   cpf: z
     .string()
-    .transform((v) => somenteDigitosCpf(v))
-    .refine(cpfValido, "Esse CPF não existe. Confira os números."),
+    .optional()
+    .transform((v) => (v && v.trim() ? somenteDigitosCpf(v) : null)),
+  passaporte: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim() ? normalizarPassaporte(v) : null)),
   // ⚠️ CodSNI vazio vira NULL, nunca string vazia: `''` passaria no unique
   // uma vez só e derrubaria a segunda pessoa sem CodSNI.
   cod_sni: z
@@ -51,11 +60,42 @@ const schema = z.object({
   bairro: z.string().optional().transform(vazioVira),
   cidade: z.string().optional().transform(vazioVira),
   uf: z.string().optional().transform((v) => (v ? v.trim().toUpperCase() || null : null)),
+}).superRefine((d, ctx) => {
+  // Exatamente um documento (decisão 0013). Com os dois, a mesma pessoa cabe
+  // duas vezes na tabela sem colidir em nada; com nenhum, não há como
+  // reconciliar a segunda inscrição dela com a primeira.
+  if (d.cpf && d.passaporte) {
+    ctx.addIssue({ code: "custom", path: ["cpf"],
+      message: "A pessoa se identifica por CPF ou por passaporte, não pelos dois." });
+    return;
+  }
+  if (!d.cpf && !d.passaporte) {
+    ctx.addIssue({ code: "custom", path: ["cpf"],
+      message: "Informe o CPF. Se a pessoa é estrangeira, ligue a chave e informe o passaporte." });
+    return;
+  }
+  if (d.cpf && !cpfValido(d.cpf)) {
+    ctx.addIssue({ code: "custom", path: ["cpf"],
+      message: "Esse CPF não existe. Confira os números." });
+  }
+  // ⚠️ Passaporte NÃO tem dígito verificador: cada país emite no seu formato.
+  // Só a forma é conferida — recusar mais que isso barraria documento
+  // legítimo com a pessoa parada na frente do balcão.
+  if (d.passaporte && !passaporteValido(d.passaporte)) {
+    ctx.addIssue({ code: "custom", path: ["passaporte"],
+      message: "O passaporte tem de 5 a 20 letras ou números, sem espaço nem traço." });
+  }
 });
 
 function traduzirErro(mensagem: string): string {
   if (mensagem.includes("pessoas_cpf_key")) {
     return "Esse CPF já está cadastrado. Procure a pessoa na lista em vez de criar de novo.";
+  }
+  if (mensagem.includes("uq_pessoa_passaporte")) {
+    return "Esse passaporte já está cadastrado. Procure a pessoa na lista em vez de criar de novo.";
+  }
+  if (mensagem.includes("documento_unico")) {
+    return "A pessoa se identifica por CPF ou por passaporte, não pelos dois nem por nenhum.";
   }
   if (mensagem.includes("pessoas_cod_sni_key")) return "Esse CodSNI já é de outra pessoa.";
   if (mensagem.includes("uq_pessoa_email_com_conta")) {

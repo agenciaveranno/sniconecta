@@ -22,6 +22,7 @@ import {
 import { pessoaAtual } from "@/lib/auth";
 import { NOME_PAPEL, type TipoPapel } from "@/lib/permissoes";
 import { formatarCpf } from "@/lib/dominio/cpf";
+import { formatarPassaporte } from "@/lib/dominio/passaporte";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import type { PessoaRow, UnidadeRow, VinculoAtualRow } from "@/lib/supabase/tipos";
 import { redirect } from "next/navigation";
@@ -100,9 +101,17 @@ export default async function MinhaContaPage({
         />
         <dl className="sni-dados">
           <div>
-            <dt>CPF</dt>
+            {/* O rótulo segue o documento: chamar de "CPF" o passaporte de
+                quem é estrangeiro seria a tela mentindo o nome do que mostra. */}
+            <dt>{pessoa && !pessoa.cpf ? "Passaporte" : "CPF"}</dt>
             <dd>
-              <Num>{pessoa ? formatarCpf(pessoa.cpf) : "—"}</Num>
+              <Num>
+                {!pessoa
+                  ? "—"
+                  : pessoa.cpf
+                    ? formatarCpf(pessoa.cpf)
+                    : formatarPassaporte(pessoa.passaporte)}
+              </Num>
             </dd>
           </div>
           <div>

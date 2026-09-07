@@ -25,7 +25,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
 
         <form action={entrar} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <input type="hidden" name="voltar" value={voltar ?? ""} />
-          <Campo label="CPF ou e-mail" htmlFor="identificador">
+          <Campo label="CPF, passaporte ou e-mail" htmlFor="identificador">
             <div className="sni-input-icon-wrap">
               <IconUser size={19} className="ti sni-input-icon" aria-hidden="true" />
               <Input id="identificador" name="identificador" autoComplete="username" required autoFocus />

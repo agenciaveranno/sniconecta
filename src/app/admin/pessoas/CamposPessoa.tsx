@@ -1,11 +1,13 @@
 import { Campo, GrupoCampos, Input, Select } from "@/componentes/ui";
+import DocumentoPessoa from "./DocumentoPessoa";
 import type { PessoaRow, UnidadeRow } from "@/lib/supabase/tipos";
 
 /**
  * Campos da pessoa, um componente só para criar e editar — campo novo nasce
  * nos dois lugares ou em nenhum.
  *
- * Não é cliente: nada aqui muda conforme o que se escolhe. A unidade só
+ * Servidor, tirando o documento: só ali a escolha muda o campo que aparece
+ * (CPF ou passaporte, decisão 0013). A unidade só
  * aparece no cadastro; mudar de unidade depois é `moverPessoa`, que encerra o
  * vínculo anterior em vez de trocá-lo — o vínculo velho é o que explica em que
  * Associação Local a pessoa estava quando fez o curso do ano passado.
@@ -33,16 +35,7 @@ export default function CamposPessoa({
       </Campo>
 
       <div className="sni-form-grid">
-        <Campo label="CPF" obrigatorio dica="É ele que identifica a pessoa no sistema inteiro.">
-          <Input
-            name="cpf"
-            defaultValue={pessoa?.cpf ?? ""}
-            required
-            maxLength={14}
-            className="sni-input num"
-            inputMode="numeric"
-          />
-        </Campo>
+        <DocumentoPessoa cpf={pessoa?.cpf} passaporte={pessoa?.passaporte} />
         <Campo label="CodSNI" dica="Só dígitos. Zeros à esquerda contam.">
           <Input
             name="cod_sni"

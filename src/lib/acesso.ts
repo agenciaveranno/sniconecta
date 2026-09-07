@@ -40,7 +40,9 @@ type PessoaAcesso = {
   id: string;
   nome: string;
   email: string | null;
-  cpf: string;
+  /** Nulo em quem é estrangeiro (decisão 0013). */
+  cpf: string | null;
+  passaporte: string | null;
   cod_sni: string | null;
   auth_user_id: string | null;
 };
@@ -133,7 +135,7 @@ export async function definirSenhaDePessoa(opcoes: {
   const pessoa = exigir(
     await servico
       .from("pessoas")
-      .select("id, nome, email, cpf, cod_sni, auth_user_id")
+      .select("id, nome, email, cpf, passaporte, cod_sni, auth_user_id")
       .eq("id", pessoaId)
       .maybeSingle(),
     "a pessoa"
@@ -162,6 +164,7 @@ export async function definirSenhaDePessoa(opcoes: {
   // produzir algo fraco, é aqui que aparece, não em produção.
   const veredito = validarSenha(senha, gerada ? senha : (opcoes.confirmacao ?? ""), {
     cpf: pessoa.cpf,
+    passaporte: pessoa.passaporte,
     codSni: pessoa.cod_sni,
     email: pessoa.email,
     nome: pessoa.nome,
