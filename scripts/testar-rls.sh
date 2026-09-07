@@ -433,6 +433,67 @@ else
   falhas=$((falhas+1))
 fi
 
+# ── Módulo eventos: schema próprio, fechado ao navegador (decisões 0003/0007)
+#
+# O módulo fala Postgres direto pelo pooler, e a autorização acontece por
+# capacidade no servidor. Nada aqui pode ser alcançável por `anon` ou
+# `authenticated` — nem por engano, nem no dia em que alguém copiar um GRANT
+# de outra migração.
+echo
+echo "── Módulo eventos: fechado ao navegador"
+
+n_tab_ev=$(conta "select count(*) from pg_tables where schemaname='eventos';")
+if [ "$n_tab_ev" -ge 15 ]; then
+  echo "  ✅ schema eventos criado com $n_tab_ev tabelas"
+else
+  echo "  ❌ schema eventos tem só $n_tab_ev tabela(s) — a migração não aplicou inteira"
+  falhas=$((falhas+1))
+fi
+
+ev_sem_rls=$(P -t -A <<'SQL'
+select coalesce(string_agg(c.relname, ', ' order by c.relname), '')
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+ where n.nspname = 'eventos' and c.relkind = 'r' and not c.relrowsecurity;
+SQL
+)
+ev_sem_rls=$(echo "$ev_sem_rls" | tr -d ' \n')
+if [ -z "$ev_sem_rls" ]; then
+  echo "  ✅ toda tabela de eventos tem RLS ligada"
+else
+  echo "  ❌ sem RLS em eventos: $ev_sem_rls"
+  falhas=$((falhas+1))
+fi
+
+ev_grants=$(conta "select count(*) from information_schema.role_table_grants where table_schema='eventos' and grantee in ('anon','authenticated');")
+if [ "$ev_grants" = "0" ]; then
+  echo "  ✅ nenhuma tabela de eventos concedida a anon ou authenticated"
+else
+  echo "  ❌ $ev_grants concessão(ões) indevidas em eventos"
+  falhas=$((falhas+1))
+fi
+
+ev_uso=$(conta "select count(*) from information_schema.usage_privileges where object_schema='eventos' and grantee in ('anon','authenticated');")
+if [ "$ev_uso" = "0" ]; then
+  echo "  ✅ nem o schema eventos é visível para o navegador"
+else
+  echo "  ❌ anon/authenticated têm usage no schema eventos"
+  falhas=$((falhas+1))
+fi
+
+# ⚠️ Toda inscrição aponta para uma pessoa da plataforma. É esta FK que impede
+# o módulo de criar a sua própria noção de gente (decisão 0002) — sem ela,
+# eventos teria participantes que o Ciclo não enxerga.
+fk_pessoa=$(conta "select count(*) from information_schema.table_constraints tc
+  join information_schema.constraint_column_usage ccu on ccu.constraint_name = tc.constraint_name
+ where tc.table_schema='eventos' and tc.constraint_type='FOREIGN KEY'
+   and ccu.table_schema='public' and ccu.table_name='pessoas';")
+if [ "$fk_pessoa" -ge 5 ]; then
+  echo "  ✅ eventos referencia public.pessoas ($fk_pessoa chaves)"
+else
+  echo "  ❌ eventos quase não referencia pessoas ($fk_pessoa) — o módulo criou gente própria?"
+  falhas=$((falhas+1))
+fi
+
 echo
 if [ "$falhas" -eq 0 ]; then
   echo "✅ RLS íntegro — herança correta na árvore, sem vazamento entre unidades."
