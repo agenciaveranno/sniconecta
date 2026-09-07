@@ -48,7 +48,13 @@ const args = new Map(process.argv.slice(2).map((a) => {
   return [k, v ?? "true"];
 }));
 const dryRun = args.get("dry-run") === "true";
-const soFase = args.get("fase");
+// ⚠️ "todas" e "" são sinônimos de rodar tudo. A validação contra o catálogo
+// de fases acontece em `principal()`, depois que FASES existe — nome errado
+// PARA a carga, e não a deixa passar sem rodar nada.
+const soFase = (() => {
+  const v = args.get("fase");
+  return !v || v === "todas" ? null : v;
+})();
 
 const ORIGEM = process.env.MIGRACAO_MYSQL_URL;
 const DESTINO = process.env.DATABASE_URL;
@@ -1023,13 +1029,25 @@ const FASES: Record<string, () => Promise<void>> = {
 // ─── Execução ─────────────────────────────────────────────────────────────
 
 async function principal() {
+  // ⚠️ Antes de abrir conexão: um nome de fase que não existe fazia a carga
+  // pular TODAS as fases, imprimir um relatório vazio e sair com sucesso. Um
+  // no-op com cara de carga concluída é o pior resultado possível — pior que
+  // um erro, porque ninguém vai conferir o que acha que já foi feito.
+  if (soFase && !(soFase in FASES)) {
+    throw new Error(
+      `Fase "${soFase}" não existe. As que existem: ${Object.keys(FASES).join(", ")} — ou "todas".`
+    );
+  }
+
   origem = await mysql.createConnection(ORIGEM!);
   destino = postgres(DESTINO!, { prepare: false, max: 3 });
 
   const inicio = Date.now();
   try {
+    let rodou = 0;
     for (const [nome, fase] of Object.entries(FASES)) {
       if (soFase && soFase !== nome) continue;
+      rodou++;
       process.stdout.write(`→ ${nome}${dryRun ? " (dry-run)" : ""}… `);
       try {
         await fase();
@@ -1041,6 +1059,9 @@ async function principal() {
         if (!soFase) break;
       }
     }
+    // Rede de segurança: se um dia o filtro voltar a não casar com nada, é
+    // aqui que a carga grita em vez de sair calada.
+    if (rodou === 0) throw new Error("Nenhuma fase rodou. Confira o argumento --fase.");
   } finally {
     await origem.end();
     await destino.end();
