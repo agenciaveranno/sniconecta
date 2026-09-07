@@ -10,19 +10,7 @@ import Link from "next/link";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
-  AcaoLink,
-  Alerta,
-  Badge,
-  BotaoLink,
-  Campo,
-  Celula,
-  Input,
-  Linha,
-  Num,
-  Select,
-  Tabela,
-  TituloPagina,
-  Vazio,
+  AcaoLink, Alerta, Badge, BotaoLink, Campo, Celula, Input, Linha, Num, Recado, Select, Tabela, TituloPagina, Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { NOME_PAPEL, PAPEIS_NACIONAIS, type TipoPapel } from "@/lib/permissoes";
@@ -48,6 +36,11 @@ import {
 export const metadata = { title: "Pessoas e acesso" };
 
 /** A base tem dezesseis mil pessoas: a tela nasce paginada ou não abre. */
+type PessoaDaLista = Pick<
+  PessoaRow,
+  "id" | "nome" | "nome_social" | "email" | "cpf" | "passaporte" | "auth_user_id"
+>;
+
 const POR_PAGINA = 25;
 
 export default async function PessoasPage({
@@ -66,9 +59,17 @@ export default async function PessoasPage({
 
   // ⚠️ Sem `exigir()` aqui, de propósito: busca sem resultado é resposta
   // legítima, e a contagem separa o erro do vazio logo abaixo.
+  // ⚠️ As sete colunas que a lista desenha, e não `*`. `pessoas` tem 44 —
+  // endereço inteiro, nomes de pai, mãe e cônjuge, profissão, formação e o
+  // `migracao_extras` em jsonb —, e nenhuma delas aparece na tabela. Eram 37
+  // colunas × 25 linhas trafegadas à toa em cada abertura da tela mais usada
+  // do sistema.
+  //
+  // A contagem continua `exact`: "página 3 de 640" tem de ser verdade, e
+  // estimar erraria o número na cara de quem está paginando.
   let consulta = supabase
     .from("pessoas")
-    .select("*", { count: "exact" })
+    .select("id, nome, nome_social, email, cpf, passaporte, auth_user_id", { count: "exact" })
     .order("nome")
     .range(de, de + POR_PAGINA - 1);
 
@@ -93,7 +94,7 @@ export default async function PessoasPage({
 
   const resposta = await consulta;
   if (resposta.error) throw new Error(`Não foi possível ler as pessoas: ${resposta.error.message}`);
-  const pessoas = (resposta.data ?? []) as PessoaRow[];
+  const pessoas = (resposta.data ?? []) as PessoaDaLista[];
   const total = resposta.count ?? 0;
   const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
 
@@ -151,20 +152,7 @@ export default async function PessoasPage({
         }
       />
 
-      {erro && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="danger" icone={<IconAlertCircle size={20} className="ti" />}>
-            {erro}
-          </Alerta>
-        </div>
-      )}
-      {ok && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="success" icone={<IconCircleCheck size={20} className="ti" />}>
-            {ok}
-          </Alerta>
-        </div>
-      )}
+      <Recado erro={erro} ok={ok} />
 
       <form method="get" className="sni-busca">
         <Campo label="Procurar" htmlFor="q" dica="Nome, e-mail, CPF, passaporte ou CodSNI.">

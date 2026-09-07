@@ -7,6 +7,7 @@ import { definirSenhaDePessoa, revogarAcesso, sincronizarEmailDeLogin } from "@/
 import { registrar } from "@/lib/auditoria";
 import { apagarAnexo, guardarAnexo } from "@/lib/anexos";
 import { exigirCapacidade } from "@/lib/auth";
+import { somenteDigitosCep } from "@/lib/dominio/endereco-formato";
 import { cpfValido, somenteDigitos as somenteDigitosCpf } from "@/lib/dominio/cpf";
 import { codSniValido, normalizarCodSni } from "@/lib/dominio/codsni";
 import { normalizarPassaporte, passaporteValido } from "@/lib/dominio/passaporte";
@@ -54,7 +55,9 @@ const schema = z.object({
   telefone: z.string().optional().transform(vazioVira),
   nascimento: z.string().optional().transform(vazioVira),
   sexo: z.string().optional().transform((v) => (v && ["F", "M", "O"].includes(v) ? v : null)),
-  cep: z.string().optional().transform((v) => (v ? v.replace(/\D/g, "") || null : null)),
+  // `somenteDigitosCep` é o par servidor da máscara que o navegador usa, e
+  // corta em 8 dígitos: CEP colado com sufixo entrava inteiro.
+  cep: z.string().optional().transform((v) => somenteDigitosCep(v) || null),
   logradouro: z.string().optional().transform(vazioVira),
   numero: z.string().optional().transform(vazioVira),
   complemento: z.string().optional().transform(vazioVira),

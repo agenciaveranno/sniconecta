@@ -18,9 +18,6 @@ export function somenteDigitos(v: string | null | undefined): string {
   return (v ?? "").toUpperCase().replace(/[^0-9A-Z]/g, "");
 }
 
-/** ⚠️ Nome antigo mantido porque metade do sistema já o importa assim. */
-export const normalizarCnpj = somenteDigitos;
-
 /** '0'→0 … '9'→9, 'A'→17 … 'Z'→42. É a regra da Receita, não uma invenção. */
 function valorDoCaractere(c: string): number {
   return c.charCodeAt(0) - 48;

@@ -3,9 +3,11 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { exigirCapacidade, pessoaAtual } from "@/lib/auth";
-import { removerCredencial, salvarCredencial } from "@/lib/credenciais";
+import { exigirCapacidade } from "@/lib/auth";
+import { guardarCieloDoFormulario } from "@/lib/credenciais";
 import { cnpjValido, somenteDigitos } from "@/lib/dominio/cnpj";
+import { centavosDe } from "@/lib/dominio/dinheiro";
+import { somenteDigitosCep } from "@/lib/dominio/endereco-formato";
 import { criarClienteServidor } from "@/lib/supabase/server";
 
 const ROTA = "/admin/locais";
@@ -20,7 +22,10 @@ const schema = z.object({
   unidade: z.string().optional().transform((v) => vazioVira(v)),
   codigo: z.string().optional().transform((v) => vazioVira(v)),
   slug: z.string().optional().transform((v) => vazioVira(v)),
-  cep: z.string().optional().transform((v) => (v ? somenteDigitos(v) || null : null)),
+  // ⚠️ `somenteDigitosCep`, e não o `somenteDigitos` do CNPJ: aquele preserva
+  // LETRAS (o CNPJ novo é alfanumérico), então "CEP 01310-100" entrava como
+  // "CEP01310100" e a busca por CEP deixava de encontrar o local.
+  cep: z.string().optional().transform((v) => somenteDigitosCep(v) || null),
   logradouro: z.string().optional().transform((v) => vazioVira(v)),
   numero: z.string().optional().transform((v) => vazioVira(v)),
   complemento: z.string().optional().transform((v) => vazioVira(v)),
@@ -42,16 +47,11 @@ const schema = z.object({
 
   contato_nome: z.string().optional().transform((v) => vazioVira(v)),
   contato_telefone: z.string().optional().transform((v) => vazioVira(v)),
-  // ⚠️ Reais na tela, CENTAVOS no banco. `Math.round` porque 19.90 * 100 dá
-  // 1989.9999999999998 em ponto flutuante, e truncar comeria um centavo.
-  diaria: z
-    .string()
-    .optional()
-    .transform((v) => {
-      if (!v || !v.trim()) return null;
-      const n = Number(v.replace(",", "."));
-      return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) : null;
-    }),
+  // Reais na tela, CENTAVOS no banco. ⚠️ `centavosDe` e não uma conversão
+  // própria: a daqui só trocava a vírgula por ponto, então "1.250,00" — como
+  // qualquer pessoa digita a diária de um salão — virava NaN e a diária sumia
+  // sem erro nenhum na tela.
+  diaria: z.string().optional().transform((v) => centavosDe(v ?? null)),
 
   whatsapp: z.string().optional().transform((v) => vazioVira(v)),
   site: z.string().optional().transform((v) => vazioVira(v)),
@@ -76,35 +76,6 @@ function traduzirErro(mensagem: string): string {
   return `Não foi possível salvar: ${mensagem}`;
 }
 
-/** Ver o comentário gêmeo em `admin/estrutura/actions.ts`. */
-async function guardarCielo(formData: FormData, localId: string) {
-  const eu = await pessoaAtual();
-  if (!eu?.pode("configuracao.gerir")) return;
-
-  const merchantId = String(formData.get("cielo_merchant_id") ?? "").trim();
-  // ⚠️ Merchant ID em branco APAGA a conta. É o único jeito de a entidade
-  // parar de receber: se apenas ignorasse o campo vazio, quem limpou o
-  // cadastro sairia da tela achando que desligou a venda, e o dinheiro
-  // continuaria caindo na conta antiga. Vale também quando o tipo muda para
-  // um que não recebe em conta própria — o bloco some e o campo vem vazio.
-  if (!merchantId) {
-    await removerCredencial("cielo", { local: localId });
-    return;
-  }
-
-  await salvarCredencial(
-    "cielo",
-    { local: localId },
-    {
-      publico: {
-        merchant_id: merchantId,
-        nome_loja: String(formData.get("cielo_nome_loja") ?? "").trim(),
-      },
-      segredo: String(formData.get("cielo_merchant_key") ?? ""),
-    },
-    eu.id
-  );
-}
 
 function paraBanco(d: z.infer<typeof schema>) {
   // ⚠️ `diaria` (reais, da tela) vira `diaria_centavos` (o que o banco guarda),
@@ -128,7 +99,7 @@ export async function criarLocal(formData: FormData) {
     .single();
   if (error) falhar(traduzirErro(error.message));
 
-  if (criado) await guardarCielo(formData, criado.id);
+  if (criado) await guardarCieloDoFormulario(formData, { local: criado.id });
 
   revalidatePath(ROTA);
 }
@@ -146,7 +117,7 @@ export async function editarLocal(formData: FormData) {
   const { error } = await supabase.from("locais").update(paraBanco(dados.data)).eq("id", id);
   if (error) falhar(traduzirErro(error.message));
 
-  await guardarCielo(formData, id);
+  await guardarCieloDoFormulario(formData, { local: id });
 
   revalidatePath(ROTA);
 }

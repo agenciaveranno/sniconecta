@@ -26,7 +26,6 @@ export interface PessoaSessao {
   papeis: Papel[];
   papelPrincipal: TipoPapel | null;
   rotuloPapel: string;
-  eSede: boolean;
   /** Tem a capacidade em ALGUM escopo. Serve para montar menu. */
   pode: (cap: Capacidade) => boolean;
   /**
@@ -84,7 +83,6 @@ export const pessoaAtual = cache(async (): Promise<PessoaSessao | null> => {
 
   const tipos = papeis.map((p) => p.tipo);
   const principal = papelPrincipal(tipos);
-  const eSede = tipos.includes("sede");
 
   const pode = (cap: Capacidade) =>
     papeis.some((p) => capacidadesDe(p.tipo).includes(cap));
@@ -114,7 +112,6 @@ export const pessoaAtual = cache(async (): Promise<PessoaSessao | null> => {
     papeis,
     papelPrincipal: principal,
     rotuloPapel: principal ? NOME_PAPEL[principal] : "Sem papel atribuído",
-    eSede,
     pode,
     podeEm,
   };

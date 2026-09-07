@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { IconAlertCircle, IconLock } from "@tabler/icons-react";
-import { Alerta, Botao, Campo, Input } from "@/componentes/ui";
+import { IconLock } from "@tabler/icons-react";
+import { Botao, Campo, Input, Recado } from "@/componentes/ui";
 import { Entidade } from "@/componentes/ui";
 import { pessoaAtual } from "@/lib/auth";
 import { criarClienteServidor } from "@/lib/supabase/server";
@@ -47,13 +47,7 @@ export default async function DefinirSenhaPage({
           acessa daqui em diante.
         </p>
 
-        {erro && (
-          <div style={{ marginBottom: 16 }}>
-            <Alerta tipo="danger" icone={<IconAlertCircle size={20} className="ti" />}>
-              {erro}
-            </Alerta>
-          </div>
-        )}
+        <Recado erro={erro} />
 
         <form action={definirPrimeiraSenha} style={{ display: "grid", gap: 16 }}>
           <Campo label="Senha" obrigatorio dica="Ao menos 8 caracteres. Não pode ser seu CPF nem seu CodSNI.">

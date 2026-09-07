@@ -1,23 +1,13 @@
-import { IconAlertCircle, IconBuildingArch, IconPlus } from "@tabler/icons-react";
+import { IconBuildingArch, IconPlus } from "@tabler/icons-react";
 import Link from "next/link";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import CamposCielo from "@/componentes/CamposCielo";
 import {
-  Alerta,
-  Badge,
-  Campo,
-  Celula,
-  Etiqueta,
-  Input,
-  Linha,
-  Num,
-  Tabela,
-  TituloPagina,
-  Vazio,
+  Alerta, Badge, Campo, Celula, Etiqueta, Input, Linha, Num, Recado, Tabela, TituloPagina, Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
-import { listarCredenciais } from "@/lib/credenciais";
+import { contasCieloVisiveis, type ContaCieloNaTela } from "@/lib/credenciais";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import type { OrganizacaoRow } from "@/lib/supabase/tipos";
@@ -26,7 +16,10 @@ import { alternarAtivo, criarOrganizacao, editarOrganizacao } from "./actions";
 
 export const metadata = { title: "Departamentos" };
 
-type Conta = { merchant_id: string; nome_loja: string; temSegredo: boolean } | undefined;
+// O formato vem de `credenciais.ts`, junto com quem o produz: redeclarado à
+// mão, ele é estrutural e anônimo — esquecer de acompanhá-lo não daria erro de
+// compilação, daria campo em branco numa tela só.
+type Conta = ContaCieloNaTela | undefined;
 
 function Campos({
   organizacao,
@@ -87,18 +80,16 @@ export default async function OrganizacoesPage({
   const eu = await exigirCapacidadeNaPagina("estrutura.gerir");
 
   const podeVerCielo = eu.pode("configuracao.gerir");
-  const contas = podeVerCielo ? await listarCredenciais("cielo") : new Map();
-
   const supabase = await criarClienteServidor();
-  const organizacoes = exigir(
-    await supabase.from("organizacoes").select("*").order("ordem").order("nome"),
-    "as organizações"
-  ) as OrganizacaoRow[];
 
-  const contaDe = (id: string): Conta => {
-    const c = contas.get(id);
-    return c && { ...c.publico, temSegredo: c.temSegredo };
-  };
+  // ⚠️ As duas JUNTAS: a lista de contas não depende da de Departamentos, e em
+  // série somava sua ida e volta ao banco no tempo de tela em branco.
+  const [rOrganizacoes, contas] = await Promise.all([
+    supabase.from("organizacoes").select("*").order("ordem").order("nome"),
+    contasCieloVisiveis(podeVerCielo),
+  ]);
+
+  const organizacoes = exigir(rOrganizacoes, "as organizações") as OrganizacaoRow[];
 
   return (
     <Painel titulo="Departamentos">
@@ -118,13 +109,7 @@ export default async function OrganizacoesPage({
         }
       />
 
-      {erro && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="danger" icone={<IconAlertCircle size={20} className="ti" />}>
-            {erro}
-          </Alerta>
-        </div>
-      )}
+      <Recado erro={erro} />
 
       {organizacoes.length === 0 ? (
         <Vazio icone={<IconBuildingArch size={34} className="ti" />} titulo="Nenhum departamento cadastrado">
@@ -155,7 +140,7 @@ export default async function OrganizacoesPage({
                 <Num>{o.ordem}</Num>
               </Celula>
               {podeVerCielo && (
-                <Celula>{contaDe(o.id)?.merchant_id ? "Cadastrada" : "—"}</Celula>
+                <Celula>{contas.get(o.id)?.merchant_id ? "Cadastrada" : "—"}</Celula>
               )}
               <Celula>
                 <Etiqueta ativo={o.ativo} />
@@ -168,7 +153,7 @@ export default async function OrganizacoesPage({
                     titulo={`Editar ${o.nome}`}
                     acao={editarOrganizacao}
                   >
-                    <Campos organizacao={o} cielo={contaDe(o.id)} podeVerCielo={podeVerCielo} />
+                    <Campos organizacao={o} cielo={contas.get(o.id)} podeVerCielo={podeVerCielo} />
                   </ModalCadastro>
                   <form action={alternarAtivo}>
                     <input type="hidden" name="id" value={o.id} />

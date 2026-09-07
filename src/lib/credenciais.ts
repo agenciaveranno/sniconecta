@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { pessoaAtual } from "@/lib/auth";
 import { cifrar, decifrar } from "@/lib/cripto";
 import { criarClienteServico } from "@/lib/supabase/service";
 
@@ -261,4 +262,84 @@ export async function listarCredenciais<S extends Servico>(
     });
   }
   return mapa;
+}
+
+/**
+ * Grava (ou apaga) a conta Cielo de uma entidade a partir do formulário dela.
+ *
+ * Cada Organização, cada Regional e cada Academia recebe na SUA conta, então
+ * a conta mora no cadastro da entidade — e três telas gravam a mesma coisa.
+ * Estava escrito três vezes, palavra por palavra; a quarta chamada divergiu e
+ * apagou a conta das Regionais em silêncio. Uma cópia só, aqui, ao lado de
+ * `salvarCredencial` e `removerCredencial`, que já falam em `Dono`.
+ *
+ * ⚠️ Roda DEPOIS de a entidade existir e falha só o passo dela: uma Regional
+ * cadastrada com a chave digitada errada não pode desaparecer junto com o
+ * erro. A pessoa reabre e corrige só a conta.
+ */
+export async function guardarCieloDoFormulario(formData: FormData, dono: Dono) {
+  // ⚠️ O porteiro fica AQUI, e não em cada chamador. Conta bancária é dado da
+  // Sede: quem cadastra estrutura não necessariamente mexe em por onde entra
+  // dinheiro. Deixar a checagem no chamador é o mesmo tipo de repetição que
+  // deixou esta função triplicada — a quarta tela esqueceria.
+  const eu = await pessoaAtual();
+  if (!eu?.pode("configuracao.gerir")) return;
+
+  // ⚠️ Formulário que NÃO desenhou o bloco da Cielo não decide nada sobre a
+  // conta. Sem esta linha, salvar o telefone de uma Regional numa tela que não
+  // mostra a conta manda o Merchant ID em branco — e "em branco" abaixo quer
+  // dizer APAGAR. A marca vem de `CamposCielo`, o único que sabe se o bloco
+  // foi desenhado; nenhuma tela precisa lembrar de nada.
+  if (!formData.get("cielo_na_tela")) return;
+
+  const merchantId = String(formData.get("cielo_merchant_id") ?? "").trim();
+
+  // ⚠️ Merchant ID em branco APAGA a conta. É o único jeito de a entidade
+  // parar de receber: se apenas ignorasse o campo vazio, quem limpou o
+  // cadastro sairia da tela achando que desligou a venda, e o dinheiro
+  // continuaria caindo na conta antiga. Vale também quando o tipo muda para um
+  // que não recebe em conta própria — o bloco some e o campo vem vazio.
+  if (!merchantId) {
+    await removerCredencial("cielo", dono);
+    return;
+  }
+
+  await salvarCredencial(
+    "cielo",
+    dono,
+    {
+      publico: {
+        merchant_id: merchantId,
+        nome_loja: String(formData.get("cielo_nome_loja") ?? "").trim(),
+      },
+      segredo: String(formData.get("cielo_merchant_key") ?? ""),
+    },
+    eu.id
+  );
+}
+
+/** O que a tela precisa saber sobre a conta Cielo de uma entidade. */
+export type ContaCieloNaTela = CieloPublico & { temSegredo: boolean };
+
+/**
+ * As contas Cielo prontas para a tela, indexadas pelo id do dono.
+ *
+ * As quatro telas que cadastram entidade faziam a mesma coisa: checar a
+ * capacidade, listar as credenciais e adaptar cada uma ao formato do
+ * formulário — com o formato redeclarado à mão em cada arquivo. Como o tipo é
+ * estrutural e anônimo, esquecer um deles não dava erro de compilação; dava
+ * campo em branco numa tela só, que foi como a conta das Regionais sumiu.
+ *
+ * ⚠️ Devolve mapa VAZIO para quem não pode ver, em vez de recusar: conta
+ * bancária é dado da Sede, e quem só cadastra estrutura continua editando o
+ * endereço da unidade sem enxergar por onde ela recebe.
+ */
+export async function contasCieloVisiveis(
+  podeVer: boolean
+): Promise<Map<string, ContaCieloNaTela>> {
+  if (!podeVer) return new Map();
+  const contas = await listarCredenciais("cielo");
+  return new Map(
+    [...contas].map(([dono, c]) => [dono, { ...c.publico, temSegredo: c.temSegredo }])
+  );
 }

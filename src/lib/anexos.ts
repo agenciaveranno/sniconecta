@@ -99,11 +99,23 @@ export async function guardarAnexo(opcoes: {
   return { ok: true, id: data.id };
 }
 
-/** URL de vida curta. Uma hora chega para abrir e baixar; um dia, não. */
-export async function urlAssinada(caminho: string, segundos = 3600): Promise<string | null> {
+/**
+ * As URLs de vida curta dos anexos, indexadas pelo caminho. Uma hora chega
+ * para abrir e baixar; um dia, não.
+ *
+ * ⚠️ UMA chamada ao Storage, e não uma por documento. A ficha emitia as
+ * assinaturas num laço `await`: uma pessoa com RG, CNH, comprovante de
+ * residência, certidão e diploma esperava seis idas encadeadas — e cada uma
+ * ainda montava um cliente novo — só para desenhar a lista de anexos.
+ */
+export async function urlsAssinadas(
+  caminhos: string[],
+  segundos = 3600
+): Promise<Map<string, string | null>> {
+  if (caminhos.length === 0) return new Map();
   const servico = criarClienteServico();
-  const { data } = await servico.storage.from(BALDE).createSignedUrl(caminho, segundos);
-  return data?.signedUrl ?? null;
+  const { data } = await servico.storage.from(BALDE).createSignedUrls(caminhos, segundos);
+  return new Map((data ?? []).map((d) => [d.path ?? "", d.signedUrl ?? null]));
 }
 
 export async function apagarAnexo(id: string): Promise<{ ok: boolean; erro?: string }> {

@@ -1,8 +1,6 @@
-import { redirect } from "next/navigation";
 import Painel from "@/componentes/Painel";
-import { Alerta, Botao, BotaoLink, TituloPagina } from "@/componentes/ui";
-import { IconAlertCircle } from "@tabler/icons-react";
-import { pessoaAtual } from "@/lib/auth";
+import { Botao, BotaoLink, Recado, TituloPagina } from "@/componentes/ui";
+import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import CamposPessoa from "../CamposPessoa";
@@ -19,8 +17,7 @@ export default async function NovaPessoaPage({
 }: {
   searchParams: Promise<{ erro?: string }>;
 }) {
-  const eu = await pessoaAtual();
-  if (!eu?.pode("pessoa.gerir")) redirect("/painel");
+  const eu = await exigirCapacidadeNaPagina("pessoa.gerir");
 
   const { erro } = await searchParams;
   const supabase = await criarClienteServidor();
@@ -42,13 +39,7 @@ export default async function NovaPessoaPage({
         voltar={{ href: "/admin/pessoas", texto: "Pessoas" }}
       />
 
-      {erro && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="danger" icone={<IconAlertCircle size={20} className="ti" />}>
-            {erro}
-          </Alerta>
-        </div>
-      )}
+      <Recado erro={erro} />
 
       <form action={criarPessoa}>
         <CamposPessoa unidades={associacoes ?? []} />

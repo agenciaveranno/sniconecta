@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { exigirCapacidade } from "@/lib/auth";
-import { removerCredencial, salvarCredencial, smtpPublico } from "@/lib/credenciais";
+import { salvarCredencial, smtpPublico } from "@/lib/credenciais";
 
 const ROTA = "/admin/configuracoes";
 
@@ -47,13 +47,7 @@ export async function salvarSmtp(formData: FormData) {
   redirect(`${ROTA}?ok=1`);
 }
 
-/**
- * Apaga a configuração inteira. Existe para o caso de troca de provedor: sem
- * isto, um host antigo ficaria de pé com a senha nova e as mensagens sairiam
- * para o lugar errado até alguém perceber.
- */
-export async function apagarSmtp() {
-  await exigirCapacidade("configuracao.gerir");
-  await removerCredencial("smtp", { instituicao: true });
-  revalidatePath(ROTA);
-}
+// ⚠️ Aqui havia um `apagarSmtp` sem nenhum botão que o chamasse. `"use server"`
+// publica um endpoint alcançável de fora, e um endpoint que nenhuma tela
+// exercita é um que ninguém percebe quebrar. Ele volta junto com o botão
+// "Trocar de provedor", quando essa tela existir — são três linhas.

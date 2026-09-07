@@ -362,6 +362,8 @@ async function mapaDe(tabelaDestino: string): Promise<Map<number, number>> {
   return new Map(linhas.map((l) => [l.legado_id, l.id]));
 }
 
+let cachePessoas: Map<number, string> | null = null;
+
 /** O mesmo, para `pessoas`, cujo id de destino é uuid. */
 async function mapaPessoas(): Promise<Map<number, string>> {
   // ⚠️ Duas entradas por pessoa unificada. Quando a origem tinha o mesmo CPF em
@@ -370,11 +372,18 @@ async function mapaPessoas(): Promise<Map<number, string>> {
   // feita pelo cadastro que sumiu seria rejeitada como "pessoa não migrada", e
   // o histórico dela ficaria pela metade: o pior resultado possível, porque a
   // unificação existe justamente para juntar os dois.
+  // ⚠️ Memoizado: `mapaPessoas()` é chamado por vínculos, compras e comissão,
+  // e varria as dezesseis mil linhas de `pessoas` extraindo jsonb uma vez para
+  // cada. O mapa não muda depois da fase `pessoas` — as três chamadas leem a
+  // mesma resposta.
+  if (cachePessoas) return cachePessoas;
+
   const linhas = await destino<{ id: string; legado_id: number | null; unificados: { legado_id: number }[] | null }[]>`
     select id, legado_id, migracao_extras->'unificados' as unificados
       from public.pessoas
      where legado_id is not null or migracao_extras ? 'unificados'`;
   const mapa = new Map<number, string>();
+  cachePessoas = mapa;
   for (const l of linhas) {
     if (l.legado_id !== null) mapa.set(l.legado_id, l.id);
     for (const u of l.unificados ?? []) mapa.set(Number(u.legado_id), l.id);
@@ -552,12 +561,17 @@ async function faseVinculos() {
     // é um lugar provisório e verdadeiro — ela pertence à instituição, e a
     // qual Regional ninguém sabe. Deixá-la sem vínculo nenhum a esconderia de
     // toda tela que lista por unidade.
+    // Uma fonte só para o destino: a Sede é o padrão, e cada ramo abaixo diz
+    // por que sai dele. O ternário antes atribuía `sede.id` e o `if` logo
+    // depois reatribuía o MESMO valor — quem mexesse num sem mexer no outro
+    // mudaria em silêncio onde 144 pessoas vão parar.
     const chaveRegional = chaveNucleo(p.regional);
-    let regionalId = chaveRegional ? regionais.get(chaveRegional) : sede.id;
+    let regionalId = sede.id;
     if (!chaveRegional) {
       pendente("sem Regional na origem — ficou na Associação Local Sede Central");
-      regionalId = sede.id;
-    } else if (!regionalId) {
+    } else if (regionais.has(chaveRegional)) {
+      regionalId = regionais.get(chaveRegional)!;
+    } else {
       const nome = texto(p.regional)!;
       const [nova] = await destino<{ id: string }[]>`
         insert into public.unidades (tipo, pai_id, nome, migracao_extras)
@@ -1064,7 +1078,12 @@ async function faseComissao() {
   const pessoas = await mapaPessoas();
   const mapaEvento = await mapaDe("eventos.eventos");
 
-  for (const s of await ler("ComissaoSetorPadrao")) {
+  // Lida UMA vez: a segunda leitura, só para montar `setoresAntigos`, pedia ao
+  // MySQL a mesma resposta — e abria a porta para as duas discordarem, numa
+  // carga que se apoia em ser repetível.
+  const setoresOrigem = await ler("ComissaoSetorPadrao");
+
+  for (const s of setoresOrigem) {
     r.lidas++;
     await destino`
       insert into eventos.comissao_setores_padrao (nome, ordem)
@@ -1078,7 +1097,7 @@ async function faseComissao() {
       .map((l) => [l.nome, l.id])
   );
   const setoresAntigos = new Map(
-    (await ler("ComissaoSetorPadrao")).map((s) => [Number(s.id), texto(s.nome) ?? ""])
+    setoresOrigem.map((s) => [Number(s.id), texto(s.nome) ?? ""])
   );
 
   for (const f of await ler("ComissaoFuncaoPadrao")) {

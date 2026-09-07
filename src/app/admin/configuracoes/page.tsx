@@ -1,14 +1,7 @@
-import { IconAlertCircle, IconCircleCheck, IconMail } from "@tabler/icons-react";
+import { IconMail } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import {
-  Alerta,
-  Botao,
-  Campo,
-  Card,
-  Input,
-  Select,
-  TituloPagina,
-  TituloSecao,
+  Alerta, Botao, Campo, Card, Input, Recado, Select, TituloPagina, TituloSecao,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { lerCredencial } from "@/lib/credenciais";
@@ -34,20 +27,10 @@ export default async function ConfiguracoesPage({
         descricao="O que é decisão da instituição mora aqui, editável em tela. O que é segredo de infraestrutura — chave do banco, chave de cifra — continua em variável de ambiente."
       />
 
-      {erro && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="danger" icone={<IconAlertCircle size={20} className="ti" />}>
-            {erro}
-          </Alerta>
-        </div>
-      )}
-      {ok && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="success" icone={<IconCircleCheck size={20} className="ti" />}>
-            Servidor de envio guardado. As próximas mensagens da fila saem por ele.
-          </Alerta>
-        </div>
-      )}
+      <Recado
+        erro={erro}
+        ok={ok && "Servidor de envio guardado. As próximas mensagens da fila saem por ele."}
+      />
 
       <TituloSecao>Envio de e-mail</TituloSecao>
 

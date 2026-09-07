@@ -1,14 +1,15 @@
-import { IconAlertCircle, IconCheck, IconPlus, IconSitemap } from "@tabler/icons-react";
+import { IconPlus, IconSitemap } from "@tabler/icons-react";
 import Link from "next/link";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
-  Alerta, Badge, Celula, Etiqueta, Linha, Num, Tabela, TituloPagina, Vazio,
+  Alerta, Badge, Celula, Etiqueta, Linha, Num, Recado, Tabela, TituloPagina, Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina, pessoaAtual } from "@/lib/auth";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import { formatarCnpj } from "@/lib/dominio/cnpj";
+import { contasCieloVisiveis } from "@/lib/credenciais";
 import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
 import CamposUnidade from "./CamposUnidade";
 import { criarUnidade, editarUnidade } from "./actions";
@@ -38,30 +39,48 @@ export default async function ListaDeUnidades({
 
   const supabase = await criarClienteServidor();
 
-  // ⚠️ As três JUNTAS, e não uma esperando a outra. Nenhuma depende do
+  const podeVerCielo = Boolean(eu?.pode("configuracao.gerir"));
+
+  // ⚠️ As cinco JUNTAS, e não uma esperando a outra. Nenhuma depende do
   // resultado das outras, e em série cada uma soma sua ida e volta ao banco no
   // tempo de tela em branco.
-  const [rUnidades, rTipos, rOrganizacoes] = await Promise.all([
+  //
+  // ⚠️ `todas` traz as unidades de TODOS os tipos com três colunas, e os
+  // superiores saem dela por filtro em memória. Buscá-los à parte obrigava a
+  // esperar `tipos_unidade` chegar para só então perguntar quais tipos podem
+  // ser pai — uma sexta ida, em série, para uma pergunta que o catálogo já
+  // tinha respondido.
+  const [rUnidades, rTipos, rOrganizacoes, rTodas, contas] = await Promise.all([
     supabase.from("unidades").select("*").eq("tipo", tipo).order("nome"),
     supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
-    supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
+    // ⚠️ `e_organizacao`: a lista de escolha é de ORGANIZAÇÕES doutrinárias —
+    // Fraternidade, Pomba Branca, Jovens, Prosperidade —, não dos Departamentos
+    // administrativos da Sede. Sem o filtro, quem cadastra uma Associação Local
+    // podia pendurá-la na Controladoria, ou na "Indefinida" que a carga criou
+    // como dívida a revisar — e escolher a dívida de boa-fé a tornaria destino.
+    supabase.from("organizacoes").select("*").eq("ativo", true).eq("e_organizacao", true).order("ordem"),
+    supabase.from("unidades").select("id, nome, tipo").order("nome"),
+    contasCieloVisiveis(podeVerCielo),
   ]);
 
   const unidades = (exigir(rUnidades, `as unidades do tipo ${tipo}`) ?? []) as UnidadeRow[];
   const tipos = (exigir(rTipos, "os tipos de unidade") ?? []) as TipoUnidadeRow[];
   const organizacoes = (exigir(rOrganizacoes, "as organizações") ?? []) as OrganizacaoRow[];
+  const todas = (exigir(rTodas, "as unidades") ?? []) as Pick<UnidadeRow, "id" | "nome" | "tipo">[];
 
   // Só os degraus que PODEM receber este tipo entram na lista de superiores —
   // e para a Regional nem isso, porque ela não pergunta onde fica.
   const permitidos = tipos.find((t) => t.codigo === tipo)?.pais_permitidos ?? [];
-  const superiores = (exigir(
-    await supabase.from("unidades").select("id, nome, tipo").in("tipo", permitidos.length ? permitidos : ["__nenhum__"]).order("nome"),
-    "as unidades superiores"
-  ) ?? []) as Pick<UnidadeRow, "id" | "nome" | "tipo">[];
+  const superiores = todas.filter((u) => permitidos.includes(u.tipo));
 
-  const nomeSuperior = new Map(superiores.map((u) => [u.id, u.nome]));
+  const nomeSuperior = new Map(todas.map((u) => [u.id, u.nome]));
   const nomeOrg = new Map(organizacoes.map((o) => [o.id, o.nome]));
-  const podeVerCielo = Boolean(eu?.pode("configuracao.gerir"));
+
+  // ⚠️ A conta Cielo TEM de chegar ao formulário de edição. Sem ela o bloco
+  // aparece vazio e, ao salvar, o Merchant ID em branco APAGAVA a conta da
+  // entidade — editar o telefone de uma Regional a tirava do ar para venda.
+  // Hoje `guardarCieloDoFormulario` também exige a marca de que o bloco foi
+  // desenhado, então o esquecimento não volta a custar a conta de ninguém.
 
   return (
     <Painel titulo={titulo}>
@@ -88,16 +107,7 @@ export default async function ListaDeUnidades({
         }
       />
 
-      {erro && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="danger" icone={<IconAlertCircle size={20} className="ti" />}>{erro}</Alerta>
-        </div>
-      )}
-      {ok && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="success" icone={<IconCheck size={20} className="ti" />}>{ok}</Alerta>
-        </div>
-      )}
+      <Recado erro={erro} ok={ok} />
 
       <p className="sni-hint" style={{ marginBottom: 20 }}>
         <Link href="/admin/estrutura">
@@ -157,6 +167,7 @@ export default async function ListaDeUnidades({
                     unidades={superiores}
                     organizacoes={organizacoes}
                     unidade={u}
+                    cielo={contas.get(u.id)}
                     podeVerCielo={podeVerCielo}
                   />
                 </ModalCadastro>

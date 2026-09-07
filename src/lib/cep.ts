@@ -19,9 +19,10 @@ export type Endereco = {
   fonte: string;
 };
 
-// A máscara mora em `dominio/endereco-formato.ts`: este arquivo é
-// `server-only`, e o navegador precisa dela.
-export { somenteDigitosCep, formatarCep, mascararCep } from "@/lib/dominio/endereco-formato";
+// ⚠️ A máscara mora em `dominio/endereco-formato.ts` e é de LÁ que a tela a
+// importa. Este arquivo é `server-only`: reexportá-la daqui criava um segundo
+// caminho para a mesma função, e o componente cliente que o descobrisse
+// quebrava o build.
 import { somenteDigitosCep } from "@/lib/dominio/endereco-formato";
 
 /** Corta a espera. Balcão parado esperando rede é pior que campo vazio. */
