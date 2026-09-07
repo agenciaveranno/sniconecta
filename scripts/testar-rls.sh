@@ -451,11 +451,43 @@ escrita "coordenadora NÃO cria seção" $CSUL \
 escrita "duas seções com o mesmo nome no mesmo Departamento são recusadas" $SEDE \
   "insert into secoes (organizacao_id, nome) values ($ORG_PROSP,'Repetida'),($ORG_PROSP,'Repetida');" NEGADO
 
+echo "── Mandatos: cargo é fato datado, com requisito de função"
+# Uma pessoa com função baixa não pode ser Diretor-Presidente. A checagem é
+# contra o HISTÓRICO na data da posse, não contra a função de hoje.
+P -q -c "insert into pessoa_funcao_hist (pessoa_id, funcao_id, vigencia_inicio) values ('d0000000-0000-0000-0000-000000000005',(select id from funcoes_doutrinarias where nome='Divulgador'),'2020-01-01');" >/dev/null 2>&1
+escrita "Divulgador NÃO pode ser Diretor-Presidente" $SEDE \
+  "insert into mandatos (pessoa_id, cargo, data_inicio) values ('d0000000-0000-0000-0000-000000000005','dac.presidente','2026-03-01');" NEGADO
+escrita "Divulgador PODE presidir Associação Local" $SEDE \
+  "insert into mandatos (pessoa_id, cargo, unidade_id, data_inicio) values ('d0000000-0000-0000-0000-000000000005','al.presidente','33330000-0000-0000-0000-000000000001','2026-06-01');" OK
+# ⚠️ A promoção veio DEPOIS da posse: ela não pode validar retroativamente uma
+# nomeação que era irregular quando aconteceu.
+escrita "promoção posterior não valida posse anterior" $SEDE \
+  "insert into pessoa_funcao_hist (pessoa_id, funcao_id, vigencia_inicio) values ('d0000000-0000-0000-0000-000000000005',(select id from funcoes_doutrinarias where nome='Preletor em grau Máster'),'2030-01-01');
+   insert into mandatos (pessoa_id, cargo, data_inicio) values ('d0000000-0000-0000-0000-000000000005','dac.presidente','2026-03-01');" NEGADO
+escrita "com a função na data da posse, a nomeação passa" $SEDE \
+  "insert into pessoa_funcao_hist (pessoa_id, funcao_id, vigencia_inicio) values ('d0000000-0000-0000-0000-000000000005',(select id from funcoes_doutrinarias where nome='Preletor em grau Máster'),'2025-01-01');
+   insert into mandatos (pessoa_id, cargo, data_inicio) values ('d0000000-0000-0000-0000-000000000005','dac.presidente','2026-03-01');" OK
+escrita "cargo nacional com unidade é recusado" $SEDE \
+  "insert into mandatos (pessoa_id, cargo, unidade_id, data_inicio) values ('d0000000-0000-0000-0000-000000000005','dac.secretario','22220000-0000-0000-0000-000000000001','2026-03-01');" NEGADO
+escrita "cargo de Regional sem unidade é recusado" $SEDE \
+  "insert into mandatos (pessoa_id, cargo, data_inicio) values ('d0000000-0000-0000-0000-000000000005','supervisao.supervisor','2026-10-01');" NEGADO
+# ⚠️ Os dois na MESMA instrução: `escrita` desfaz a transação, então um mandato
+# aberto na asserção anterior não existe mais aqui.
+escrita "dois Presidentes da mesma AL ao mesmo tempo são recusados" $SEDE \
+  "insert into mandatos (pessoa_id, cargo, unidade_id, data_inicio) values ('d0000000-0000-0000-0000-000000000005','al.presidente','33330000-0000-0000-0000-000000000001','2026-06-01'),('d0000000-0000-0000-0000-000000000007','al.presidente','33330000-0000-0000-0000-000000000001','2026-06-01');" NEGADO
+escrita "coordenadora NÃO dá posse" $CSUL \
+  "insert into mandatos (pessoa_id, cargo, unidade_id, data_inicio) values ('d0000000-0000-0000-0000-000000000005','al.presidente','33330000-0000-0000-0000-000000000001','2026-06-01');" NEGADO
+n_cargos=$(conta "select count(*) from cargos;")
+[ "$n_cargos" -ge 30 ] || { echo "  ❌ esperava ao menos 30 cargos catalogados, veio $n_cargos"; falhas=$((falhas+1)); }
+n_secr=$(conta "select count(*) from colegiados c where not exists (select 1 from cargos g where g.colegiado=c.codigo and g.e_secretario) and c.codigo not in ('supervisao','departamento','representacao');")
+[ "$n_secr" = "0" ] || { echo "  ❌ $n_secr colegiado(s) sem cargo de Secretário — a ata não saberia quem a lavrou"; falhas=$((falhas+1)); }
+echo "  ✅ $n_cargos cargos catalogados, e todo conselho tem Secretário"
+
 echo "── Superfície de GRANT"
 # Tabelas e visões que PODEM ser lidas ou escritas pelo navegador. Toda a
 # lista é decisão registrada: quem entrar aqui sem estar no arquivo da
 # migração reprova.
-PERMITIDAS="auditoria,configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,organizacoes,papeis,pessoa_funcao_atual,pessoa_funcao_hist,pessoa_unidade_vinculos,pessoa_vinculo_atual,pessoas,secoes,solicitacoes_exclusao,tipos_local,tipos_papel,tipos_unidade,unidades"
+PERMITIDAS="auditoria,cargos,colegiados,configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,mandato_atual,mandatos,organizacoes,papeis,pessoa_funcao_atual,pessoa_funcao_hist,pessoa_unidade_vinculos,pessoa_vinculo_atual,pessoas,secoes,solicitacoes_exclusao,tipos_local,tipos_papel,tipos_unidade,unidades"
 inesperadas=$(P -t -A <<SQL
 select string_agg(distinct table_name, ', ' order by table_name)
   from information_schema.role_table_grants

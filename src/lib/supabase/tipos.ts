@@ -129,6 +129,51 @@ export type OrganizacaoRow = {
   ativo: boolean;
 };
 
+/** Diretoria ou conselho. Duração e início de gestão são dado, não código. */
+export type ColegiadoRow = {
+  codigo: string;
+  nome: string;
+  sigla: string | null;
+  ambito: "nacional" | "regional" | "academia" | "departamento" | "associacao_local";
+  duracao_anos: number;
+  mes_inicio: number | null;
+  dia_inicio: number;
+  ordem: number;
+  ativo: boolean;
+};
+
+export type CargoRow = {
+  codigo: string;
+  colegiado: string;
+  nome: string;
+  /** Quantos cabem ao mesmo tempo. Nulo = sem teto. */
+  vagas: number | null;
+  /** `ordem` da função doutrinária mínima. Nulo = qualquer uma serve. */
+  funcao_minima: number | null;
+  vota: "sempre" | "nunca" | "desempate";
+  e_secretario: boolean;
+  e_gestor: boolean;
+  ordem: number;
+  ativo: boolean;
+};
+
+/** Quem ocupa (ou ocupou) um cargo. Encerrar é pôr data, nunca apagar. */
+export type MandatoRow = {
+  id: string;
+  pessoa_id: string;
+  cargo: string;
+  unidade_id: string | null;
+  local_id: string | null;
+  organizacao_id: string | null;
+  condicao: "efetivo" | "ouvinte";
+  data_inicio: string;
+  data_fim: string | null;
+  motivo_fim: string | null;
+  observacoes: string | null;
+  criado_em: string;
+  criado_por: string | null;
+};
+
 /** Subdivisão de um Departamento, com gestor próprio. */
 export type SecaoRow = {
   id: string;
@@ -304,6 +349,9 @@ export interface Database {
       ceps: Tabela<CepRow>;
       pessoa_anexos: Tabela<PessoaAnexoRow>;
       secoes: Tabela<SecaoRow>;
+      colegiados: Tabela<ColegiadoRow>;
+      cargos: Tabela<CargoRow>;
+      mandatos: Tabela<MandatoRow>;
     };
     Views: {
       pessoa_vinculo_atual: { Row: VinculoAtualRow; Relationships: [] };
