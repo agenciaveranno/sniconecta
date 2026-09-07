@@ -230,11 +230,48 @@ async function lerWoo(): Promise<Produto[] | null> {
 /** Prateleira de vitrine, não tipo de produto. Ver `classificar`. */
 const VITRINE = /^(lan[çc]amentos?|promo[çc][õo]es?|ofertas?|destaques?|mais vendidos?|novidades?)$/i;
 
-function classificar(categorias: string[]): {
+/** Sem acento, sem caixa, sem espaço dobrado — para comparar nome com nome. */
+function chave(nome: string): string {
+  return nome
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * O que a Sede decidiu, um a um, sobre produtos que a loja NÃO classifica.
+ *
+ * ⚠️ Lista explícita porque não há dado de onde derivar: estes títulos estão só
+ * em "Lançamentos", que é prateleira de vitrine. A loja não diz o que eles são,
+ * e uma pessoa decidiu olhando. Encodar a decisão dela é honesto; inventar uma
+ * regra que a reproduza por acaso, não.
+ *
+ * ⚠️ E o casamento é pelo nome INTEIRO, nunca por trecho. "Kit: Livro A Fé que
+ * muda o seu destino + Pingente de Acrílico Azul" CONTÉM "A Fé que muda o seu
+ * Destino": por trecho, o kit — que tem pingente dentro — viraria livro.
+ *
+ * Some sozinha no dia em que a loja classificar o produto: quem tem categoria
+ * de verdade nem chega aqui.
+ */
+const DECISOES_DA_SEDE = new Map<string, { raiz: string; assunto: string | null }>(
+  [
+    "A fé que muda o seu Destino",
+    "Podemos Ser Mais Felizes",
+    "Educação da vida: Um tesouro valioso",
+    "A Potencialidade Latente do Ser Humano",
+  ].map((nome) => [chave(nome), { raiz: "Livros", assunto: null }])
+);
+
+function classificar(nome: string, categorias: string[]): {
   raiz: string;
   assunto: string | null;
   vitrineSoZinha: boolean;
 } {
+  const decidido = DECISOES_DA_SEDE.get(chave(nome));
+  if (decidido) return { ...decidido, vitrineSoZinha: false };
+
   const tem = (re: RegExp) => categorias.some((c) => re.test(c.trim()));
 
   // ⚠️ ASSINATURA DE REVISTA NÃO É COTA DE REVISTA. A assinatura são 12
@@ -330,7 +367,7 @@ async function principal() {
       if (p.preco_centavos <= 0) relatorio.semPreco++;
       if (!p.disponivel) relatorio.semEstoque++;
 
-      const { raiz, assunto, vitrineSoZinha } = classificar(p.categorias);
+      const { raiz, assunto, vitrineSoZinha } = classificar(p.nome, p.categorias);
       if (vitrineSoZinha) {
         relatorio.semClassificacao.push(p.nome);
       }
