@@ -520,11 +520,29 @@ escrita "coordenadora da Regional Sul cadastra reunião de AL dela" $CSUL \
 escrita "coordenadora da Regional Sul NÃO cadastra reunião em Campinas" $CSUL \
   "insert into reunioes (unidade_id, frequencia, dia_semana, hora_inicio) values ('33330000-0000-0000-0000-000000000003','semanal',3,'19:30');" NEGADO
 
+echo "── PASC, locais de terceiro e catálogo de produtos"
+# ⚠️ O gatilho de CNPJ exige a raiz da Sede — e isso vale só para o que é NOSSO.
+# Um hotel tem CNPJ de outra empresa, e recusá-lo impediria cadastrar o local
+# onde o evento vai acontecer.
+escrita "hotel de terceiro com CNPJ próprio é aceito" $SEDE \
+  "insert into locais (tipo, nome, cnpj, proprio) values ('hotel','Hotel do Evento','11222333000181',false);" OK
+escrita "local NOSSO com CNPJ de outra empresa continua recusado" $SEDE \
+  "insert into locais (tipo, nome, cnpj, proprio) values ('academia','Academia Errada','11222333000181',true);" NEGADO
+escrita "categoria de produto que não fecha em 100% é recusada" $SEDE \
+  "insert into produto_categorias (nome, pct_sede, pct_regional, pct_local) values ('Torta', 50, 25, 20);" NEGADO
+escrita "código de barras com letra é recusado" $SEDE \
+  "insert into produtos (categoria_id, nome, codigo_barras) values ((select id from produto_categorias where nome='Livros'),'Livro','ABC123');" NEGADO
+escrita "evento gratuito e parcelado é recusado" $SEDE \
+  "insert into eventos.eventos (nome, data_inicial, data_final, gratuito, max_parcelas) values ('Impossível','2026-05-01','2026-05-01',true,3);" NEGADO
+n_ambito=$(conta "select count(*) from information_schema.columns where table_schema='eventos' and table_name='eventos' and column_name='ambito';")
+[ "$n_ambito" = "1" ] || { echo "  ❌ o PASC precisa da coluna de âmbito no evento"; falhas=$((falhas+1)); }
+echo "  ✅ PASC é recorte de \`ambito\`, não tabela à parte"
+
 echo "── Superfície de GRANT"
 # Tabelas e visões que PODEM ser lidas ou escritas pelo navegador. Toda a
 # lista é decisão registrada: quem entrar aqui sem estar no arquivo da
 # migração reprova.
-PERMITIDAS="auditoria,cargos,colegiados,configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,mandato_atual,mandatos,organizacoes,papeis,pessoa_funcao_atual,pessoa_funcao_hist,pessoa_unidade_vinculos,pessoa_vinculo_atual,pessoas,reunioes,revista_cotas,revista_minimos,revista_pedidos,revista_precos,revistas,secoes,solicitacoes_exclusao,tipos_local,tipos_papel,tipos_unidade,unidades"
+PERMITIDAS="auditoria,cargos,colegiados,configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,mandato_atual,mandatos,organizacoes,papeis,pessoa_funcao_atual,pessoa_funcao_hist,pessoa_unidade_vinculos,pessoa_vinculo_atual,pessoas,produto_categorias,produtos,reunioes,revista_cotas,revista_minimos,revista_pedidos,revista_precos,revistas,secoes,solicitacoes_exclusao,tipos_local,tipos_papel,tipos_unidade,unidades"
 inesperadas=$(P -t -A <<SQL
 select string_agg(distinct table_name, ', ' order by table_name)
   from information_schema.role_table_grants

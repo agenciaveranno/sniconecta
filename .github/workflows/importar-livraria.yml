@@ -1,0 +1,53 @@
+name: Importar a livraria
+
+# Lê livraria.sni.org.br e grava em `produtos`.
+#
+# ⚠️ Nunca dispara sozinho, e o padrão é ENSAIO. A primeira execução tem de ser
+# de ensaio: o script foi escrito sem acesso à loja — o ambiente de
+# desenvolvimento bloqueia saída para a internet — e os nomes e preços
+# impressos são a única conferência possível antes de gravar.
+
+on:
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: "ensaio lê e imprime; gravar aplica de verdade"
+        type: choice
+        options: [ensaio, gravar]
+        default: ensaio
+      regiao_supabase:
+        description: "Região do pooler do Supabase."
+        type: string
+        default: sa-east-1
+
+jobs:
+  importar:
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Montar a conexão com o Supabase
+        env:
+          REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SENHA: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          [ -n "$REF" ] || { echo "::error::Falta SUPABASE_PROJECT_REF."; exit 1; }
+          [ -n "$SENHA" ] || { echo "::error::Falta SUPABASE_DB_PASSWORD."; exit 1; }
+          # A senha vai codificada: caractere especial em senha quebra a URL.
+          SENHA_URL=$(printf '%s' "$SENHA" | jq -sRr @uri)
+          echo "DATABASE_URL=postgresql://postgres.${REF}:${SENHA_URL}@aws-0-${{ inputs.regiao_supabase }}.pooler.supabase.com:6543/postgres" >> "$GITHUB_ENV"
+
+      - name: Importar
+        run: |
+          if [ "${{ inputs.modo }}" = "gravar" ]; then
+            echo "::warning::Modo GRAVAR: isto escreve no banco de produção."
+            npm run importar-livraria
+          else
+            npm run importar-livraria -- --dry-run
+          fi
