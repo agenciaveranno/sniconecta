@@ -239,7 +239,7 @@ async function principal() {
   }
 
   const destino = postgres(DESTINO!, { prepare: false, max: 3 });
-  const relatorio = { lidos: produtos.length, gravados: 0, semNome: 0, semPreco: 0 };
+  const relatorio = { lidos: produtos.length, gravados: 0, semNome: 0, semPreco: 0, teste: 0 };
 
   try {
     const categorias = new Map<string, string>();
@@ -264,6 +264,15 @@ async function principal() {
 
     for (const p of produtos) {
       if (!p.nome) { relatorio.semNome++; continue; }
+
+      // ⚠️ A loja tem produto de teste publicado ("PRODUTO DE TESTE - FAVOR NÃO
+      // COMPRAR"). Ele não é catálogo, e entraria ao lado dos livros de verdade
+      // — na tela, na busca e em qualquer relatório de vendas.
+      if (/produto de teste|n[aã]o comprar|\bteste\b.*n[aã]o/i.test(p.nome)) {
+        relatorio.teste++;
+        console.log(`   ⊘ ignorado (produto de teste): ${p.nome}`);
+        continue;
+      }
       if (p.preco_centavos <= 0) relatorio.semPreco++;
 
       const { raiz, assunto } = classificar(p.categorias);
@@ -302,6 +311,7 @@ async function principal() {
   console.log(`\n${dryRun ? "Ensaio" : "Gravado"}: ${relatorio.gravados} de ${relatorio.lidos} produtos.`);
   if (relatorio.semNome) console.log(`  ❌ ${relatorio.semNome} sem nome — não dá para cadastrar.`);
   if (relatorio.semPreco) console.log(`  ⚠️  ${relatorio.semPreco} sem preço, com zero — conferir na tela.`);
+  if (relatorio.teste) console.log(`  ⊘ ${relatorio.teste} produto(s) de teste da loja, ignorados.`);
 }
 
 principal().catch((e) => {
