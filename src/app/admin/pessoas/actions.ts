@@ -276,12 +276,19 @@ export async function concederPapel(formData: FormData) {
   const pessoaId = String(formData.get("pessoa") ?? "");
   const tipo = String(formData.get("tipo") ?? "") as TipoPapel;
   const unidade = String(formData.get("unidade") ?? "") || null;
+  // Recorte por Organização — só o Presidente de UAP o usa hoje. O gatilho do
+  // banco recusa quem mandar sem ele, e quem mandar com ele sem precisar.
+  const organizacao = String(formData.get("organizacao_papel") ?? "") || null;
   if (!pessoaId || !tipo) falhar("Informe a pessoa e o papel.");
 
   const supabase = await criarClienteServidor();
-  const { error } = await supabase
-    .from("papeis")
-    .insert({ pessoa_id: pessoaId, tipo, unidade_id: unidade, concedido_por: eu.id });
+  const { error } = await supabase.from("papeis").insert({
+    pessoa_id: pessoaId,
+    tipo,
+    unidade_id: unidade,
+    organizacao_id: organizacao,
+    concedido_por: eu.id,
+  });
 
   if (error) {
     if (error.message.includes("uq_papel")) falhar("Essa pessoa já tem esse papel aqui.");
@@ -291,6 +298,15 @@ export async function concederPapel(formData: FormData) {
     if (error.message.includes("papel_de_unidade_exige_unidade")) {
       falhar("Esse papel vale numa unidade: escolha qual.");
     }
+    if (error.message.includes("precisa da Organização")) {
+      falhar(
+        "Esse papel responde por UMA Organização dentro da unidade: escolha qual. " +
+        "Sem ela, a pessoa alcançaria as Associações Locais das outras também."
+      );
+    }
+    if (error.message.includes("não tem recorte por Organização")) {
+      falhar("Esse papel vale na unidade inteira: não se recorta por Organização.");
+    }
     falhar(traduzirErro(error.message));
   }
 
@@ -299,7 +315,7 @@ export async function concederPapel(formData: FormData) {
     acao: "papel.concedido",
     entidade: "pessoas",
     entidadeId: pessoaId,
-    detalhe: { tipo, unidade_id: unidade },
+    detalhe: { tipo, unidade_id: unidade, organizacao_id: organizacao },
   });
   revalidatePath(ROTA);
 }

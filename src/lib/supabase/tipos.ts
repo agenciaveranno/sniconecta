@@ -289,6 +289,15 @@ export type PapelRow = {
   tipo: string;
   /** Nulo = nacional. Preenchido = vale nesta unidade e nas descendentes. */
   unidade_id: string | null;
+  /**
+   * Recorte por Organização, quando o tipo do papel o exige.
+   *
+   * ⚠️ Com ele, o alcance deixa de ser a subárvore inteira e passa a ser só as
+   * unidades daquela Organização dentro dela. É o Presidente de UAP, que
+   * responde pelas Associações Locais de UMA Organização na Regional dele —
+   * não pelas das outras três.
+   */
+  organizacao_id: string | null;
   ativo: boolean;
   /** Quem concedeu. É o que faz "quem deu acesso a essa pessoa?" ter resposta. */
   concedido_por: string | null;
@@ -299,7 +308,7 @@ export type TipoPapelRow = {
   codigo: string;
   nome: string;
   modulo: string;
-  escopo: "nacional" | "unidade";
+  escopo: "nacional" | "unidade" | "unidade_organizacao";
   administra_unidade: boolean;
   ordem: number;
   ativo: boolean;

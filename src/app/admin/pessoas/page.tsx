@@ -127,7 +127,7 @@ export default async function PessoasPage({
   // ⚠️ E `unidades` traz o `tipo`, do qual as Associações Locais são um
   // FILTRO em memória. Buscar as duas listas separadas pedia ao banco a mesma
   // tabela duas vezes, e a segunda vinha inteira dentro da primeira.
-  const [rPapeis, rVinculos, rTiposPapel, rUnidades] = await Promise.all([
+  const [rPapeis, rVinculos, rTiposPapel, rUnidades, rOrganizacoes] = await Promise.all([
     ids.length
       ? supabase.from("papeis").select("*").in("pessoa_id", ids).eq("ativo", true)
       : Promise.resolve({ data: [], error: null }),
@@ -136,6 +136,10 @@ export default async function PessoasPage({
       : Promise.resolve({ data: [], error: null }),
     supabase.from("tipos_papel").select("*").eq("ativo", true).order("ordem"),
     supabase.from("unidades").select("id, nome, tipo").eq("ativo", true).order("nome"),
+    // Só as ORGANIZAÇÕES doutrinárias, não os Departamentos administrativos:
+    // o recorte do papel é por Organização, e a Controladoria não tem
+    // Associação Local nenhuma.
+    supabase.from("organizacoes").select("id, nome").eq("ativo", true).eq("e_organizacao", true).order("ordem"),
   ]);
 
   const papeis = rPapeis.data ?? [];
@@ -146,6 +150,9 @@ export default async function PessoasPage({
   // Só Associação Local recebe pessoa: é ela que carrega a Organização, e é
   // dela que a Regional é deduzida subindo a árvore.
   const associacoes = unidades.filter((u) => u.tipo === "associacao_local");
+
+  const organizacoesDoutrinarias = (rOrganizacoes.data ?? []) as { id: string; nome: string }[];
+  const nomeOrganizacao = new Map(organizacoesDoutrinarias.map((o) => [o.id, o.nome]));
 
   const nomeUnidade = new Map(unidades.map((u) => [u.id, u.nome]));
   const papeisDe = (id: string) => (papeis as PapelRow[]).filter((r) => r.pessoa_id === id);
@@ -305,6 +312,7 @@ export default async function PessoasPage({
                                   <span>
                                     {NOME_PAPEL[r.tipo as TipoPapel] ?? r.tipo}
                                     {r.unidade_id ? ` · ${nomeUnidade.get(r.unidade_id) ?? "?"}` : " · nacional"}
+                                    {r.organizacao_id ? ` · ${nomeOrganizacao.get(r.organizacao_id) ?? "?"}` : ""}
                                   </span>
                                   <button
                                     type="submit"
@@ -333,6 +341,7 @@ export default async function PessoasPage({
                                 <option key={t.codigo} value={t.codigo}>
                                   {t.nome}
                                   {t.escopo === "nacional" ? " (nacional)" : ""}
+                                  {t.escopo === "unidade_organizacao" ? " (numa Organização)" : ""}
                                 </option>
                               ))}
                             </Select>
@@ -346,6 +355,27 @@ export default async function PessoasPage({
                               {unidades.map((u) => (
                                 <option key={u.id} value={u.id}>
                                   {u.nome}
+                                </option>
+                              ))}
+                            </Select>
+                          </Campo>
+                          {/*
+                            ⚠️ O recorte por Organização não é enfeite: sem ele,
+                            o Presidente de UAP alcançaria as Associações Locais
+                            das outras três Organizações da Regional. O gatilho
+                            do banco recusa a concessão sem esta escolha — a
+                            tela existe para a pessoa não descobrir isso por
+                            mensagem de erro.
+                          */}
+                          <Campo
+                            label="De qual Organização"
+                            dica="Só para o Presidente de UAP: ele responde pelas Associações Locais de UMA Organização dentro da unidade escolhida, não pelas das outras."
+                          >
+                            <Select name="organizacao_papel" defaultValue="">
+                              <option value="">Não se aplica</option>
+                              {organizacoesDoutrinarias.map((o) => (
+                                <option key={o.id} value={o.id}>
+                                  {o.nome}
                                 </option>
                               ))}
                             </Select>
