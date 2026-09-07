@@ -271,11 +271,18 @@ async function faseVinculos() {
    * a Sede disser a Regional certa; uma regra afrouxada não.
    */
   let alSedeId: string | undefined;
+  // Como a AL "Sede Central" chegou a existir: criada por esta carga, ou já
+  // vinda da origem porque alguém tem "SEDE CENTRAL" escrito na Regional. As
+  // duas são corretas, e a diferença muda o que a tela de conferência mostra —
+  // por isso o relatório diz qual foi, em vez de deixar o total explicar.
+  const sedeCentral = { pessoas: 0, regionalReaproveitada: false, alReaproveitada: false };
   const associacaoSedeCentral = async (): Promise<string> => {
+    sedeCentral.pessoas++;
     if (alSedeId) return alSedeId;
 
     const chaveSede = chaveNucleo("Sede Central");
     let regionalSede = regionais.get(chaveSede);
+    sedeCentral.regionalReaproveitada = Boolean(regionalSede);
     if (!regionalSede) {
       if (!dryRun) {
         const [nova] = await destino<{ id: string }[]>`
@@ -295,6 +302,7 @@ async function faseVinculos() {
     const organizacaoId = await organizacaoIndefinida();
     const chave = `${regionalSede}|${organizacaoId}|${chaveSede}`;
     const jaTem = associacoes.get(chave);
+    sedeCentral.alReaproveitada = Boolean(jaTem);
     if (jaTem) return (alSedeId = jaTem);
 
     let nova: string;
@@ -434,6 +442,11 @@ async function faseVinculos() {
     ` | Organizações novas: ${criadas.organizacoes}` +
     (amostra.organizacoes.length ? ` (${amostra.organizacoes.join("; ")})` : "") +
     ` | Associações Locais novas: ${criadas.associacoes}`
+  );
+  console.log(
+    `   Sede Central: ${sedeCentral.pessoas} pessoas sem Regional na origem` +
+    ` | Regional ${sedeCentral.regionalReaproveitada ? "já existia" : "criada agora"}` +
+    ` | AL ${sedeCentral.alReaproveitada ? "já existia" : "criada agora"}`
   );
   rejeicoesDetalhe.push({ fase: "vinculos", legado_id: 0, motivo:
     `criadas: ${criadas.regionais} regionais, ${criadas.organizacoes} organizações, ${criadas.associacoes} associações locais` });
