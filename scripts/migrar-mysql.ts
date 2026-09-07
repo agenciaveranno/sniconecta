@@ -102,8 +102,42 @@ async function ler(tabela: string, ordem = "id"): Promise<Record<string, unknown
   return linhas as Record<string, unknown>[];
 }
 
-/** Mapa legado_id → uuid de `pessoas`, para as fases que apontam para gente. */
+/**
+ * Mapa legado_id → id do destino, para as fases que apontam para outras.
+ *
+ * ⚠️ NO ENSAIO O MAPA VEM DA ORIGEM, e isso não é atalho: é o que faz o ensaio
+ * dizer a verdade. Lido do destino, ele viria VAZIO — nada foi gravado —, e
+ * toda linha filha seria contada como "pai não migrado". A primeira execução
+ * relatou 1.237 inscrições rejeitadas de 1.237 lidas, o que parece uma carga
+ * inteiramente quebrada e era só o ensaio se olhando no espelho.
+ *
+ * Com o mapa da origem, a checagem passa a responder o que interessa de fato:
+ * a linha pai EXISTE? Um filho órfão de verdade continua sendo rejeitado.
+ */
+async function mapaDe(tabelaDestino: string, tabelaOrigem: string): Promise<Map<number, number>> {
+  if (dryRun) {
+    const linhas = await ler(tabelaOrigem);
+    return new Map(linhas.map((l) => [Number(l.id), Number(l.id)]));
+  }
+  const linhas = await destino<{ id: number; legado_id: number }[]>`
+    select id, legado_id from ${destino(tabelaDestino)} where legado_id is not null`;
+  return new Map(linhas.map((l) => [l.legado_id, l.id]));
+}
+
+/** O mesmo, para `pessoas`, cujo id de destino é uuid. */
 async function mapaPessoas(): Promise<Map<number, string>> {
+  if (dryRun) {
+    // No ensaio só entram as que PASSARIAM na validação — assim uma inscrição
+    // de alguém com CPF inválido continua aparecendo como rejeitada, que é o
+    // efeito real que a carga teria.
+    const linhas = await ler("Participant");
+    const mapa = new Map<number, string>();
+    for (const l of linhas) {
+      const r = transformarParticipante(l as unknown as ParticipanteMysql);
+      if (r.ok) mapa.set(r.pessoa.legado_id, "simulado");
+    }
+    return mapa;
+  }
   const linhas = await destino<{ id: string; legado_id: number }[]>`
     select id, legado_id from public.pessoas where legado_id is not null`;
   return new Map(linhas.map((l) => [l.legado_id, l.id]));
@@ -199,12 +233,7 @@ async function faseEventos() {
     r.gravadas++;
   }
 
-  const porLegado = async (tabela: string) => {
-    const linhas = await destino<{ id: number; legado_id: number }[]>`
-      select id, legado_id from ${destino(tabela)} where legado_id is not null`;
-    return new Map(linhas.map((l) => [l.legado_id, l.id]));
-  };
-  const mapaEvento = await porLegado("eventos.eventos");
+  const mapaEvento = await mapaDe("eventos.eventos", "Evento");
 
   const tipos = await ler("IngressoTipo");
   r.lidas += tipos.length;
@@ -230,7 +259,7 @@ async function faseEventos() {
     r.gravadas++;
   }
 
-  const mapaTipo = await porLegado("eventos.ingresso_tipos");
+  const mapaTipo = await mapaDe("eventos.ingresso_tipos", "IngressoTipo");
 
   const campos = await ler("IngressoCampo");
   r.lidas += campos.length;
@@ -264,7 +293,7 @@ async function faseEventos() {
     r.gravadas++;
   }
 
-  const mapaCombo = await porLegado("eventos.combos");
+  const mapaCombo = await mapaDe("eventos.combos", "Combo");
 
   const itens = await ler("ComboItem");
   r.lidas += itens.length;
@@ -304,7 +333,7 @@ async function faseEventos() {
     r.gravadas++;
   }
 
-  const mapaOrientador = await porLegado("eventos.orientadores");
+  const mapaOrientador = await mapaDe("eventos.orientadores", "Orientador");
   const vinculos = await ler("EventoOrientador");
   r.lidas += vinculos.length;
   for (const v of vinculos) {
@@ -333,15 +362,10 @@ async function faseCompras() {
   const r = conta("compras");
   const pessoas = await mapaPessoas();
 
-  const porLegado = async (tabela: string) => {
-    const linhas = await destino<{ id: number; legado_id: number }[]>`
-      select id, legado_id from ${destino(tabela)} where legado_id is not null`;
-    return new Map(linhas.map((l) => [l.legado_id, l.id]));
-  };
-  const mapaEvento = await porLegado("eventos.eventos");
-  const mapaTipo = await porLegado("eventos.ingresso_tipos");
-  const mapaCombo = await porLegado("eventos.combos");
-  const mapaCupom = await porLegado("eventos.cupons");
+  const mapaEvento = await mapaDe("eventos.eventos", "Evento");
+  const mapaTipo = await mapaDe("eventos.ingresso_tipos", "IngressoTipo");
+  const mapaCombo = await mapaDe("eventos.combos", "Combo");
+  const mapaCupom = await mapaDe("eventos.cupons", "Cupom");
 
   const rejeita = (motivo: string, id: number) => {
     r.rejeitadas[motivo] = (r.rejeitadas[motivo] ?? 0) + 1;
@@ -383,7 +407,7 @@ async function faseCompras() {
     r.gravadas++;
   }
 
-  const mapaPedido = await porLegado("eventos.pedidos");
+  const mapaPedido = await mapaDe("eventos.pedidos", "PedidoPendente");
 
   // ── Inscrições ──
   //
@@ -469,8 +493,8 @@ async function faseCompras() {
   }
 
   // ── Respostas dos campos personalizados ──
-  const mapaInscricao = await porLegado("eventos.inscricoes");
-  const mapaCampo = await porLegado("eventos.ingresso_campos");
+  const mapaInscricao = await mapaDe("eventos.inscricoes", "Inscricao");
+  const mapaCampo = await mapaDe("eventos.ingresso_campos", "IngressoCampo");
   for (const a of await ler("InscricaoResposta")) {
     r.lidas++;
     const inscricao = mapaInscricao.get(Number(a.inscricaoId));
@@ -512,11 +536,7 @@ async function faseCompras() {
 async function faseComissao() {
   const r = conta("comissao");
   const pessoas = await mapaPessoas();
-  const mapaEvento = new Map(
-    (await destino<{ id: number; legado_id: number }[]>`
-      select id, legado_id from eventos.eventos where legado_id is not null`
-    ).map((l) => [l.legado_id, l.id])
-  );
+  const mapaEvento = await mapaDe("eventos.eventos", "Evento");
 
   for (const s of await ler("ComissaoSetorPadrao")) {
     r.lidas++;
@@ -574,7 +594,9 @@ async function faseComissao() {
  */
 async function faseConfiguracao() {
   const r = conta("configuracao");
-  const { cifrar } = await import("../src/lib/cripto");
+  // ⚠️ `cripto-nucleo`, não `cripto`: o segundo importa `server-only`, que só
+  // resolve dentro do Next. Aqui é Node puro.
+  const { cifrar } = await import("../src/lib/cripto-nucleo");
 
   const [prosperidade] = await destino<{ id: string }[]>`
     select id from public.organizacoes where nome = 'Associação da Prosperidade' limit 1`;
