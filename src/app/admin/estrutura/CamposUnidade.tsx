@@ -120,11 +120,25 @@ export default function CamposUnidade({
             <option value="" disabled>
               Escolha…
             </option>
-            {organizacoes.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.nome}
-              </option>
-            ))}
+            {/* ⚠️ Quem FILTRA é aqui, não a consulta. A lista de escolha é de
+                ORGANIZAÇÕES doutrinárias — `e_organizacao` —, não dos
+                Departamentos administrativos da Sede. Mas as Associações Locais
+                que a carga pendurou na "Indefinida" apontam para uma que não
+                está na lista: filtrando na consulta, o `<select>` abria já na
+                primeira opção e salvar o TELEFONE reassinalava a Associação
+                Local para outra Organização — apagando a marca de dívida que a
+                migração deixou de pé justamente para ser revisada.
+
+                A opção atual entra marcada como pendência, e some assim que
+                alguém escolher uma de verdade. */}
+            {organizacoes
+              .filter((o) => o.e_organizacao || o.id === unidade?.organizacao_id)
+              .map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.nome}
+                  {o.e_organizacao ? "" : " — a revisar"}
+                </option>
+              ))}
           </Select>
         </Campo>
       )}

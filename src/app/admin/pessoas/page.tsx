@@ -6,6 +6,7 @@ import {
   IconUserOff,
   IconUsers,
 } from "@tabler/icons-react";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
@@ -17,7 +18,7 @@ import { NOME_PAPEL, PAPEIS_NACIONAIS, type TipoPapel } from "@/lib/permissoes";
 import { formatarCpf } from "@/lib/dominio/cpf";
 import { formatarPassaporte } from "@/lib/dominio/passaporte";
 import { criarClienteServidor } from "@/lib/supabase/server";
-import { exigir } from "@/lib/supabase/consulta";
+import { entreAspas, exigir } from "@/lib/supabase/consulta";
 import type {
   PapelRow,
   PessoaRow,
@@ -32,6 +33,7 @@ import {
   revogarPapel,
   tirarAcesso,
 } from "./actions";
+import { COOKIE_SENHA } from "./cookies";
 
 export const metadata = { title: "Pessoas e acesso" };
 
@@ -49,6 +51,13 @@ export default async function PessoasPage({
   searchParams: Promise<{ erro?: string; ok?: string; q?: string; p?: string }>;
 }) {
   const { erro, ok, q, p } = await searchParams;
+
+  // ⚠️ A senha recém-gerada vem por COOKIE, nunca pela URL — endereço fica na
+  // barra, no histórico, no Referer e no log de acesso. Ela expira sozinha em
+  // um minuto: uma Server Component não pode apagar cookie, e um segredo que
+  // depende de alguém lembrar de apagá-lo não é um segredo.
+  const senhaNova = (await cookies()).get(COOKIE_SENHA)?.value;
+  const [emailDaSenha, senhaGerada] = senhaNova ? senhaNova.split("|") : [];
   const eu = await exigirCapacidadeNaPagina("pessoa.gerir");
 
   const busca = (q ?? "").trim();
@@ -83,12 +92,21 @@ export default async function PessoasPage({
     // aparecer junto do CPF. Fora daqui, quem é estrangeiro não seria
     // encontrado por documento nenhum.
     const alfanumerico = busca.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    // ⚠️ O valor vai ENTRE ASPAS. O `.or()` do PostgREST separa as condições
+    // por vírgula, então "Silva, Maria" quebrava o filtro ao meio: a consulta
+    // voltava 400 e a tela ESTOURAVA — procurar por um nome com vírgula
+    // derrubava a lista de pessoas. Entre aspas, a vírgula é conteúdo.
     consulta = digitos
       ? consulta.or(
-          `cpf.ilike.%${digitos}%,cod_sni.ilike.%${digitos}%,passaporte.ilike.%${digitos}%`
+          `cpf.ilike.${entreAspas(`%${digitos}%`)},` +
+          `cod_sni.ilike.${entreAspas(`%${digitos}%`)},` +
+          `passaporte.ilike.${entreAspas(`%${digitos}%`)}`
         )
       : consulta.or(
-          `nome.ilike.%${busca}%,nome_social.ilike.%${busca}%,email.ilike.%${busca}%,passaporte.ilike.%${alfanumerico}%`
+          `nome.ilike.${entreAspas(`%${busca}%`)},` +
+          `nome_social.ilike.${entreAspas(`%${busca}%`)},` +
+          `email.ilike.${entreAspas(`%${busca}%`)},` +
+          `passaporte.ilike.${entreAspas(`%${alfanumerico}%`)}`
         );
   }
 
@@ -153,6 +171,15 @@ export default async function PessoasPage({
       />
 
       <Recado erro={erro} ok={ok} />
+      {senhaGerada && (
+        <div className="sni-recado">
+          <Alerta tipo="warning">
+            Senha de <strong>{emailDaSenha}</strong>:{" "}
+            <span className="num" style={{ fontSize: 16, fontWeight: 600 }}>{senhaGerada}</span>
+            {" — "}anote agora. Ela some desta tela em um minuto e não aparece de novo.
+          </Alerta>
+        </div>
+      )}
 
       <form method="get" className="sni-busca">
         <Campo label="Procurar" htmlFor="q" dica="Nome, e-mail, CPF, passaporte ou CodSNI.">
@@ -285,6 +312,11 @@ export default async function PessoasPage({
                                     name="papel"
                                     value={r.id}
                                     className="sni-acao"
+                                    // ⚠️ Sem isto o navegador BARRA o envio: o
+                                    // botão divide o formulário com um <select>
+                                    // obrigatório e vazio, que é do outro botão.
+                                    // Revogar papel era impossível pela tela.
+                                    formNoValidate
                                   >
                                     Revogar
                                   </button>
@@ -348,8 +380,8 @@ export default async function PessoasPage({
                             <Input name="confirmacao" type="password" autoComplete="new-password" />
                           </Campo>
                           <label className="sni-check">
-                            <input type="checkbox" name="gerar" value="1" defaultChecked />
-                            <span>Gerar uma senha para mim</span>
+                            <input type="checkbox" name="gerar" value="1" />
+                            <span>Deixe as senhas em branco para o sistema gerar uma</span>
                           </label>
                           {pessoa.auth_user_id && pessoa.id !== eu.id && (
                             <button

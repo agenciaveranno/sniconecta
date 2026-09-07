@@ -251,7 +251,20 @@ export async function revogarAcesso(pessoaId: string, atorId: string): Promise<R
     .eq("id", pessoaId);
   if (error) return { ok: false, erro: error.message };
 
-  await servico.auth.admin.deleteUser(pessoa.auth_user_id);
+  // ⚠️ O erro do `deleteUser` NÃO pode ser descartado. Descartado, a conta do
+  // Auth sobrevive à revogação e a tela diz que deu certo: a pessoa continua
+  // entrando com a senha antiga, e uma edição de e-mail depois disso a religa
+  // pelo gatilho `trg_pessoa_liga_conta`. Revogar sem apagar a conta é o pior
+  // dos dois mundos — o cadastro parece desligado e o acesso continua de pé.
+  const { error: erroConta } = await servico.auth.admin.deleteUser(pessoa.auth_user_id);
+  if (erroConta) {
+    return {
+      ok: false,
+      erro:
+        "O cadastro foi desligado da conta, mas a CONTA continua existindo e ainda entra: " +
+        `${erroConta.message}. Avise quem administra o sistema.`,
+    };
+  }
 
   await registrar({ atorId, acao: "acesso.revogado", entidade: "pessoas", entidadeId: pessoaId });
 

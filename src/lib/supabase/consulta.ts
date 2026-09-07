@@ -18,3 +18,18 @@ export function exigir<T>(
   }
   return resultado.data;
 }
+
+/**
+ * Um valor de busca pronto para entrar num filtro `.or()` do PostgREST.
+ *
+ * ⚠️ O `.or()` separa as condições por VÍRGULA. Um nome com vírgula — "Silva,
+ * Maria" — partia o filtro ao meio: a consulta voltava 400 e a tela de pessoas
+ * ESTOURAVA. Procurar por um nome com vírgula derrubava a lista inteira, e
+ * bastava um texto bem escolhido para acrescentar condições à consulta.
+ *
+ * Entre aspas, a vírgula é conteúdo. A contrabarra é escapada ANTES da aspa —
+ * na ordem inversa, o escape da aspa seria desfeito pelo da contrabarra.
+ */
+export function entreAspas(valor: string): string {
+  return `"${valor.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}

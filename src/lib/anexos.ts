@@ -118,16 +118,27 @@ export async function urlsAssinadas(
   return new Map((data ?? []).map((d) => [d.path ?? "", d.signedUrl ?? null]));
 }
 
-export async function apagarAnexo(id: string): Promise<{ ok: boolean; erro?: string }> {
+/**
+ * Apaga um anexo de UMA pessoa.
+ *
+ * ⚠️ `pessoaId` é obrigatório e entra nas duas consultas. Quem chama já
+ * conferiu, com o cliente do usuário, que alcança essa pessoa — mas aqui se
+ * escreve com a chave de serviço, que ignora policy. Sem amarrar o anexo à
+ * pessoa conferida, bastava trocar o `id` no formulário para apagar o
+ * documento de alguém fora do alcance: a conferência olhava uma pessoa e o
+ * apagamento tocava outra.
+ */
+export async function apagarAnexo(id: string, pessoaId: string): Promise<{ ok: boolean; erro?: string }> {
   const servico = criarClienteServico();
   const { data: anexo } = await servico
     .from("pessoa_anexos")
     .select("caminho, tipo, pessoa_id")
     .eq("id", id)
+    .eq("pessoa_id", pessoaId)
     .maybeSingle();
-  if (!anexo) return { ok: false, erro: "Esse anexo não existe mais." };
+  if (!anexo) return { ok: false, erro: "Esse anexo não existe mais, ou não é dessa pessoa." };
 
-  const { error } = await servico.from("pessoa_anexos").delete().eq("id", id);
+  const { error } = await servico.from("pessoa_anexos").delete().eq("id", id).eq("pessoa_id", pessoaId);
   if (error) return { ok: false, erro: error.message };
 
   // ⚠️ Primeiro a linha, depois o arquivo. Na ordem inversa, uma falha ao

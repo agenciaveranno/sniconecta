@@ -1,5 +1,8 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+import { cookies } from "next/headers";
+import { COOKIE_SENHA } from "./cookies";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -153,29 +156,33 @@ export async function criarPessoa(formData: FormData) {
   const dados = schema.safeParse(Object.fromEntries(formData));
   if (!dados.success) falhar(dados.error.issues[0].message);
 
+  // ⚠️ O id é gerado AQUI, e o insert não pede `returning`. A policy
+  // `pessoas_le` só enxerga quem está numa unidade que o operador administra —
+  // e a pessoa recém-inserida ainda não tem vínculo nenhum. O Postgres aplica a
+  // policy de SELECT à linha devolvida por `insert … returning`, então o
+  // `.select("id").single()` que estava aqui fazia o banco RECUSAR o cadastro
+  // inteiro: nenhum operador fora da Sede conseguia cadastrar pessoa, e a
+  // mensagem culpava o alcance de uma pessoa que nunca chegou a existir.
+  const id = randomUUID();
   const supabase = await criarClienteServidor();
-  const { data: criada, error } = await supabase
-    .from("pessoas")
-    .insert(dados.data)
-    .select("id")
-    .single();
+  const { error } = await supabase.from("pessoas").insert({ ...dados.data, id });
   if (error) falhar(traduzirErro(error.message));
 
   const unidade = String(formData.get("unidade") ?? "");
-  if (criada && unidade) {
+  if (unidade) {
     const { error: erroVinculo } = await supabase
       .from("pessoa_unidade_vinculos")
-      .insert({ pessoa_id: criada.id, unidade_id: unidade });
+      .insert({ pessoa_id: id, unidade_id: unidade });
     // O vínculo falhar não desfaz o cadastro: a pessoa existe, e amarrar à
     // unidade é uma edição a mais. Sumir com o cadastro seria pior.
     if (erroVinculo) falhar(`Pessoa cadastrada, mas sem unidade: ${traduzirErro(erroVinculo.message)}`);
   }
 
-  await registrar({ atorId: eu.id, acao: "pessoa.criada", entidade: "pessoas", entidadeId: criada?.id });
+  await registrar({ atorId: eu.id, acao: "pessoa.criada", entidade: "pessoas", entidadeId: id });
   revalidatePath(ROTA);
   // Vai para a FICHA, e não de volta para a lista: quem acabou de cadastrar
   // quase sempre tem mais o que preencher — anexo, foto, o resto dos campos.
-  redirect(`${ROTA}/${criada!.id}?ok=${encodeURIComponent("Pessoa cadastrada.")}`);
+  redirect(`${ROTA}/${id}?ok=${encodeURIComponent("Pessoa cadastrada.")}`);
 }
 
 export async function editarPessoa(formData: FormData) {
@@ -187,9 +194,21 @@ export async function editarPessoa(formData: FormData) {
   const dados = schema.safeParse(Object.fromEntries(formData));
   if (!dados.success) falhar(dados.error.issues[0].message);
 
+  // ⚠️ `.select()` no update NÃO é enfeite: é como se sabe que alguma coisa foi
+  // escrita. A RLS não recusa um update fora de alcance — ela o reduz a ZERO
+  // linhas, sem erro nenhum. Sem esta conferência a tela dizia "Ficha salva."
+  // com o banco intacto, e quem editava a própria ficha sem administrar
+  // unidade nenhuma via isso em toda gravação.
   const supabase = await criarClienteServidor();
-  const { error } = await supabase.from("pessoas").update(dados.data).eq("id", id);
+  const { data: alteradas, error } = await supabase
+    .from("pessoas")
+    .update(dados.data)
+    .eq("id", id)
+    .select("id");
   if (error) falhar(traduzirErro(error.message));
+  if (!alteradas?.length) {
+    falhar("Nada foi salvo: esta pessoa está fora das unidades que você administra.");
+  }
 
   // ⚠️ O e-mail do cadastro é por onde se entra. Trocar só aqui deixaria a
   // pessoa trancada fora com a senha certa, e o Supabase responderia
@@ -298,9 +317,19 @@ export async function revogarPapel(formData: FormData) {
   const papelId = String(formData.get("papel") ?? "");
   if (!papelId) falhar("Papel não informado.");
 
+  // ⚠️ Mesma armadilha do `editarPessoa`: `papeis_escreve` é só da Sede, mas o
+  // botão aparece para quem tem `papel.conceder`. Sem conferir a linha alterada,
+  // a coordenadora "revogava" um papel que continuava ativo.
   const supabase = await criarClienteServidor();
-  const { error } = await supabase.from("papeis").update({ ativo: false }).eq("id", papelId);
+  const { data: revogados, error } = await supabase
+    .from("papeis")
+    .update({ ativo: false })
+    .eq("id", papelId)
+    .select("id");
   if (error) falhar(traduzirErro(error.message));
+  if (!revogados?.length) {
+    falhar("O papel NÃO foi revogado: só a Sede Central revoga papel. Peça a quem responde por ela.");
+  }
 
   await registrar({ atorId: eu.id, acao: "papel.revogado", entidade: "papeis", entidadeId: papelId });
   revalidatePath(ROTA);
@@ -318,11 +347,15 @@ export async function definirAcesso(formData: FormData) {
   const pessoaId = String(formData.get("pessoa") ?? "");
   if (!pessoaId) falhar("Pessoa não informada.");
 
-  const gerar = formData.get("gerar") === "1";
+  // ⚠️ Senha digitada VENCE a caixa "gerar uma para mim". Antes o `gerar`
+  // vinha marcado por padrão e atropelava o campo: quem escolhia uma senha de
+  // propósito a via trocada por outra, sem aviso.
+  const digitada = String(formData.get("senha") ?? "");
+  const gerar = digitada.trim().length === 0;
   const resultado = await definirSenhaDePessoa({
     pessoaId,
     atorId: eu.id,
-    senha: gerar ? null : String(formData.get("senha") ?? ""),
+    senha: gerar ? null : digitada,
     confirmacao: gerar ? null : String(formData.get("confirmacao") ?? ""),
   });
 
@@ -330,10 +363,18 @@ export async function definirAcesso(formData: FormData) {
 
   revalidatePath(ROTA);
   if (resultado.senhaGerada) {
-    avisar(
-      `${resultado.contaCriada ? "Acesso criado" : "Senha redefinida"} para ${resultado.email}. ` +
-        `Senha: ${resultado.senhaGerada} — anote agora, ela não aparece de novo.`
-    );
+    // ⚠️ A senha NÃO vai na URL. Estava indo em `?ok=`, e endereço fica na
+    // barra do navegador, no histórico, no cabeçalho Referer de tudo que a
+    // página carrega e no log de acesso de qualquer intermediário — o oposto
+    // do que o comentário desta função promete. Vai num cookie que o servidor
+    // lê uma vez e que expira sozinho em um minuto.
+    (await cookies()).set(COOKIE_SENHA, `${resultado.email}|${resultado.senhaGerada}`, {
+      maxAge: 60,
+      httpOnly: true,
+      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production",
+      path: ROTA,
+    });
   }
   avisar(resultado.contaCriada ? "Acesso criado." : "Senha redefinida.");
 }
@@ -417,7 +458,12 @@ export async function removerAnexo(formData: FormData) {
   const { data: alcanca } = await supabase.from("pessoas").select("id").eq("id", pessoaId).maybeSingle();
   if (!alcanca) falharNaFicha(pessoaId, "Você não alcança essa pessoa.");
 
-  const r = await apagarAnexo(id);
+  // ⚠️ O `pessoaId` vai JUNTO. A conferência acima é sobre o que veio no
+  // formulário; o apagamento é pela chave de serviço, que ignora policy. Sem
+  // amarrar os dois, bastava trocar o `id` no formulário para apagar o
+  // documento de alguém fora do alcance — a conferência olhava uma pessoa e o
+  // apagamento tocava outra.
+  const r = await apagarAnexo(id, pessoaId);
   if (!r.ok) falharNaFicha(pessoaId, r.erro ?? "Não foi possível apagar.");
 
   await registrar({

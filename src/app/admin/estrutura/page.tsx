@@ -77,11 +77,7 @@ export default async function EstruturaPage({
   const [rTipos, rUnidades, rOrganizacoes, contas] = await Promise.all([
     supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
     supabase.from("unidades").select("*").order("nome"),
-    // ⚠️ `e_organizacao`: a lista de escolha é de ORGANIZAÇÕES doutrinárias, não
-    // dos Departamentos administrativos da Sede nem da "Indefinida" que a carga
-    // criou como dívida a revisar. O gatilho do banco recusa o resto — este
-    // filtro é para a pessoa não ter de descobrir isso por mensagem de erro.
-    supabase.from("organizacoes").select("*").eq("ativo", true).eq("e_organizacao", true).order("ordem"),
+    supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
     contasCieloVisiveis(podeVerCielo),
   ]);
 
