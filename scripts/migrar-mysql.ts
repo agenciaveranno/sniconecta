@@ -12,15 +12,19 @@
  * Quem roda é quem tem acesso às duas conexões. O dado não passa por
  * terceiros. O usuário do MySQL deve ser SOMENTE LEITURA.
  *
- * Estado: fase `pessoas` implementada. As demais estão listadas e lançam
- * "não implementada" — vão sendo preenchidas conforme o schema `eventos`
- * vira migração.
+ * ORDEM DAS FASES importa e não é alfabética: não dá para gravar inscrição
+ * antes do evento a que ela pertence, nem evento antes do tipo de ingresso
+ * que ele vende. Uma fase que falha interrompe as seguintes — continuar
+ * gravaria filhos órfãos que ninguém sabe de onde vieram.
  */
 import "dotenv/config";
 import { writeFileSync } from "node:fs";
 import mysql from "mysql2/promise";
 import postgres from "postgres";
-import { transformarParticipante, type ParticipanteMysql } from "./lib/transformar";
+import {
+  bool as booleano, centavos, cielo, data, numero, texto,
+  transformarParticipante, type ParticipanteMysql,
+} from "./lib/transformar";
 
 type Relatorio = Record<string, { lidas: number; gravadas: number; rejeitadas: Record<string, number>; avisos: number }>;
 
@@ -85,20 +89,571 @@ async function fasePessoas() {
   }
 }
 
+// ─── Apoio ────────────────────────────────────────────────────────────────
+
+async function ler(tabela: string, ordem = "id"): Promise<Record<string, unknown>[]> {
+  const [linhas] = await origem.query<mysql.RowDataPacket[]>(
+    `SELECT * FROM \`${tabela}\` ORDER BY ${ordem}`
+  );
+  return linhas as Record<string, unknown>[];
+}
+
+/** Mapa legado_id → uuid de `pessoas`, para as fases que apontam para gente. */
+async function mapaPessoas(): Promise<Map<number, string>> {
+  const linhas = await destino<{ id: string; legado_id: number }[]>`
+    select id, legado_id from public.pessoas where legado_id is not null`;
+  return new Map(linhas.map((l) => [l.legado_id, l.id]));
+}
+
+// ─── estrutura ────────────────────────────────────────────────────────────
+
+/**
+ * O que a origem chamava de estrutura NÃO vira estrutura institucional.
+ *
+ * ⚠️ `Regional` e `Organizacao` na origem são listas de nomes em texto, sem
+ * vínculo com a árvore de `unidades` — e a árvore real já veio do site
+ * institucional, com 114 Regionais. Importá-las criaria uma segunda verdade
+ * sobre a mesma instituição, e ninguém saberia qual consultar.
+ *
+ * Então esta fase importa só o que é do MÓDULO: `Local` (onde o evento
+ * acontece) e `Orientador` (quem conduz). O casamento entre os nomes antigos
+ * e a árvore é trabalho de tela, com uma pessoa decidindo caso a caso.
+ */
+async function faseEstrutura() {
+  const r = conta("estrutura");
+
+  const locais = await ler("Local");
+  r.lidas += locais.length;
+  for (const l of locais) {
+    if (dryRun) { r.gravadas++; continue; }
+    // Local do módulo vira local COMUM: a Academia já está lá pelo seed, e
+    // duas listas de lugares seriam duas respostas para "onde é o evento?".
+    await destino`
+      insert into public.locais (tipo, nome, logradouro, bairro, cidade, uf, telefone, email, observacoes)
+      values ('outro', ${texto(l.nome)}, ${texto(l.endereco)}, ${texto(l.bairro)},
+              ${texto(l.cidade)}, ${texto(l.estado)}, ${texto(l.telefone)}, ${texto(l.email)},
+              ${`Importado do Credenciamento (id ${l.id}).` + (texto(l.contaCielo) ? " Tinha conta Cielo em texto livre." : "")})
+      on conflict do nothing`;
+    r.gravadas++;
+  }
+
+  const orientadores = await ler("Orientador");
+  r.lidas += orientadores.length;
+  for (const o of orientadores) {
+    if (dryRun) { r.gravadas++; continue; }
+    await destino`
+      insert into eventos.orientadores (legado_id, nome, foto_url, bio)
+      values (${Number(o.id)}, ${texto(o.nome)}, ${texto(o.fotoUrl)}, ${texto(o.bio)})
+      on conflict (legado_id) do update set
+        nome = excluded.nome, foto_url = excluded.foto_url, bio = excluded.bio`;
+    r.gravadas++;
+  }
+}
+
+// ─── eventos ──────────────────────────────────────────────────────────────
+
+async function faseEventos() {
+  const r = conta("eventos");
+
+  // A Organização que promove os dois eventos existentes. Informada pela
+  // Sede: ambos são da Associação da Prosperidade (decisão 0012 — o evento
+  // declara quem promove, e a conta Cielo vem daí).
+  const [prosperidade] = await destino<{ id: string }[]>`
+    select id from public.organizacoes where nome = 'Associação da Prosperidade' limit 1`;
+
+  const eventos = await ler("Evento");
+  r.lidas += eventos.length;
+  for (const e of eventos) {
+    if (dryRun) { r.gravadas++; continue; }
+    await destino`
+      insert into eventos.eventos (
+        legado_id, nome, slug, data_inicial, data_final, ativo,
+        promotor_organizacao_id,
+        voucher_banner_url, voucher_logo_url, voucher_cor_primaria, voucher_cor_secundaria,
+        voucher_boas_vindas, voucher_instrucoes, voucher_rodape, voucher_mostrar,
+        migracao_extras, criado_em)
+      values (
+        ${Number(e.id)}, ${texto(e.nome)}, ${texto(e.slug)}, ${data(e.dataInicial)}, ${data(e.dataFinal)},
+        ${booleano(e.ativo)}, ${prosperidade?.id ?? null},
+        ${texto(e.voucherBannerUrl)}, ${texto(e.voucherLogoUrl)},
+        ${texto(e.voucherCorPrimaria) ?? '#132460'}, ${texto(e.voucherCorSecundaria) ?? '#B45309'},
+        ${texto(e.voucherBoasVindas)}, ${texto(e.voucherInstrucoes)}, ${texto(e.voucherRodape)},
+        ${destino.json({
+          participante: booleano(e.voucherMostrarParticipante),
+          evento: booleano(e.voucherMostrarEvento),
+          ingresso: booleano(e.voucherMostrarIngresso),
+          qrcode: booleano(e.voucherMostrarQRCode),
+          pagamento: booleano(e.voucherMostrarPagamento),
+        })},
+        ${destino.json({ local_antigo_id: numero(e.localId), promotor_antigo_id: numero(e.promotorId), conta_cielo_antiga_id: numero(e.cieloAccountId) })},
+        ${data(e.createdAt) ?? new Date().toISOString()})
+      on conflict (legado_id) do update set
+        nome = excluded.nome, slug = excluded.slug,
+        data_inicial = excluded.data_inicial, data_final = excluded.data_final,
+        ativo = excluded.ativo, promotor_organizacao_id = excluded.promotor_organizacao_id,
+        atualizado_em = now()`;
+    r.gravadas++;
+  }
+
+  const porLegado = async (tabela: string) => {
+    const linhas = await destino<{ id: number; legado_id: number }[]>`
+      select id, legado_id from ${destino(tabela)} where legado_id is not null`;
+    return new Map(linhas.map((l) => [l.legado_id, l.id]));
+  };
+  const mapaEvento = await porLegado("eventos.eventos");
+
+  const tipos = await ler("IngressoTipo");
+  r.lidas += tipos.length;
+  for (const t of tipos) {
+    const evento = mapaEvento.get(Number(t.eventoId));
+    if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
+    if (dryRun) { r.gravadas++; continue; }
+    await destino`
+      insert into eventos.ingresso_tipos (
+        legado_id, evento_id, nome, descricao, valor_centavos, max_parcelas, quantidade,
+        venda_inicio, venda_fim, idade_min, idade_max, unico_por_cpf, papel,
+        exige_principal, exibir_venda_publica, ativo, criado_em)
+      values (${Number(t.id)}, ${evento}, ${texto(t.nome)}, ${texto(t.descricao)},
+              ${centavos(t.valor)}, ${numero(t.maxParcelas) || 1}, ${numero(t.quantidade)},
+              ${data(t.vendaInicio)}, ${data(t.vendaFim)},
+              ${numero(t.idadeMin)}, ${numero(t.idadeMax)},
+              ${booleano(t.unicoPorCpf)}, ${texto(t.papel) ?? 'adicional'},
+              ${booleano(t.exigePrincipal)}, ${booleano(t.exibirVendaPublica)},
+              ${booleano(t.ativo)}, ${data(t.createdAt) ?? new Date().toISOString()})
+      on conflict (legado_id) do update set
+        nome = excluded.nome, valor_centavos = excluded.valor_centavos,
+        quantidade = excluded.quantidade, ativo = excluded.ativo`;
+    r.gravadas++;
+  }
+
+  const mapaTipo = await porLegado("eventos.ingresso_tipos");
+
+  const campos = await ler("IngressoCampo");
+  r.lidas += campos.length;
+  for (const c of campos) {
+    const tipo = mapaTipo.get(Number(c.ingressoTipoId));
+    if (!tipo) { r.rejeitadas["tipo de ingresso não migrado"] = (r.rejeitadas["tipo de ingresso não migrado"] ?? 0) + 1; continue; }
+    if (dryRun) { r.gravadas++; continue; }
+    await destino`
+      insert into eventos.ingresso_campos (legado_id, ingresso_tipo_id, rotulo, tipo, opcoes, obrigatorio, ordem, ativo)
+      values (${Number(c.id)}, ${tipo}, ${texto(c.label)}, ${texto(c.tipo) ?? 'texto'},
+              ${c.opcoesJson ? destino.json(JSON.parse(String(c.opcoesJson))) : null},
+              ${booleano(c.obrigatorio)}, ${numero(c.ordem) || 0}, ${booleano(c.ativo)})
+      on conflict (legado_id) do update set rotulo = excluded.rotulo, ativo = excluded.ativo`;
+    r.gravadas++;
+  }
+
+  const combos = await ler("Combo");
+  r.lidas += combos.length;
+  for (const c of combos) {
+    const evento = mapaEvento.get(Number(c.eventoId));
+    if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
+    if (dryRun) { r.gravadas++; continue; }
+    await destino`
+      insert into eventos.combos (legado_id, evento_id, nome, descricao, valor_centavos, quantidade,
+                                  venda_inicio, venda_fim, limite_por_cpf, max_parcelas, ativo, criado_em)
+      values (${Number(c.id)}, ${evento}, ${texto(c.nome)}, ${texto(c.descricao)}, ${centavos(c.valor)},
+              ${numero(c.quantidade)}, ${data(c.vendaInicio)}, ${data(c.vendaFim)},
+              ${numero(c.limitePorCpf)}, ${numero(c.maxParcelas) || 1}, ${booleano(c.ativo)},
+              ${data(c.createdAt) ?? new Date().toISOString()})
+      on conflict (legado_id) do update set nome = excluded.nome, valor_centavos = excluded.valor_centavos, ativo = excluded.ativo`;
+    r.gravadas++;
+  }
+
+  const mapaCombo = await porLegado("eventos.combos");
+
+  const itens = await ler("ComboItem");
+  r.lidas += itens.length;
+  for (const i of itens) {
+    const combo = mapaCombo.get(Number(i.comboId));
+    const tipo = mapaTipo.get(Number(i.ingressoTipoId));
+    if (!combo || !tipo) { r.rejeitadas["combo ou tipo não migrado"] = (r.rejeitadas["combo ou tipo não migrado"] ?? 0) + 1; continue; }
+    if (dryRun) { r.gravadas++; continue; }
+    await destino`
+      insert into eventos.combo_itens (combo_id, ingresso_tipo_id, quantidade)
+      values (${combo}, ${tipo}, ${numero(i.quantidade) || 1})
+      on conflict (combo_id, ingresso_tipo_id) do update set quantidade = excluded.quantidade`;
+    r.gravadas++;
+  }
+
+  const cupons = await ler("Cupom");
+  r.lidas += cupons.length;
+  for (const c of cupons) {
+    const evento = mapaEvento.get(Number(c.eventoId));
+    if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
+    if (dryRun) { r.gravadas++; continue; }
+    // ⚠️ Percentual fica como número inteiro (0..100); valor vira centavos.
+    // A origem guarda os dois na mesma coluna DECIMAL, e multiplicar um
+    // percentual por 100 daria 5000% de desconto.
+    const tipo = texto(c.tipo) ?? 'valor';
+    await destino`
+      insert into eventos.cupons (legado_id, evento_id, codigo, descricao, tipo, valor,
+                                  ingresso_tipo_id, combo_id, max_usos_total, max_usos_por_cpf,
+                                  vigencia_inicio, vigencia_fim, ativo, criado_em)
+      values (${Number(c.id)}, ${evento}, ${texto(c.codigo)}, ${texto(c.descricao)}, ${tipo},
+              ${tipo === 'percentual' ? Math.round(Number(c.valor)) : centavos(c.valor)},
+              ${mapaTipo.get(Number(c.ingressoTipoId)) ?? null}, ${mapaCombo.get(Number(c.comboId)) ?? null},
+              ${numero(c.maxUsosTotal)}, ${numero(c.maxUsosPorCpf)},
+              ${data(c.vigenciaInicio)}, ${data(c.vigenciaFim)},
+              ${booleano(c.ativo)}, ${data(c.createdAt) ?? new Date().toISOString()})
+      on conflict (legado_id) do update set codigo = excluded.codigo, valor = excluded.valor, ativo = excluded.ativo`;
+    r.gravadas++;
+  }
+
+  const mapaOrientador = await porLegado("eventos.orientadores");
+  const vinculos = await ler("EventoOrientador");
+  r.lidas += vinculos.length;
+  for (const v of vinculos) {
+    const evento = mapaEvento.get(Number(v.eventoId));
+    const orientador = mapaOrientador.get(Number(v.orientadorId));
+    if (!evento || !orientador) { r.rejeitadas["evento ou orientador não migrado"] = (r.rejeitadas["evento ou orientador não migrado"] ?? 0) + 1; continue; }
+    if (dryRun) { r.gravadas++; continue; }
+    await destino`
+      insert into eventos.evento_orientadores (evento_id, orientador_id, ordem)
+      values (${evento}, ${orientador}, ${numero(v.ordem) || 0})
+      on conflict (evento_id, orientador_id) do update set ordem = excluded.ordem`;
+    r.gravadas++;
+  }
+}
+
+// ─── compras ──────────────────────────────────────────────────────────────
+
+/**
+ * Pedidos, inscrições e o que pende delas.
+ *
+ * É a fase que carrega dinheiro, e por isso a mais desconfiada: uma inscrição
+ * sem pessoa, sem evento ou com valor errado não é gravada pela metade — é
+ * rejeitada, com o id antigo no relatório, para alguém olhar.
+ */
+async function faseCompras() {
+  const r = conta("compras");
+  const pessoas = await mapaPessoas();
+
+  const porLegado = async (tabela: string) => {
+    const linhas = await destino<{ id: number; legado_id: number }[]>`
+      select id, legado_id from ${destino(tabela)} where legado_id is not null`;
+    return new Map(linhas.map((l) => [l.legado_id, l.id]));
+  };
+  const mapaEvento = await porLegado("eventos.eventos");
+  const mapaTipo = await porLegado("eventos.ingresso_tipos");
+  const mapaCombo = await porLegado("eventos.combos");
+  const mapaCupom = await porLegado("eventos.cupons");
+
+  const rejeita = (motivo: string, id: number) => {
+    r.rejeitadas[motivo] = (r.rejeitadas[motivo] ?? 0) + 1;
+    rejeicoesDetalhe.push({ fase: "compras", legado_id: id, motivo });
+  };
+
+  // ── Pedidos ──
+  for (const p of await ler("PedidoPendente")) {
+    r.lidas++;
+    const comprador = pessoas.get(Number(p.compradorId));
+    const evento = mapaEvento.get(Number(p.eventoId));
+    if (!comprador) { rejeita("comprador não migrado", Number(p.id)); continue; }
+    if (!evento) { rejeita("evento não migrado", Number(p.id)); continue; }
+    if (dryRun) { r.gravadas++; continue; }
+
+    // `participantesJson` é texto na origem e pode estar malformado numa
+    // linha antiga. Um pedido é histórico: perder o snapshot é ruim, perder o
+    // pedido inteiro é pior.
+    let participantes: unknown = [];
+    try { participantes = p.participantesJson ? JSON.parse(String(p.participantesJson)) : []; }
+    catch { r.avisos++; participantes = { bruto: String(p.participantesJson) }; }
+
+    await destino`
+      insert into eventos.pedidos (
+        legado_id, comprador_id, comprador_cpf, evento_id, ingresso_tipo_id, combo_id,
+        quantidade, cupom_id, valor_original_centavos, desconto_centavos,
+        participantes, status, cielo, inscricao_ids, criado_em, atualizado_em)
+      values (${Number(p.id)}, ${comprador}, ${texto(p.compradorCpf)}, ${evento},
+              ${mapaTipo.get(Number(p.ingressoTipoId)) ?? null}, ${mapaCombo.get(Number(p.comboId)) ?? null},
+              ${numero(p.quantity) || 1}, ${mapaCupom.get(Number(p.cupomId)) ?? null},
+              ${centavos(p.valorOriginal)}, ${centavos(p.descontoAplicado)},
+              ${destino.json(participantes as never)}, ${texto(p.status) ?? 'pendente'},
+              ${destino.json(cielo(p) as never)},
+              ${texto(p.inscricaoIds)?.split(",").map(Number).filter(Number.isFinite) ?? null},
+              ${data(p.createdAt) ?? new Date().toISOString()}, ${data(p.updatedAt) ?? new Date().toISOString()})
+      on conflict (legado_id) do update set
+        status = excluded.status, cielo = excluded.cielo,
+        inscricao_ids = excluded.inscricao_ids, atualizado_em = excluded.atualizado_em`;
+    r.gravadas++;
+  }
+
+  const mapaPedido = await porLegado("eventos.pedidos");
+
+  // ── Inscrições ──
+  //
+  // ⚠️ Duas passagens. As colunas de transferência e de cancelamento apontam
+  // para OUTRA inscrição, que pode ainda não existir quando esta é gravada.
+  // Gravar tudo de uma vez exigiria ordenar por uma dependência que forma
+  // ciclo — A transferida para B, B com âncora em A. A segunda passagem
+  // resolve os ponteiros quando todas já estão lá.
+  const inscricoes = await ler("Inscricao");
+  for (const i of inscricoes) {
+    r.lidas++;
+    const pessoa = pessoas.get(Number(i.participanteId));
+    const evento = mapaEvento.get(Number(i.eventoId));
+    if (!pessoa) { rejeita("participante não migrado", Number(i.id)); continue; }
+    if (!evento) { rejeita("evento não migrado", Number(i.id)); continue; }
+    if (dryRun) { r.gravadas++; continue; }
+
+    const temEstorno = i.estornoStatus || i.estornoValor;
+    await destino`
+      insert into eventos.inscricoes (
+        legado_id, pessoa_id, evento_id, ingresso_tipo_id, combo_id, pedido_id, cupom_id,
+        comprador_id, compra_grupo_id, numero_convite, forma_pagamento, tipo_venda, status,
+        valor_original_centavos, desconto_centavos, data_compra, checkin_em, qr_code,
+        credenciamento_pedido, pix_data, pix_recibo, cortesia_motivo, cielo,
+        cancelado_em, cancelado_por, cancelamento_motivo, cancelamento_ancora_id,
+        estorno_status, estorno, titular_trocado_em, titular_troca_motivo,
+        titular_anterior_id, observacao, migracao_extras, criado_em)
+      values (
+        ${Number(i.id)}, ${pessoa}, ${evento},
+        ${mapaTipo.get(Number(i.ingressoTipoId)) ?? null}, ${mapaCombo.get(Number(i.comboId)) ?? null},
+        ${mapaPedido.get(Number(i.pedidoId)) ?? null}, ${mapaCupom.get(Number(i.cupomId)) ?? null},
+        ${pessoas.get(Number(i.compradorId)) ?? null},
+        ${texto(i.compraGrupoId)}, ${texto(i.numeroConvite)}, ${texto(i.formaPagamento)},
+        ${texto(i.tipoVenda) ?? 'importado'}, ${texto(i.status) ?? 'pago'},
+        ${centavos(i.valorOriginal)}, ${centavos(i.descontoAplicado)},
+        ${data(i.dataPurchase)}, ${data(i.checkinAt)}, ${texto(i.qrCode)},
+        ${texto(i.credenciamentoPedido)}, ${data(i.pixData)}, ${texto(i.pixRecibo)},
+        ${texto(i.cortesiaMotivo)}, ${destino.json(cielo(i) as never)},
+        ${data(i.canceladoEm)}, ${null}, ${texto(i.cancelamentoMotivo)}, ${numero(i.cancelamentoAncoraId)},
+        ${texto(i.estornoStatus)},
+        ${temEstorno ? destino.json({
+            valor_centavos: centavos(i.estornoValor),
+            forma: texto(i.estornoForma),
+            efetuado_em: data(i.estornoEfetuadoEm) as never,
+            efetuado_por: texto(i.estornoEfetuadoPor),
+            comprovante: texto(i.estornoComprovante),
+            observacao: texto(i.estornoObservacao),
+          } as never) : null},
+        ${data(i.titularTrocadoEm)}, ${texto(i.titularTrocaMotivo)},
+        ${pessoas.get(Number(i.titularAnteriorId)) ?? null},
+        ${texto(i.observacao)},
+        ${destino.json({
+          transferido_para_legado: numero(i.transferidoParaInscricaoId),
+          transferido_de_legado: numero(i.origemTransferenciaId),
+          transferido_para_evento_legado: numero(i.transferidoParaEventoId),
+          transferido_em: data(i.transferidoEm) as never,
+          transferido_por: texto(i.transferidoPor),
+          cancelado_por_nome: texto(i.canceladoPor),
+          titular_trocado_por_nome: texto(i.titularTrocadoPor),
+        } as never)},
+        ${data(i.createdAt) ?? new Date().toISOString()})
+      on conflict (legado_id) do update set
+        status = excluded.status, checkin_em = excluded.checkin_em,
+        estorno_status = excluded.estorno_status, estorno = excluded.estorno,
+        cielo = excluded.cielo, atualizado_em = now()`;
+    r.gravadas++;
+  }
+
+  if (!dryRun) {
+    // Segunda passagem: os ponteiros entre inscrições, agora que todas existem.
+    await destino`
+      update eventos.inscricoes i set
+        transferido_para_id = alvo.id,
+        transferido_em = (i.migracao_extras->>'transferido_em')::timestamptz
+      from eventos.inscricoes alvo
+      where alvo.legado_id = (i.migracao_extras->>'transferido_para_legado')::integer
+        and i.migracao_extras->>'transferido_para_legado' is not null`;
+    await destino`
+      update eventos.inscricoes i set transferido_de_id = anterior.id
+      from eventos.inscricoes anterior
+      where anterior.legado_id = (i.migracao_extras->>'transferido_de_legado')::integer
+        and i.migracao_extras->>'transferido_de_legado' is not null`;
+  }
+
+  // ── Respostas dos campos personalizados ──
+  const mapaInscricao = await porLegado("eventos.inscricoes");
+  const mapaCampo = await porLegado("eventos.ingresso_campos");
+  for (const a of await ler("InscricaoResposta")) {
+    r.lidas++;
+    const inscricao = mapaInscricao.get(Number(a.inscricaoId));
+    if (!inscricao) { rejeita("inscrição não migrada", Number(a.id)); continue; }
+    if (dryRun) { r.gravadas++; continue; }
+    await destino`
+      insert into eventos.inscricao_respostas (id, inscricao_id, campo_id, rotulo, valor, criado_em)
+      values (${Number(a.id)}, ${inscricao}, ${mapaCampo.get(Number(a.campoId)) ?? null},
+              ${texto(a.label)}, ${texto(a.valor)}, ${data(a.createdAt) ?? new Date().toISOString()})
+      on conflict (id) do update set valor = excluded.valor`;
+    r.gravadas++;
+  }
+
+  // ── Carrinhos abandonados ──
+  for (const c of await ler("CarrinhoAbandonado")) {
+    r.lidas++;
+    const evento = mapaEvento.get(Number(c.eventoId));
+    if (!evento) { rejeita("evento não migrado", Number(c.id)); continue; }
+    if (dryRun) { r.gravadas++; continue; }
+    await destino`
+      insert into eventos.carrinhos_abandonados (
+        legado_id, evento_id, ingresso_tipo_id, pessoa_id, nome, email, telefone, cpf,
+        quantidade, convertido, criado_em, atualizado_em)
+      values (${Number(c.id)}, ${evento}, ${mapaTipo.get(Number(c.ingressoTipoId)) ?? null},
+              ${pessoas.get(Number(c.participanteId)) ?? null}, ${texto(c.nome)}, ${texto(c.email)},
+              ${texto(c.telefone)}, ${texto(c.cpf)}, ${numero(c.quantity) || 1}, ${booleano(c.convertido)},
+              ${data(c.createdAt) ?? new Date().toISOString()}, ${data(c.updatedAt) ?? new Date().toISOString()})
+      on conflict (legado_id) do update set convertido = excluded.convertido`;
+    r.gravadas++;
+  }
+
+  // ⚠️ MagicLink NÃO é migrado. São tokens de acesso com prazo — os antigos já
+  // venceram, e trazer token para um sistema novo aumenta a superfície de
+  // ataque sem ganhar nada. Quem precisar de acesso pede um link novo.
+}
+
+// ─── comissão, configuração, auditoria ────────────────────────────────────
+
+async function faseComissao() {
+  const r = conta("comissao");
+  const pessoas = await mapaPessoas();
+  const mapaEvento = new Map(
+    (await destino<{ id: number; legado_id: number }[]>`
+      select id, legado_id from eventos.eventos where legado_id is not null`
+    ).map((l) => [l.legado_id, l.id])
+  );
+
+  for (const s of await ler("ComissaoSetorPadrao")) {
+    r.lidas++;
+    if (dryRun) { r.gravadas++; continue; }
+    await destino`
+      insert into eventos.comissao_setores_padrao (nome, ordem)
+      values (${texto(s.nome)}, ${numero(s.ordem) || 0})
+      on conflict (nome) do update set ordem = excluded.ordem`;
+    r.gravadas++;
+  }
+
+  const setores = new Map(
+    (await destino<{ id: number; nome: string }[]>`select id, nome from eventos.comissao_setores_padrao`)
+      .map((l) => [l.nome, l.id])
+  );
+  const setoresAntigos = new Map(
+    (await ler("ComissaoSetorPadrao")).map((s) => [Number(s.id), texto(s.nome) ?? ""])
+  );
+
+  for (const f of await ler("ComissaoFuncaoPadrao")) {
+    r.lidas++;
+    if (dryRun) { r.gravadas++; continue; }
+    await destino`
+      insert into eventos.comissao_funcoes_padrao (setor_id, nome, ordem)
+      values (${setores.get(setoresAntigos.get(Number(f.setorId)) ?? "") ?? null},
+              ${texto(f.nome)}, ${numero(f.ordem) || 0})
+      on conflict do nothing`;
+    r.gravadas++;
+  }
+
+  for (const m of await ler("ComissaoMembro")) {
+    r.lidas++;
+    const evento = mapaEvento.get(Number(m.eventoId));
+    if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
+    if (dryRun) { r.gravadas++; continue; }
+    const pessoa = pessoas.get(Number(m.participanteId));
+    const [nome] = pessoa
+      ? await destino<{ nome: string }[]>`select nome from public.pessoas where id = ${pessoa}`
+      : [{ nome: "(sem cadastro)" }];
+    await destino`
+      insert into eventos.comissao_membros (legado_id, evento_id, pessoa_id, nome, setor, funcao, criado_em)
+      values (${Number(m.id)}, ${evento}, ${pessoa ?? null}, ${nome?.nome ?? "(sem cadastro)"},
+              ${texto(m.setor)}, ${texto(m.funcao)}, ${data(m.createdAt) ?? new Date().toISOString()})
+      on conflict (legado_id) do update set setor = excluded.setor, funcao = excluded.funcao`;
+    r.gravadas++;
+  }
+}
+
+/**
+ * Configuração e a conta Cielo.
+ *
+ * ⚠️ A `merchantKey` está EM CLARO na origem. Aqui ela é cifrada antes de
+ * tocar o disco (`src/lib/cripto.ts`), e o valor em claro não aparece em log
+ * nem no relatório. É a única fase que exige CREDENCIAIS_ENCRYPTION_KEY.
+ */
+async function faseConfiguracao() {
+  const r = conta("configuracao");
+  const { cifrar } = await import("../src/lib/cripto");
+
+  const [prosperidade] = await destino<{ id: string }[]>`
+    select id from public.organizacoes where nome = 'Associação da Prosperidade' limit 1`;
+
+  for (const c of await ler("CieloAccount")) {
+    r.lidas++;
+    if (dryRun) { r.gravadas++; continue; }
+    if (!prosperidade) { r.rejeitadas["organização promotora não encontrada"] = 1; continue; }
+    await destino`
+      insert into public.credenciais (servico, ambiente, organizacao_id, publico, segredo)
+      values ('cielo', ${texto(c.environment) === 'sandbox' ? 'sandbox' : 'producao'},
+              ${prosperidade.id},
+              ${destino.json({ merchant_id: texto(c.merchantId) ?? "", nome_loja: texto(c.nome) ?? "" })},
+              ${cifrar(String(c.merchantKey))})
+      on conflict (servico, organizacao_id, ambiente) where organizacao_id is not null
+      do update set publico = excluded.publico, segredo = excluded.segredo, atualizado_em = now()`;
+    r.gravadas++;
+  }
+
+  // ⚠️ `Configuracao` é lida e CONTADA, não aplicada. As chaves do sistema
+  // antigo decidiam comportamento que aqui já foi decidido de outro jeito —
+  // aplicá-las sem revisão é como um sistema novo volta a se comportar como o
+  // velho sem ninguém ter pedido. Entram uma a uma, pela tela, quando alguém
+  // olhar o que ainda faz sentido.
+  const chaves = await ler("Configuracao", "chave");
+  r.lidas += chaves.length;
+  r.avisos += chaves.length;
+}
+
+async function faseAuditoria() {
+  const r = conta("auditoria");
+  for (const a of await ler("AuditLog")) {
+    r.lidas++;
+    if (dryRun) { r.gravadas++; continue; }
+    const [pessoa] = await destino<{ id: string }[]>`
+      select id from public.pessoas where email = ${texto(a.userEmail)} limit 1`;
+    await destino`
+      insert into public.auditoria (pessoa_id, acao, entidade, entidade_id, detalhe, ip, criado_em)
+      values (${pessoa?.id ?? null}, ${texto(a.acao)}, ${texto(a.entidade)}, ${texto(a.entidadeId)},
+              ${destino.json({ origem: "credenciamento", detalhes: texto(a.detalhes), ator: texto(a.userEmail) })},
+              ${texto(a.ip)}, ${data(a.createdAt) ?? new Date().toISOString()})`;
+    r.gravadas++;
+  }
+}
+
+/**
+ * As sequências continuam depois do maior id importado.
+ *
+ * ⚠️ Sem isto, a primeira venda no sistema novo tentaria o id 1 — que já é de
+ * uma inscrição de 2024 — e a carga inteira pareceria corrompida por um erro
+ * de chave duplicada no primeiro cliente do balcão.
+ */
+async function faseSequencias() {
+  const r = conta("sequencias");
+  const tabelas = [
+    "eventos.orientadores", "eventos.eventos", "eventos.ingresso_tipos",
+    "eventos.ingresso_campos", "eventos.combos", "eventos.combo_itens",
+    "eventos.cupons", "eventos.pedidos", "eventos.inscricoes",
+    "eventos.inscricao_respostas", "eventos.carrinhos_abandonados",
+    "eventos.comissao_setores_padrao", "eventos.comissao_funcoes_padrao",
+    "eventos.comissao_membros",
+  ];
+  for (const t of tabelas) {
+    r.lidas++;
+    if (dryRun) { r.gravadas++; continue; }
+    await destino.unsafe(
+      `select setval(pg_get_serial_sequence('${t}', 'id'),
+              greatest((select coalesce(max(id), 0) from ${t}), 1))`
+    );
+    r.gravadas++;
+  }
+}
+
 const FASES: Record<string, () => Promise<void>> = {
   pessoas: fasePessoas,
-  estrutura: async () => naoImplementada("estrutura (regionais, organizações, locais, promotores, orientadores)"),
-  eventos: async () => naoImplementada("eventos (eventos, tipos de convite, campos, combos, cupons, orientadores do evento)"),
-  compras: async () => naoImplementada("compras (pedidos, inscrições, respostas, magic links, carrinhos)"),
-  comissao: async () => naoImplementada("comissão"),
-  configuracao: async () => naoImplementada("configuração e segredos (cifrados)"),
-  auditoria: async () => naoImplementada("auditoria"),
-  sequencias: async () => naoImplementada("setval das sequências após a carga"),
+  estrutura: faseEstrutura,
+  eventos: faseEventos,
+  compras: faseCompras,
+  comissao: faseComissao,
+  configuracao: faseConfiguracao,
+  auditoria: faseAuditoria,
+  sequencias: faseSequencias,
 };
-
-function naoImplementada(nome: string): never {
-  throw new Error(`Fase ${nome} ainda não implementada — entra quando o schema eventos virar migração.`);
-}
 
 // ─── Execução ─────────────────────────────────────────────────────────────
 

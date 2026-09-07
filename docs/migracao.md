@@ -6,10 +6,50 @@ Ver a decisão em `docs/decisoes/0006-migracao-repetivel.md`.
 
 São dois lugares diferentes, e confundi-los é a primeira pedra do caminho:
 
+### A carga roda no GitHub — e pede UM segredo
+
+`Actions → Migrar dados do Credenciamento → Run workflow`, escolhendo **ensaio**
+ou **gravar**. O padrão é ensaio, que lê tudo e não grava nada.
+
+O único segredo novo é `MIGRACAO_MYSQL_URL`, e é um copiar-e-colar: no Railway,
+serviço MySQL → aba **Variables** → o valor de **`MYSQL_PUBLIC_URL`**.
+
+⚠️ `MYSQL_PUBLIC_URL`, não `MYSQL_URL`. A segunda usa o host `.internal`, que
+só funciona dentro da rede do Railway — e o runner do GitHub está fora dela.
+
+A conexão com o Supabase é **montada** a partir de `SUPABASE_PROJECT_REF` e
+`SUPABASE_DB_PASSWORD`, que já existem para aplicar as migrações. Pedir uma
+`DATABASE_URL` à parte seria pedir de novo, com outro nome, a mesma senha.
+
+`CREDENCIAIS_ENCRYPTION_KEY` só é exigida quando a fase `configuracao` GRAVA —
+é ela que cifra a chave da Cielo. Um ensaio não precisa dela.
+
+### Sobre usar o usuário administrador do MySQL
+
+O `MYSQL_PUBLIC_URL` é do `root`, que também escreve. O ideal continua sendo um
+usuário somente leitura — duas linhas no Console do Railway:
+
+```sql
+CREATE USER 'sni_leitura'@'%' IDENTIFIED BY 'senha-longa';
+GRANT SELECT ON railway.* TO 'sni_leitura'@'%';
+```
+
+Mas depender só disso é depender de alguém ter criado o usuário certo, e quem
+não criou não recebe aviso nenhum. Por isso a garantia é de CÓDIGO, verificada
+a cada CI (`tests/migracao-so-le.test.ts`): a conexão de origem só aceita
+`SELECT`, e nenhum comando de escrita de MySQL existe no script. Vale mesmo com
+credencial de administrador.
+
+Isso importa porque **a base do Credenciamento está no ar**: há gente comprando
+ingresso enquanto a carga roda. Um `UPDATE` acidental ali não estragaria um
+rascunho — derrubaria a compra de quem está no checkout naquele minuto.
+
+### Detalhes
+
 | O quê | Onde | Precisa instalar? |
 |---|---|---|
 | `scripts/esquema-origem.sql`, `scripts/contagens.sql`, o `CREATE USER` | Serviço MySQL no Railway → aba **Console** | Não |
-| `npm run migrar` | Terminal da sua máquina, na pasta do projeto | Node e o repositório |
+| `npm run migrar` | GitHub → Actions → *Migrar dados do Credenciamento* | Não |
 
 ⚠️ **Use a aba Console, não a Data.** A aba *Data → Query* serve para espiar
 dados, não para extrair esquema, e falha de três jeitos diferentes:
@@ -73,13 +113,42 @@ antigo. É esse arquivo que se compartilha para discutir o resultado.
 | Fase | Origem | Destino | Estado |
 |---|---|---|---|
 | pessoas | `Participant` | `public.pessoas` | implementada |
-| estrutura | `Regional`, `Organizacao`, `Local`, `Promotor`, `Orientador` | `public.regionais`, `public.organizacoes`, `eventos.*` | a fazer |
-| eventos | `Evento`, `IngressoTipo`, `IngressoCampo`, `Combo*`, `Cupom`, `EventoOrientador` | `eventos.*` | a fazer |
-| compras | `PedidoPendente`, `Inscricao`, `InscricaoResposta`, `MagicLink`, `CarrinhoAbandonado` | `eventos.*` | a fazer |
-| comissao | `Comissao*` | `eventos.comissao_*` | a fazer |
-| configuracao | `Configuracao`, `CieloAccount`, `RegionalPromotorEmail` | `public.configuracoes`, segredos cifrados | a fazer |
-| auditoria | `AuditLog` | `public.auditoria` | a fazer |
-| sequencias | — | `setval` por tabela | a fazer |
+| estrutura | `Local`, `Orientador` | `public.locais`, `eventos.orientadores` | implementada |
+| eventos | `Evento`, `IngressoTipo`, `IngressoCampo`, `Combo*`, `Cupom`, `EventoOrientador` | `eventos.*` | implementada |
+| compras | `PedidoPendente`, `Inscricao`, `InscricaoResposta`, `CarrinhoAbandonado` | `eventos.*` | implementada |
+| comissao | `Comissao*` | `eventos.comissao_*` | implementada |
+| configuracao | `CieloAccount` | `public.credenciais` (cifrada) | implementada |
+| auditoria | `AuditLog` | `public.auditoria` | implementada |
+| sequencias | — | `setval` por tabela | implementada |
+
+⚠️ **A ordem não é alfabética, e importa.** Não dá para gravar inscrição antes
+do evento a que ela pertence. Uma fase que falha interrompe as seguintes:
+continuar gravaria filhos órfãos que ninguém sabe de onde vieram.
+
+### O que NÃO é migrado, e por quê
+
+- **`Regional` e `Organizacao`.** São listas de nomes em texto na origem, sem
+  vínculo com a árvore de `unidades` — e a árvore real já veio do site
+  institucional, com 114 Regionais. Importá-las criaria uma segunda verdade
+  sobre a mesma instituição, e ninguém saberia qual consultar. Os nomes que
+  cada participante trazia ficam em `migracao_extras`, para a conciliação em
+  tela.
+- **`Promotor`.** Nome, telefone e e-mail em texto livre. Quem promove agora é
+  uma entidade da estrutura (decisão 0012). Os dois eventos existentes são da
+  Associação da Prosperidade, informado pela Sede.
+- **`MagicLink`.** São tokens de acesso com prazo; os antigos já venceram, e
+  trazer token para um sistema novo aumenta a superfície de ataque sem ganhar
+  nada. Quem precisar pede um link novo.
+- **`User`, `Perfil`, `UserPreferencia`.** O controle de acesso antigo. Senha
+  não migra: o destino autentica pelo Supabase Auth. Cada operador vira pessoa
+  mais papel, em `/admin/pessoas`.
+- **`Configuracao`.** Lida e CONTADA, não aplicada. As chaves do sistema antigo
+  decidiam comportamento que aqui já foi decidido de outro jeito — aplicá-las
+  sem revisão é como um sistema novo volta a se comportar como o velho sem
+  ninguém ter pedido.
+- **`RateLimit`.** Contador de janela deslizante; o histórico não serve.
+- **`cieloPixQrImage`.** Imagem em base64, dezenas de kB por linha, para um QR
+  que expirou. Regenera-se a partir do código quando alguém precisar.
 
 ## Regras de transformação
 
