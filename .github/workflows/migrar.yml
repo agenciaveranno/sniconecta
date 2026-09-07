@@ -94,17 +94,13 @@ jobs:
             echo "Nada foi lido nem gravado."
             exit 1
           fi
-          # A chave de cifra só é usada pela fase `configuracao`, e só quando
-          # grava. Exigi-la para um ensaio seria travar a leitura por causa de
-          # um passo que o ensaio nem executa.
-          precisa_chave=false
-          [ "${{ inputs.modo }}" = "gravar" ] && \
-            { [ -z "${{ inputs.fase }}" ] || [ "${{ inputs.fase }}" = "configuracao" ]; } && precisa_chave=true
-          if [ "$precisa_chave" = true ] && [ -z "$CHAVE" ]; then
-            echo "::error::Falta CREDENCIAIS_ENCRYPTION_KEY, e a fase `configuracao` cifra a chave da Cielo com ela."
-            echo "Precisa ser A MESMA da Vercel: com outra, a credencial é cifrada"
-            echo "com uma chave que o sistema não abre, e a venda falha sem explicação."
-            exit 1
+          # ⚠️ A chave de cifra NÃO bloqueia a carga. Ela serve a uma fase só
+          # — `configuracao`, que cifra a chave da Cielo —, e travar as outras
+          # sete por causa dela seria adiar dezesseis mil pessoas por causa de
+          # uma linha. Sem a chave, aquela fase se declara PULADA no relatório,
+          # e roda depois sozinha.
+          if [ "${{ inputs.modo }}" = "gravar" ] && [ -z "$CHAVE" ]; then
+            echo "::warning::Sem CREDENCIAIS_ENCRYPTION_KEY: a fase configuracao será pulada (a conta Cielo não entra). Precisa ser a MESMA da Vercel."
           fi
 
       - name: Rodar a carga

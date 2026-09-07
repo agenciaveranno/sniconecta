@@ -596,7 +596,19 @@ async function faseConfiguracao() {
   const r = conta("configuracao");
   // ⚠️ `cripto-nucleo`, não `cripto`: o segundo importa `server-only`, que só
   // resolve dentro do Next. Aqui é Node puro.
-  const { cifrar } = await import("../src/lib/cripto-nucleo");
+  const { cifragemDisponivel, cifrar } = await import("../src/lib/cripto-nucleo");
+
+  // ⚠️ Sem chave de cifra a fase se PULA, e não estoura. Ela grava uma linha —
+  // a conta Cielo — e derrubar a carga por causa dela adiaria dezesseis mil
+  // pessoas. Fica declarado no relatório, e roda sozinha depois.
+  //
+  // Gravar a chave em claro "por enquanto" não é opção: seria exatamente o
+  // problema que a origem tem, trazido para o sistema novo.
+  if (!dryRun && !cifragemDisponivel()) {
+    r.rejeitadas["fase pulada: sem CREDENCIAIS_ENCRYPTION_KEY"] = 1;
+    console.log("(pulada: sem chave de cifra)");
+    return;
+  }
 
   const [prosperidade] = await destino<{ id: string }[]>`
     select id from public.organizacoes where nome = 'Associação da Prosperidade' limit 1`;
