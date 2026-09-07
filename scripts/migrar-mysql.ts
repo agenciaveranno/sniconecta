@@ -471,9 +471,14 @@ async function faseVinculos() {
     if (indefinidaId) return indefinidaId;
     const jaTem = organizacoes.get(chaveNucleo("Indefinida"));
     if (jaTem) return (indefinidaId = jaTem);
+    // ⚠️ `e_organizacao = false`: a "Indefinida" é uma DÍVIDA a revisar, não uma
+    // Organização doutrinária. Marcada, ela apareceria na lista de escolha de
+    // quem cadastra uma Associação Local — e alguém escolheria, de boa-fé,
+    // transformando o balde temporário em destino permanente.
     const [nova] = await destino<{ id: string }[]>`
-      insert into public.organizacoes (nome, ordem) values ('Indefinida', 900)
-      on conflict (nome) do update set nome = excluded.nome
+      insert into public.organizacoes (nome, ordem, e_organizacao)
+      values ('Indefinida', 900, false)
+      on conflict (nome) do update set ordem = 900, e_organizacao = false
       returning id`;
     organizacoes.set(chaveNucleo("Indefinida"), nova.id);
     return (indefinidaId = nova.id);
