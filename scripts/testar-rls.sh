@@ -134,7 +134,8 @@ insert into auth.users (id, email) values
   -- Conta sem pessoa: existe só para as asserções de ligação por e-mail
   -- poderem usar um `auth_user_id` livre. Com um já tomado, o unique de
   -- `auth_user_id` recusaria antes e mascararia o que se quer provar.
-  ('c0000000-0000-0000-0000-000000000007','sobra@x');
+  ('c0000000-0000-0000-0000-000000000007','sobra@x'),
+  ('c0000000-0000-0000-0000-000000000008','presidente.uap@x');
 
 insert into unidades (id, tipo, pai_id, organizacao_id, nome, slug)
 select v.id, v.tipo, v.pai, o.id, v.nome, v.slug
@@ -164,12 +165,21 @@ insert into pessoas (id, cpf, cod_sni, nome, email, auth_user_id) values
   ('d0000000-0000-0000-0000-000000000005','40364045884','5','Aluna Curitiba','aluna.curitiba@x','c0000000-0000-0000-0000-000000000005'),
   ('d0000000-0000-0000-0000-000000000006','12345678909','6','Aluna Londrina',null,null),
   ('d0000000-0000-0000-0000-000000000007','98765432100','7','Aluna Campinas',null,null),
-  ('d0000000-0000-0000-0000-000000000008','15350946056','8','Coord Núcleo','coord.nucleo@x','c0000000-0000-0000-0000-000000000006');
+  ('d0000000-0000-0000-0000-000000000008','15350946056','8','Coord Núcleo','coord.nucleo@x','c0000000-0000-0000-0000-000000000006'),
+  ('d0000000-0000-0000-0000-000000000009','29537995500','9','Presidente UAP Sul','presidente.uap@x','c0000000-0000-0000-0000-000000000008');
 
 insert into pessoa_unidade_vinculos (pessoa_id, unidade_id) values
   ('d0000000-0000-0000-0000-000000000005','33330000-0000-0000-0000-000000000001'),
   ('d0000000-0000-0000-0000-000000000006','33330000-0000-0000-0000-000000000002'),
   ('d0000000-0000-0000-0000-000000000007','33330000-0000-0000-0000-000000000003');
+
+-- ⚠️ O Presidente de UAP é o único papel com RECORTE: ele responde pelas
+-- Associações Locais de UMA Organização dentro da Regional, não pelas das
+-- outras três. É o que as asserções abaixo provam.
+insert into papeis (pessoa_id, tipo, unidade_id, organizacao_id)
+select 'd0000000-0000-0000-0000-000000000009','presidente_uap',
+       '22220000-0000-0000-0000-000000000001', id
+  from organizacoes where nome = 'Associação da Prosperidade';
 
 insert into papeis (pessoa_id, tipo, unidade_id) values
   ('d0000000-0000-0000-0000-000000000001','sede',        null),
@@ -183,6 +193,7 @@ SEDE=c0000000-0000-0000-0000-000000000001
 CSUL=c0000000-0000-0000-0000-000000000002
 CCAMP=c0000000-0000-0000-0000-000000000003
 OSUL=c0000000-0000-0000-0000-000000000004
+PUAP=c0000000-0000-0000-0000-000000000008
 ALUNA=c0000000-0000-0000-0000-000000000005
 CNUC=c0000000-0000-0000-0000-000000000006
 
@@ -251,7 +262,7 @@ leitura "orientador não administra unidade (administra_unidade = false)" $OSUL 
   "select count(*) from app.unidades_administradas();" 0
 
 echo "── Pessoas: quem vê quem"
-leitura "Sede vê as 8 pessoas" $SEDE "select count(*) from pessoas;" 8
+leitura "Sede vê as 9 pessoas" $SEDE "select count(*) from pessoas;" 9
 # Coord Sul: as 2 alunas do Sul + ela mesma. Coord Campinas e as outras não.
 leitura "coordenadora do Sul vê as 2 alunas do Sul e ela mesma" $CSUL \
   "select count(*) from pessoas;" 3
@@ -373,6 +384,30 @@ escrita "papel nacional com unidade é recusado" $SEDE \
   "insert into papeis (pessoa_id, tipo, unidade_id) values ('d0000000-0000-0000-0000-000000000005','eventos_admin','33330000-0000-0000-0000-000000000001');" NEGADO
 escrita "papel de unidade sem unidade é recusado" $SEDE \
   "insert into papeis (pessoa_id, tipo) values ('d0000000-0000-0000-0000-000000000005','coordenador');" NEGADO
+
+echo "── Presidente de UAP: alcance recortado por Organização"
+# ⚠️ Aqui não se prova só que ele alcança — prova-se ONDE ELE PARA. A matriz
+# lhe dava `pessoa.gerir` e o banco não o deixava tocar em ninguém: o tipo não
+# administrava unidade, e a RLS não recusa, ela reduz a zero. O menu oferecia o
+# que o banco sempre negaria, em silêncio, e nenhuma asserção existia para
+# pegar isso — este papel não era exercitado por nenhuma delas.
+leitura "alcança a AL da Organização dele, descendo pelo Núcleo que não é dele" $PUAP \
+  "select count(*) from pessoas where id='d0000000-0000-0000-0000-000000000005';" 1
+leitura "NÃO alcança a AL de outra Organização na MESMA Regional" $PUAP \
+  "select count(*) from pessoas where id='d0000000-0000-0000-0000-000000000006';" 0
+leitura "NÃO alcança a AL da MESMA Organização em outra Regional" $PUAP \
+  "select count(*) from pessoas where id='d0000000-0000-0000-0000-000000000007';" 0
+escrita "edita a pessoa da Organização dele" $PUAP \
+  "update pessoas set telefone='11999999999' where id='d0000000-0000-0000-0000-000000000005';" OK
+escrita "NÃO edita a pessoa de outra Organização" $PUAP \
+  "update pessoas set telefone='11999999999' where id='d0000000-0000-0000-0000-000000000006';" NEGADO
+escrita "NÃO concede papel: isso é da Sede" $PUAP \
+  "insert into papeis (pessoa_id, tipo, unidade_id) values ('d0000000-0000-0000-0000-000000000005','coordenador','33330000-0000-0000-0000-000000000001');" NEGADO
+# ⚠️ Sem a Organização, o recorte some e ele herdaria a Regional inteira.
+escrita "papel com recorte SEM a Organização é recusado" $SEDE \
+  "insert into papeis (pessoa_id, tipo, unidade_id) values ('d0000000-0000-0000-0000-000000000005','presidente_uap','22220000-0000-0000-0000-000000000001');" NEGADO
+escrita "papel SEM recorte COM Organização é recusado" $SEDE \
+  "insert into papeis (pessoa_id, tipo, unidade_id, organizacao_id) select 'd0000000-0000-0000-0000-000000000005','coordenador','22220000-0000-0000-0000-000000000001', id from organizacoes where nome='Associação da Prosperidade';" NEGADO
 
 echo "── Identidade (decisões 0002, 0004 e 0011)"
 escrita "CPF fora do formato é recusado" $SEDE \
