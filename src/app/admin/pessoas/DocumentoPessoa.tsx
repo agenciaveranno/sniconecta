@@ -44,7 +44,7 @@ export default function DocumentoPessoa({
             defaultValue={passaporte ?? ""}
             required
             maxLength={20}
-            className="sni-input num"
+            className="num"
             autoCapitalize="characters"
             spellCheck={false}
           />
@@ -56,7 +56,7 @@ export default function DocumentoPessoa({
             defaultValue={cpf ?? ""}
             required
             maxLength={14}
-            className="sni-input num"
+            className="num"
             inputMode="numeric"
           />
         </Campo>

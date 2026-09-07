@@ -177,7 +177,7 @@ export default async function PessoasPage({
                   <Celula forte>
                     <Link href={`/admin/pessoas/${pessoa.id}`}>{pessoa.nome_social || pessoa.nome}</Link>
                     {pessoa.email && (
-                      <span className="sni-hint" style={{ marginTop: 2 }}>
+                      <span className="hint" style={{ marginTop: 2 }}>
                         {pessoa.email}
                       </span>
                     )}
@@ -191,7 +191,7 @@ export default async function PessoasPage({
                     ) : (
                       <>
                         <Num>{formatarPassaporte(pessoa.passaporte)}</Num>
-                        <span className="sni-hint" style={{ marginTop: 2 }}>
+                        <span className="hint" style={{ marginTop: 2 }}>
                           Passaporte
                         </span>
                       </>
@@ -202,7 +202,7 @@ export default async function PessoasPage({
                       <>
                         {vinculo.unidade_nome}
                         {vinculo.organizacao_nome && (
-                          <span className="sni-hint" style={{ marginTop: 2 }}>
+                          <span className="hint" style={{ marginTop: 2 }}>
                             {vinculo.organizacao_nome}
                           </span>
                         )}
@@ -229,7 +229,7 @@ export default async function PessoasPage({
                     {pessoa.auth_user_id ? (
                       <Badge tom="success">Entra no sistema</Badge>
                     ) : (
-                      <span className="sni-hint">Só cadastro</span>
+                      <span className="hint">Só cadastro</span>
                     )}
                   </Celula>
                   <Celula alinhar="right">
@@ -373,7 +373,7 @@ export default async function PessoasPage({
           </Tabela>
 
           <nav className="sni-paginacao" aria-label="Páginas">
-            <span className="sni-hint">
+            <span className="hint">
               <Num>{total}</Num> pessoa{total === 1 ? "" : "s"} · página <Num>{pagina}</Num> de{" "}
               <Num>{paginas}</Num>
             </span>

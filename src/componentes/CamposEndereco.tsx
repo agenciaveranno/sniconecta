@@ -71,7 +71,7 @@ export default function CamposEndereco({
   return (
     <>
       {titulo && <h3 className="sni-section-eyebrow">{titulo}</h3>}
-      <div className="sni-form-grid">
+      <div className="form-grid">
         <Campo
           label="CEP"
           dica={buscando ? "Procurando o endereço…" : "Preenche rua, bairro, cidade e UF. Dá para mudar tudo depois."}
@@ -89,7 +89,7 @@ export default function CamposEndereco({
             }}
             onBlur={(e) => void buscar(e.target.value)}
             maxLength={9}
-            className="sni-input num"
+            className="num"
             inputMode="numeric"
             placeholder="00000-000"
           />
@@ -98,7 +98,7 @@ export default function CamposEndereco({
           <Input name="bairro" value={bairro} onChange={(e) => setBairro(e.target.value)} maxLength={80} />
         </Campo>
       </div>
-      <div className="sni-form-grid">
+      <div className="form-grid">
         <Campo label="Logradouro">
           <Input name="logradouro" value={logradouro} onChange={(e) => setLogradouro(e.target.value)} maxLength={150} />
         </Campo>
@@ -106,7 +106,7 @@ export default function CamposEndereco({
           <Input name="numero" defaultValue={valores?.numero ?? ""} maxLength={20} />
         </Campo>
       </div>
-      <div className="sni-form-grid">
+      <div className="form-grid">
         <Campo label="Complemento">
           <Input name="complemento" defaultValue={valores?.complemento ?? ""} maxLength={80} />
         </Campo>

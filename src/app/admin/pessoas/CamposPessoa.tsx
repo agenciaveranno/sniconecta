@@ -23,7 +23,7 @@ export default function CamposPessoa({
       {pessoa && <input type="hidden" name="id" value={pessoa.id} />}
 
       <GrupoCampos titulo="Identificação">
-        <div className="sni-form-grid">
+        <div className="form-grid">
           <Campo label="Nome completo" obrigatorio>
             <Input name="nome" defaultValue={pessoa?.nome ?? ""} required maxLength={150} />
           </Campo>
@@ -37,13 +37,13 @@ export default function CamposPessoa({
 
         <DocumentoPessoa cpf={pessoa?.cpf} passaporte={pessoa?.passaporte} />
 
-        <div className="sni-form-grid">
+        <div className="form-grid">
           <Campo label="CodSNI" dica="Só dígitos. Zeros à esquerda contam.">
             <Input
               name="cod_sni"
               defaultValue={pessoa?.cod_sni ?? ""}
               maxLength={20}
-              className="sni-input num"
+              className="num"
               inputMode="numeric"
             />
           </Campo>
@@ -61,7 +61,7 @@ export default function CamposPessoa({
           </Campo>
         </div>
 
-        <div className="sni-form-grid">
+        <div className="form-grid">
           <Campo label="Nascimento">
             <Input name="nascimento" type="date" defaultValue={pessoa?.nascimento ?? ""} />
           </Campo>
@@ -77,7 +77,7 @@ export default function CamposPessoa({
       </GrupoCampos>
 
       <GrupoCampos titulo="Contato">
-        <div className="sni-form-grid">
+        <div className="form-grid">
           <Campo
             label="E-mail"
             dica="Pode repetir na família — mas só uma pessoa por e-mail consegue ter acesso ao sistema."
@@ -85,16 +85,16 @@ export default function CamposPessoa({
             <Input name="email" type="email" defaultValue={pessoa?.email ?? ""} maxLength={150} />
           </Campo>
           <Campo label="Telefone">
-            <Input name="telefone" defaultValue={pessoa?.telefone ?? ""} maxLength={20} className="sni-input num" />
+            <Input name="telefone" defaultValue={pessoa?.telefone ?? ""} maxLength={20} className="num" />
           </Campo>
         </div>
         <Campo label="WhatsApp" dica="Se for o mesmo do telefone, repita — é por ele que a fila de mensagens envia.">
-          <Input name="telefone2" defaultValue={pessoa?.telefone2 ?? ""} maxLength={20} className="sni-input num" />
+          <Input name="telefone2" defaultValue={pessoa?.telefone2 ?? ""} maxLength={20} className="num" />
         </Campo>
       </GrupoCampos>
 
       <GrupoCampos titulo="Família">
-        <div className="sni-form-grid">
+        <div className="form-grid">
           <Campo label="Nome do pai">
             <Input name="nome_pai" defaultValue={pessoa?.nome_pai ?? ""} maxLength={150} />
           </Campo>
@@ -102,7 +102,7 @@ export default function CamposPessoa({
             <Input name="nome_mae" defaultValue={pessoa?.nome_mae ?? ""} maxLength={150} />
           </Campo>
         </div>
-        <div className="sni-form-grid">
+        <div className="form-grid">
           <Campo label="Estado civil">
             <Select name="estado_civil" defaultValue={pessoa?.estado_civil ?? ""}>
               <option value="">Não informado</option>
@@ -120,7 +120,7 @@ export default function CamposPessoa({
       </GrupoCampos>
 
       <GrupoCampos titulo="Na Seicho-No-Ie">
-        <div className="sni-form-grid">
+        <div className="form-grid">
           <Campo
             label="Entrada na Seicho-No-Ie"
             dica="Quando a pessoa chegou. Não é a data do cadastro: quem chegou em 1978 tem cadastro de agora."
@@ -134,7 +134,7 @@ export default function CamposPessoa({
       </GrupoCampos>
 
       <GrupoCampos titulo="Vida civil">
-        <div className="sni-form-grid">
+        <div className="form-grid">
           <Campo label="Profissão">
             <Input name="profissao" defaultValue={pessoa?.profissao ?? ""} maxLength={120} />
           </Campo>
@@ -179,7 +179,7 @@ export default function CamposPessoa({
 
       {pessoa && (
         <GrupoCampos titulo="Falecimento">
-          <div className="sni-form-grid">
+          <div className="form-grid">
             <Campo
               label="Data"
               dica="Quem faleceu continua no cadastro: a Missão Sagrada tem categoria de Santo Espiritual."

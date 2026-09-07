@@ -26,12 +26,12 @@ export default function CamposContato({
   return (
     <>
       <GrupoCampos titulo="Contato">
-        <div className="sni-form-grid">
+        <div className="form-grid">
           <Campo label="Telefone fixo">
-            <Input name="telefone" defaultValue={valores?.telefone ?? ""} maxLength={20} className="sni-input num" />
+            <Input name="telefone" defaultValue={valores?.telefone ?? ""} maxLength={20} className="num" />
           </Campo>
           <Campo label="WhatsApp" dica="O número que recebe mensagem. É por ele que o sistema avisa.">
-            <Input name="whatsapp" defaultValue={valores?.whatsapp ?? ""} maxLength={20} className="sni-input num" />
+            <Input name="whatsapp" defaultValue={valores?.whatsapp ?? ""} maxLength={20} className="num" />
           </Campo>
         </div>
         <Campo label="E-mail">
@@ -43,7 +43,7 @@ export default function CamposContato({
         titulo="Na internet"
         descricao="Cole o endereço inteiro, como ele aparece no navegador — começando com https://."
       >
-        <div className="sni-form-grid">
+        <div className="form-grid">
           <Campo label="Site">
             <Input name="site" type="url" defaultValue={valores?.site ?? ""} maxLength={300} placeholder="https://" />
           </Campo>
@@ -51,7 +51,7 @@ export default function CamposContato({
             <Input name="facebook" type="url" defaultValue={valores?.facebook ?? ""} maxLength={300} placeholder="https://facebook.com/" />
           </Campo>
         </div>
-        <div className="sni-form-grid">
+        <div className="form-grid">
           <Campo label="Instagram">
             <Input name="instagram" type="url" defaultValue={valores?.instagram ?? ""} maxLength={300} placeholder="https://instagram.com/" />
           </Campo>

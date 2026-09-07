@@ -21,7 +21,8 @@ src/modulos/<modulo>/    Código de domínio de cada módulo (ciclo, eventos).
 src/modulos/registro.ts  Registro declarativo de módulos: itens de menu +
                          capacidade que os libera. A barra lateral lê daqui.
 src/componentes/ui.tsx   TODOS os primitivos visuais. Não estilize na página.
-src/design/              tokens.css (fonte da verdade) e componentes.css.
+src/design/tokens.css    CÓPIA FIEL do design system (v2.9). Classes SEM prefixo.
+src/design/componentes.css  Só o que é NOSSO. Sempre com prefixo `sni-`.
 src/lib/auth.ts          pessoaAtual(), exigirCapacidade().
 src/lib/permissoes.ts    MATRIZ de capacidades (dado, não código).
 src/lib/supabase/        clientes: servidor (RLS), navegador, serviço.
@@ -98,9 +99,15 @@ docs/                    decisões (ADR), design system, integração.
 
 Regras completas em `docs/design-system.md`. As que mais se erram:
 
+- `tokens.css` é do design system e entra por SUBSTITUIÇÃO inteira; o que for
+  nosso vai em `componentes.css`, com prefixo `sni-`. Classe nossa que faz o
+  que uma de lá já faz é dívida — na próxima versão elas divergem, e a tela
+  passa a ter duas aparências para a mesma coisa. Sobrescrever o sistema exige
+  escopo nosso (`.sni-app-shell .side`, nunca `.side` solto).
 - Duas camadas: conteúdo sempre opaco; só barra superior, menus e modais
   levam vidro. Nunca vidro sobre vidro.
-- Platypi só em título (≥16px, peso 700), nunca em número, rótulo ou botão.
+- Platypi só em título (≥16px), **em CAIXA ALTA, peso 800, entreletra zero** —
+  nunca em número, rótulo ou botão.
   Plex Mono em todo número que se lê (`.num` / `<Num>`). Figtree no resto.
 - Nada abaixo de 13px. Corpo 15px. Caixa alta em rótulo pequeno é proibida.
 - Cor, raio, sombra e tamanho vêm dos tokens. Precisou de algo que não
@@ -109,6 +116,9 @@ Regras completas em `docs/design-system.md`. As que mais se erram:
   **Exceção registrada (decisão 0015): a ficha da pessoa é página com abas.**
   Vira página quem tiver duas destas: mais de ~15 campos, upload de arquivo,
   mais de um assunto dentro, ou necessidade de URL própria.
+- A ação primária de uma tela vive ao lado do título, no conteúdo — nunca na
+  barra superior, que carrega só o título da tela e a identidade de quem entrou.
+  Sair fica dentro do menu do usuário: ação de saída não ocupa espaço fixo.
 - `SEICHO-NO-IE DO BRASIL` sempre em caixa alta, escrita no conteúdo
   (`<Entidade />`). A forma com "do Brasil" em minúsculas não pode aparecer
   em lugar nenhum. `Seicho-No-Ie` sozinho é livre. `SNI Conecta` é o produto.

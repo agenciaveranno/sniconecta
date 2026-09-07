@@ -1,129 +1,59 @@
 /* ============================================================
-   SNI CONECTA — COMPONENTES DO PAINEL (design system v2.7)
-   Classes de componente. Tokens e primitivas em tokens.css.
-   Aqui o aplicativo inteiro é painel: nada de escopo.
-   Mapa de nomes do design system → classes do projeto:
+   SNI CONECTA — O QUE É NOSSO (design system v2.9)
 
+   ⚠️ Este arquivo NÃO reescreve o design system. Ele acrescenta.
 
-     .btn / .btn-primary / .btn-glass / .btn-ghost  →  .sni-btn / -primary / -secondary / -ghost
-     .btn-lg / .btn-md / .btn-sm / .btn-icon        →  .sni-btn-lg / -md / -sm / -icon
-     .inp / .field label / .hint / .hint.err        →  .sni-input .sni-select .sni-textarea / .sni-label / .sni-hint / .sni-error
-     .bg .bg-blue .bg-ok .bg-warn .bg-dang .bg-gray  →  .sni-badge -blue -success -warning -danger -gray
-     .card .card-i .card-h / .kpi-v .kpi-d           →  .sni-card .sni-card-icon .sni-card-header / .sni-metric-value .sni-metric-trend
-     .sheet table                                    →  .sni-card-flat > .sni-table
-     .side .nav-l .nav-i .nav-tag                    →  .sni-sidebar .sni-sidebar-section-label .sni-sidebar-item .sni-sidebar-badge
-     .topbar .ibtn                                   →  .sni-topbar .sni-icon-btn
-     .modal .dimlayer                                →  .sni-modal .dimlayer (components/Modal.tsx)
-     .t-page / .t-section                            →  .sni-page-title / .sni-section-eyebrow
-   ============================================================ */
+   `tokens.css` é cópia fiel do arquivo publicado pelo design system e
+   traz as classes SEM PREFIXO: .btn .inp .field .card .side .topbar
+   .bg .sheet .modal .menu .t-page .t-section. Elas são a primeira
+   escolha, sempre.
 
-/* ============================================================
-   0. CAMADA ESTRUTURAL
+   Aqui moram as classes com prefixo `sni-`, e o prefixo passou a
+   significar uma coisa só: ISTO NÃO VEM DO DESIGN SYSTEM. São três
+   grupos, e nenhum outro:
 
-   ⚠️ Esta seção existe porque o resto do arquivo veio de um sistema
-   onde o v2.7 era uma camada de SOBRESCRITA: lá as classes já tinham
-   `display`, `position` e `width` definidos por baixo, e o v2.7 só
-   trocava cor, raio e tamanho. Ao trazer só a metade de cima, as
-   classes ficaram com aparência e sem esqueleto — a barra lateral não
-   flutuava, o conteúdo não ocupava a largura e o menu do celular não
-   abria.
+     1. Esqueleto do aplicativo    .sni-app-shell .sni-content .sni-page
+     2. Componentes que o sistema  .sni-abas .sni-alert .sni-modal-*
+        não tem                    .sni-paginacao .sni-busca .sni-metric
+     3. Variantes que a operação   .sni-btn-xl (balcão) .sni-btn-xs (tabela)
+        pediu e o sistema não tem  .sni-badge-info .sni-btn-dark
 
-   Aqui ficam só as propriedades de LAYOUT (o que ocupa espaço e onde),
-   mais as poucas classes que não existiam em lugar nenhum. A aparência
-   continua nos blocos abaixo, que vencem por virem depois. Ao criar um
-   componente novo: layout aqui, aparência lá.
+   ⚠️ Antes de escrever regra nova aqui, procurar no `tokens.css`. Uma
+   classe daqui que faz o que uma de lá já faz é dívida: na próxima
+   versão do design system, a de lá muda e a nossa não — e a tela passa
+   a ter duas aparências para a mesma coisa. Foi assim que este projeto
+   ficou preso no v2.7 enquanto o sistema ia para o v2.9.
    ============================================================ */
 
 /* Casca: barra lateral fixa à esquerda, conteúdo ocupando o resto.
    `min-width: 0` em toda coluna flexível — sem isso, uma tabela larga
    empurra o layout em vez de rolar dentro da própria caixa. */
-.sni-app-shell { display: flex; }
+/* ⚠️ Altura FIXA de viewport e rolagem só no conteúdo, como no shell de
+   referência do v2.9: a barra lateral e a barra superior ficam paradas, e a
+   página rola por baixo delas. Com a rolagem no <body>, o cabeçalho sobe junto
+   e a navegação some justamente em tela longa, que é onde ela mais serve. */
+.sni-app-shell { display: flex; height: 100vh; overflow: hidden; }
 .sni-content { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.sni-page { flex: 1; min-width: 0; }
+.sni-page { flex: 1; min-width: 0; overflow-y: auto; }
 .sni-page-wide { max-width: 1400px; margin: 0 auto; }
 
-.sni-sidebar {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  z-index: 30;
-}
-.sni-sidebar-logo { display: flex; align-items: center; }
-.sni-sidebar-logo-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #fff; }
-.sni-sidebar-scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-.sni-sidebar-item { display: flex; align-items: center; cursor: pointer; text-decoration: none; }
-.sni-sidebar-item i { flex-shrink: 0; }
-/* O AppShell marca o item ativo com a classe; `aria-current` é o que o
-   leitor de tela anuncia. Aceitar os dois evita que uma tela pinte um e
-   anuncie o outro. */
-.sni-sidebar-item[aria-current="page"] { background: rgba(255,255,255,.16); color: #fff; font-weight: 600; }
-.sni-sidebar-badge { margin-left: auto; }
-.sni-sidebar-bottom { margin-top: auto; }
-.sni-sidebar-user { display: flex; align-items: center; }
-.sni-sidebar-user-link { display: flex; align-items: center; flex: 1; min-width: 0; text-decoration: none; }
-.sni-sidebar-user-info { flex: 1; min-width: 0; }
-/* Nome longo corta com reticências em vez de empurrar o botão de sair. */
-.sni-sidebar-user-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sni-sidebar-avatar { display: flex; align-items: center; justify-content: center; border-radius: 50%; flex-shrink: 0; color: #fff; font-weight: 700; }
-.sni-sidebar-logout { display: flex; align-items: center; justify-content: center; background: transparent; cursor: pointer; }
-
-.sni-topbar { display: flex; align-items: center; position: sticky; top: 0; z-index: 20; flex-shrink: 0; }
-.sni-topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-.sni-icon-btn,
 .sni-mobile-toggle { display: flex; align-items: center; justify-content: center; cursor: pointer; }
 
 /* Fora do celular o botão de menu não existe. */
 .sni-mobile-toggle { display: none; }
-.sni-sidebar-backdrop { display: none; }
-
-@media (max-width: 900px) {
-  /* A barra sai da esquerda em vez de sumir: a transição diz de onde ela
-     veio, e o conteúdo não pula de largura ao abrir. */
-  .sni-sidebar {
-    position: fixed;
-    left: calc(-1 * var(--sidebar-w));
-    transition: left .25s var(--ease);
-  }
-  .sni-sidebar.open { left: 0; }
-  .sni-mobile-toggle { display: flex; }
-  .sni-sidebar-backdrop { display: block; position: fixed; inset: 0; z-index: 25; }
-}
-
-/* Botões e campos: o que os faz ter forma. */
-.sni-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  white-space: nowrap;
-  text-decoration: none;
-}
-.sni-btn:disabled { opacity: .55; cursor: not-allowed; }
-
-.sni-field { display: flex; flex-direction: column; gap: 7px; }
-/* Formulário responsivo sem classe de utilitário na página: uma coluna no
-   celular, quantas couberem no desktop. */
-.sni-form-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-.sni-input, .sni-select, .sni-textarea { width: 100%; outline: none; }
-.sni-input:disabled, .sni-select:disabled, .sni-textarea:disabled { cursor: not-allowed; }
-.sni-label { display: block; }
-.sni-hint { display: block; }
-.sni-error { display: flex; align-items: center; gap: 4px; }
+/* ⚠️ Rótulo que NÃO é um <label>. O design system estiliza `.field label`, e
+   o texto ao lado de uma chave não pode ser <label>: a chave é um <button>, e
+   <label> não associa a botão. Os valores repetem os de `.field label` de
+   propósito — é a única forma de a mesma aparência valer para os dois. */
+.sni-label { display: block; font-size: 14px; font-weight: 600; color: var(--txt-2); line-height: 1.3; }
 .sni-input-icon-wrap { position: relative; display: flex; align-items: center; }
 .sni-input-icon-wrap .sni-input-icon { position: absolute; pointer-events: none; }
 
 /* Cards, métricas, marcadores, alertas. */
-.sni-card-header { display: flex; align-items: center; }
 .sni-card-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .sni-clickable { cursor: pointer; transition: transform .12s var(--ease), box-shadow .12s var(--ease), border-color .12s var(--ease); }
 .sni-clickable:hover { transform: translateY(-1px); box-shadow: var(--sh-2); }
 .sni-clickable:active { transform: translateY(0); }
-.sni-metric-trend { display: inline-flex; align-items: center; }
-.sni-badge { display: inline-flex; align-items: center; white-space: nowrap; }
-.sni-badge-dot { border-radius: 50%; flex-shrink: 0; display: inline-block; }
 .sni-alert { display: flex; align-items: flex-start; border-left: 3px solid; }
 .sni-alert i { flex-shrink: 0; }
 /* O recado que a rota trouxe, acima do conteúdo. O espaçamento vem daqui e
@@ -132,19 +62,6 @@
 .sni-section-eyebrow { display: flex; align-items: center; }
 
 /* Tabela. O invólucro rola sozinho: tabela larga não pode alargar a página. */
-.sni-table-wrap { overflow-x: auto; }
-.sni-table { width: 100%; border-collapse: collapse; }
-.sni-table th { text-align: left; }
-.sni-table td { vertical-align: middle; }
-.sni-table tbody tr:last-child td { border-bottom: none; }
-
-/* Espera. */
-.sni-spinner { display: inline-block; width: 16px; height: 16px; border-radius: 50%; animation: sniSpin .7s linear infinite; }
-.sni-spinner-lg { width: 32px; height: 32px; border-width: 3px; }
-@keyframes sniSpin { to { transform: rotate(360deg); } }
-
-.sni-divider { height: 1px; margin: .25rem 0; }
-.sni-divider-vert { width: 1px; height: 20px; margin: 0 4px; }
 .sni-auth-bg { min-height: 100vh; }
 
 /* ── Shell ─────────────────────────────────────────────────── */
@@ -164,128 +81,37 @@
 :root[data-theme="dark"] .sni-auth-bg { background: var(--bg); }
 
 /* ── Botões — cápsula, altura mínima de 44px ───────────────── */
-.sni-btn {
-  gap: 8px;
-  font-family: var(--font);
-  font-weight: 600;
-  line-height: 1.2;
-  border-radius: var(--r-pill);
-  border: 1px solid transparent;
-  min-height: var(--tap);
-  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.sni-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-.sni-btn i { font-size: 18px; width: 18px; height: 18px; }
+/* O design system traz lg, md e sm. Estes dois são nossos: o balcão pede um
+   botão maior que o do sistema, e a linha de tabela um menor. */
+.sni-btn-xl { font-size: 16px; padding: 13px 28px; min-height: 52px; }
+.sni-btn-xs { font-size: 13.5px; padding: 6px 14px; min-height: 32px; }
+.btn-icon.sni-btn-xs { width: 32px; height: 32px; padding: 0; }
 
-.sni-btn-xl,
-.sni-btn-lg { font-size: 16px; padding: 13px 26px; border-radius: var(--r-pill); }
-.sni-btn-md { font-size: 15px; padding: 11px 22px; }
-.sni-btn-sm,
-.sni-btn-xs { font-size: 14px; padding: 8px 18px; min-height: 38px; border-radius: var(--r-pill); }
-.sni-btn-icon { padding: 0; width: var(--tap); height: var(--tap); border-radius: var(--r-pill); }
-.sni-btn-icon.sni-btn-sm,
-.sni-btn-icon.sni-btn-xs { width: 38px; height: 38px; padding: 0; }
-
-/* Reflexo idêntico nas variantes sólidas. */
-.sni-btn-primary,
-.sni-btn-danger,
-.sni-btn-success,
+/* Reflexo idêntico ao das variantes sólidas do design system. */
 .sni-btn-dark {
   color: #fff;
   background-image: var(--btn-sheen);
   box-shadow: var(--btn-spec), 0 2px 6px rgba(13,26,78,.14);
 }
-.sni-btn-primary { background-color: var(--accent); }
-.sni-btn-primary:hover:not(:disabled) { background-color: var(--accent-hover); background-image: var(--btn-sheen); }
-.sni-btn-danger { background-color: var(--sni-danger-solid); }
-.sni-btn-danger:hover:not(:disabled) { background-color: #991B1B; background-image: var(--btn-sheen); }
-.sni-btn-success { background-color: var(--sni-success-solid); }
-.sni-btn-success:hover:not(:disabled) { background-color: #166534; background-image: var(--btn-sheen); }
 .sni-btn-dark { background-color: var(--navy-700); }
 .sni-btn-dark:hover:not(:disabled) { background-color: var(--navy-900); background-image: var(--btn-sheen); }
 
 /* Vidro: ação secundária que flutua. */
-.sni-btn-secondary {
-  background: var(--lg-surface);
-  color: var(--sni-blue-700);
-  backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-sat));
-  border-color: var(--lg-edge);
-  box-shadow: var(--lg-spec), var(--sh-1);
-}
-.sni-btn-secondary:hover:not(:disabled) { background: var(--lg-hover); }
-:root[data-theme="dark"] .sni-btn-secondary { color: #fff; }
-
-.sni-btn-ghost { background: transparent; color: var(--txt-2); border-color: var(--lg-line); }
-.sni-btn-ghost:hover:not(:disabled) { background: var(--lg-surface); color: var(--txt-1); }
-
 .sni-btn-link {
   background: transparent; color: var(--accent);
   padding: 0; border: none; min-height: 0; font-weight: 600; border-radius: 4px;
 }
 .sni-btn-link:hover:not(:disabled) { color: var(--accent-hover); text-decoration: underline; }
 
-/* ── Campos — sempre sólidos ───────────────────────────────── */
-.sni-input,
-.sni-select,
-.sni-textarea {
-  font-family: var(--font);
-  font-size: 15px;
-  padding: 12px 15px;
-  border: 1.5px solid var(--line);
-  border-radius: var(--r-field);
-  background: var(--surface);
-  color: var(--txt-1);
-  min-height: var(--tap);
-  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
-}
-.sni-textarea { min-height: 96px; }
-/* iOS dá zoom ao focar campo com fonte menor que 16px. */
-@media (max-width: 768px) {
-  .sni-input, .sni-select, .sni-textarea { font-size: 16px; }
-}
-.sni-input::placeholder,
-.sni-textarea::placeholder { color: var(--txt-4); }
-.sni-input:focus,
-.sni-select:focus,
-.sni-textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(58,111,224,.28);
-}
-.sni-input.error,
-.sni-select.error,
-.sni-textarea.error { border-color: var(--sni-danger); }
-.sni-input.success { border-color: var(--sni-success); }
-.sni-input:disabled,
-.sni-select:disabled,
-.sni-textarea:disabled { background: var(--sni-gray-50); color: var(--txt-4); }
-:root[data-theme="dark"] .sni-input:disabled,
-:root[data-theme="dark"] .sni-select:disabled,
-:root[data-theme="dark"] .sni-textarea:disabled { background: var(--ink-700); }
-
-.sni-label { font-family: var(--font); font-size: 15px; font-weight: 600; color: var(--txt-2); margin-bottom: 7px; }
-.sni-hint { font-size: 13.5px; color: var(--txt-4); margin-top: 6px; text-wrap: pretty; }
-.sni-error { font-size: 13.5px; font-weight: 600; color: var(--sni-danger); margin-top: 6px; gap: 6px; }
-
-.sni-input-icon-wrap .sni-input { padding-left: 44px; }
+/* ── Campo com ícone dentro — só na entrada ────────────────── */
+/* O design system não tem esta variante: ela existe para a tela de login e a
+   de definir senha, onde o ícone ajuda a identificar o campo antes da leitura. */
+.sni-input-icon-wrap .inp { padding-left: 44px; }
 .sni-input-icon-wrap .sni-input-icon { left: 14px; font-size: 19px; color: var(--txt-4); }
 
 /* ── Cards e dados — camada de conteúdo, sempre opaca ──────── */
-.sni-card {
-  background: var(--surface);
-  border-radius: var(--r-card);
-  border: 1px solid var(--line);
-  padding: 18px;
-  box-shadow: var(--sh-1);
-}
-.sni-card-flat {
-  background: var(--surface);
-  border-radius: var(--r-card);
-  border: 1px solid var(--line);
-  box-shadow: var(--sh-1);
-}
 .sni-clickable { transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), border-color var(--dur) var(--ease); }
 .sni-clickable:hover { box-shadow: var(--sh-2); border-color: var(--sni-blue-300); }
-.sni-card-header { gap: 12px; margin-bottom: 12px; }
 .sni-card-icon { width: 42px; height: 42px; border-radius: var(--r-tile); font-size: 20px; }
 .sni-card-icon.blue    { background: var(--sni-blue-50);    color: var(--accent); }
 .sni-card-icon.success { background: var(--sni-success-bg); color: var(--sni-success); }
@@ -301,55 +127,12 @@
 :root[data-theme="dark"] .sni-card-icon.danger  { background: rgba(185,28,28,.24);  color: #EE9A9A; }
 :root[data-theme="dark"] .sni-card-icon.info    { background: rgba(3,105,161,.24);  color: #7FC4EE; }
 :root[data-theme="dark"] .sni-card-icon.dark { background: rgba(255,255,255,.07); color: var(--txt-2); }
-.sni-card-title    { font-size: 16px; font-weight: 700; color: var(--txt-1); text-wrap: balance; }
-.sni-card-subtitle { font-size: 13.5px; color: var(--txt-4); margin-top: 2px; }
-
-.sni-metric-value {
-  font-family: var(--font-num);
-  font-size: 31px;
-  font-weight: 600;
-  letter-spacing: -.02em;
-  line-height: 1.15;
-  color: var(--txt-1);
-  font-variant-numeric: tabular-nums;
-}
-.sni-metric-trend { gap: 5px; font-family: var(--font-num); font-size: 13.5px; font-weight: 500; margin-top: 8px; }
-.sni-trend-up { color: var(--sni-success); }
-.sni-trend-down { color: var(--sni-danger); }
-:root[data-theme="dark"] .sni-trend-up { color: #8EDCA8; }
-:root[data-theme="dark"] .sni-trend-down { color: #EE9A9A; }
-
-/* ── Marcadores — cor + texto + ponto. Nunca só cor. ───────── */
-.sni-badge {
-  gap: 6px;
-  font-family: var(--font);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 5px 13px;
-  border-radius: var(--r-pill);
-  letter-spacing: 0;
-  line-height: 1.2;
-}
 .sni-badge-lg { font-size: 14px; padding: 6px 15px; }
 .sni-badge-sm { font-size: 13px; padding: 3px 10px; }
-.sni-badge i { font-size: 14px; width: 14px; height: 14px; }
-.sni-badge-blue         { background: var(--sni-blue-50);    color: var(--sni-blue-700); }
-.sni-badge-success      { background: var(--sni-success-bg); color: var(--sni-success); }
-.sni-badge-warning      { background: var(--sni-warning-bg); color: var(--sni-warning); }
-.sni-badge-danger       { background: var(--sni-danger-bg);  color: var(--sni-danger); }
 .sni-badge-info         { background: var(--sni-info-bg);    color: var(--sni-info); }
-.sni-badge-gray         { background: var(--sni-gray-100);   color: var(--sni-gray-600); }
 .sni-badge-dark         { background: var(--navy-700);       color: #fff; }
 .sni-badge-outline-blue { background: transparent; color: var(--accent); border: 1px solid var(--sni-blue-200); }
-.sni-badge-dot { width: 7px; height: 7px; background: currentColor; }
-:root[data-theme="dark"] .sni-badge-blue    { background: rgba(58,111,224,.18); color: #A9C2F2; }
-:root[data-theme="dark"] .sni-badge-success { background: rgba(21,128,61,.22);  color: #8EDCA8; }
-:root[data-theme="dark"] .sni-badge-warning { background: rgba(180,83,9,.24);   color: #E8B75C; }
-:root[data-theme="dark"] .sni-badge-danger  { background: rgba(185,28,28,.24);  color: #EE9A9A; }
 :root[data-theme="dark"] .sni-badge-info    { background: rgba(3,105,161,.24);  color: #8ECDF2; }
-:root[data-theme="dark"] .sni-badge-gray    { background: rgba(255,255,255,.08); color: rgba(255,255,255,.72); }
-
-/* ── Alertas ───────────────────────────────────────────────── */
 .sni-alert {
   gap: 10px;
   padding: 13px 16px;
@@ -366,42 +149,6 @@
 .sni-alert-danger  { background: var(--sni-danger-bg);  color: var(--sni-danger);  border-color: var(--sni-danger); }
 
 /* ── Tabela — camada de conteúdo, sempre opaca ─────────────── */
-.sni-table { font-family: var(--font); font-size: 14.5px; }
-.sni-table th {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--txt-2);
-  text-transform: none;
-  letter-spacing: 0;
-  padding: 13px 18px;
-  border-bottom: 1.5px solid var(--line);
-  background: var(--sni-gray-50);
-}
-.sni-table td {
-  padding: 13px 18px;
-  border-bottom: 1px solid var(--line-soft);
-  color: var(--txt-2);
-}
-.sni-table td strong { color: var(--txt-1); font-weight: 600; }
-.sni-table tbody tr:hover td { background: var(--sni-gray-50); }
-.sni-table tr.selected td { background: var(--sni-blue-50); }
-:root[data-theme="dark"] .sni-table th { background: rgba(255,255,255,.05); }
-:root[data-theme="dark"] .sni-table tbody tr:hover td { background: rgba(255,255,255,.04); }
-:root[data-theme="dark"] .sni-table tr.selected td { background: rgba(58,111,224,.16); }
-
-/* ── Títulos ───────────────────────────────────────────────── */
-/* Título de página: Platypi 700, 26px */
-.sni-page-title {
-  font-family: var(--font-serif);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -.01em;
-  line-height: 1.2;
-  color: var(--txt-1);
-  text-wrap: balance;
-}
-.sni-page-subtitle { font-size: 15px; color: var(--txt-3); margin-top: 4px; text-wrap: pretty; }
-/* Rótulo de bloco: Platypi 700 em caixa alta, 16px, entreletra normal */
 .sni-section-eyebrow {
   font-family: var(--font-serif);
   font-size: 16px;
@@ -416,119 +163,10 @@
 .sni-section-eyebrow i { font-size: 20px; width: 20px; height: 20px; color: var(--accent); }
 :root[data-theme="dark"] .sni-section-eyebrow i { color: #7FA3EE; }
 
-/* ── Barra lateral — azul institucional nos dois temas ─────── */
-.sni-sidebar {
-  width: var(--sidebar-w);
-  background: linear-gradient(180deg, var(--navy-800), var(--navy-600));
-  color: rgba(255,255,255,.86);
-  box-shadow: var(--lg-spec-dark), var(--sh-2);
-}
-.sni-sidebar-logo { padding: 18px 16px 16px; gap: 12px; border-bottom: 1px solid rgba(255,255,255,.14); }
-.sni-sidebar-logo-icon {
-  width: 40px; height: 40px;
-  border-radius: var(--r-field);
-  background: rgba(255,255,255,.14);
-  border: 1px solid rgba(255,255,255,.22);
-  font-size: 20px;
-}
-.sni-sidebar-logo-text { font-size: 16px; font-weight: 700; color: #fff; letter-spacing: -.01em; line-height: 1.25; }
-.sni-sidebar-logo-sub  { font-size: 13px; color: rgba(255,255,255,.60); letter-spacing: 0; text-transform: none; margin-top: 1px; }
-
-.sni-sidebar-scroll { padding: 4px 12px 16px; gap: 4px; }
-.sni-sidebar-section-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: rgba(255,255,255,.58);
-  letter-spacing: 0;
-  text-transform: none;
-  padding: 16px 10px 8px;
-}
-.sni-sidebar-item {
-  gap: 12px;
-  padding: 11px 12px;
-  border-radius: var(--r-field);
-  font-size: 15px;
-  font-weight: 500;
-  line-height: 1.2;
-  color: rgba(255,255,255,.86);
-  min-height: var(--tap);
-  margin-bottom: 3px;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.sni-sidebar-item i { font-size: 20px; width: 20px; height: 20px; }
-.sni-sidebar-item:hover { background: rgba(255,255,255,.10); color: #fff; }
-.sni-sidebar-item.active {
-  color: #fff;
-  font-weight: 600;
-  background: rgba(255,255,255,.16);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.16);
-}
-.sni-sidebar-item.active i { color: #fff; }
-.sni-sidebar-item:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
-.sni-sidebar-badge {
-  font-family: var(--font-num);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 2px 9px;
-  border-radius: var(--r-pill);
-  background: #fff;
-  color: var(--navy-700);
-}
-
-.sni-sidebar-bottom { padding: 14px 12px 12px; border-top: 1px solid rgba(255,255,255,.16); }
-.sni-sidebar-user { gap: 8px; padding: 0; border-radius: var(--r-field); }
-.sni-sidebar-user:hover { background: transparent; }
-/* Avatar + nome levam a Minha conta */
-.sni-sidebar-user-link {
-  flex: 1; min-width: 0;
-  display: flex; align-items: center; gap: 11px;
-  padding: 4px 6px;
-  border-radius: var(--r-field);
-  text-decoration: none;
-  min-height: var(--tap);
-  transition: background var(--dur) var(--ease);
-}
-.sni-sidebar-user-link:hover { background: rgba(255,255,255,.10); }
-.sni-sidebar-user-link.active { background: rgba(255,255,255,.16); box-shadow: inset 0 1px 0 rgba(255,255,255,.16); }
-.sni-sidebar-user-link:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
-.sni-sidebar-avatar { width: 36px; height: 36px; font-size: 13px; background: var(--sni-blue-400); }
-.sni-sidebar-user-name { font-size: 14px; font-weight: 600; color: #fff; line-height: 1.3; }
-.sni-sidebar-user-role { font-size: 13px; color: rgba(255,255,255,.62); margin-top: 0; }
-.sni-sidebar-logout {
-  width: var(--tap); height: var(--tap);
-  padding: 0;
-  border-radius: var(--r-pill);
-  border: 1px solid rgba(255,255,255,.14);
-  color: rgba(255,255,255,.72);
-  font-size: 20px;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.sni-sidebar-logout:hover { background: rgba(255,255,255,.10); color: #fff; }
-.sni-sidebar-logout:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
-
-/* ── Barra superior — vidro (camada funcional) ─────────────── */
-.sni-topbar {
-  height: var(--topbar-h);
-  padding: 0 18px;
-  gap: 10px;
-  background: var(--lg-surface);
-  backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-sat));
-  border-bottom: 1px solid var(--lg-edge);
-  box-shadow: var(--lg-spec);
-}
-.sni-topbar-title {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--txt-1);
-  letter-spacing: 0;
-  line-height: 1.2;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sni-topbar-right { gap: 9px; }
-.sni-icon-btn,
+/* ── Botão de menu do celular ──────────────────────────────── */
+/* Mesma forma do `.ibtn` do design system, mas com regra própria de exibição:
+   ele só existe abaixo de 900px. */
+.sni-topbar-right { margin-left: auto; display: flex; align-items: center; gap: 9px; }
 .sni-mobile-toggle {
   width: var(--tap); height: var(--tap);
   border-radius: var(--r-pill);
@@ -538,44 +176,33 @@
   background: transparent;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.sni-icon-btn:hover,
 .sni-mobile-toggle:hover { background: var(--lg-hover); color: var(--txt-1); }
-.sni-icon-btn:focus-visible,
 .sni-mobile-toggle:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 
-.sni-page { padding: 24px; }
+.sni-page { padding: 24px 26px 60px; }
 
+/* ── Barra lateral no celular ──────────────────────────────── */
+/* ⚠️ O design system encolhe a lateral para um trilho de 64px só de ícones
+   abaixo de 720px. Entre 720 e 900 ela ainda tem largura para os rótulos, mas
+   não sobra tela para o conteúdo: aqui ela SAI do fluxo e volta por cima,
+   sobre um escurecimento. O trilho do sistema continua valendo abaixo de 720. */
 @media (max-width: 900px) {
-  .sni-sidebar { box-shadow: var(--sh-3); }
-  .sni-sidebar-backdrop { background: var(--dim); }
-  .sni-page { padding: 16px; }
-  .sni-topbar { padding: 0 12px; }
+  .sni-mobile-toggle { display: flex; }
+  /* ⚠️ Escopado por `.sni-app-shell`: sobrescrever `.side` solta faria a nossa
+     regra viajar junto com o design system, invisível para quem o atualizar. */
+  .sni-app-shell .side {
+    position: fixed; inset: 0 auto 0 0; z-index: 70;
+    transform: translateX(-100%);
+    transition: transform var(--dur) var(--ease);
+    box-shadow: var(--sh-3);
+  }
+  .sni-app-shell .side.sni-aberta { transform: translateX(0); }
+  .sni-sidebar-backdrop { position: fixed; inset: 0; z-index: 65; background: var(--dim); }
+  .sni-page { padding: 16px 16px 48px; }
+  .sni-app-shell .topbar { padding: 0 12px; }
 }
 
 /* ── Menu / popover — usa vidro ────────────────────────────── */
-.sni-menu {
-  width: 266px;
-  padding: 8px;
-  border-radius: var(--r-card);
-  background: var(--lg-surface);
-  backdrop-filter: blur(var(--lg-frost)) saturate(var(--lg-sat));
-  border: 1px solid var(--lg-edge);
-  box-shadow: var(--lg-spec), var(--sh-2);
-}
-.sni-menu-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 11px 12px;
-  border-radius: var(--r-field);
-  font-size: 15px; font-weight: 500;
-  color: var(--txt-2);
-  cursor: pointer;
-  min-height: var(--tap);
-}
-.sni-menu-item:hover { background: var(--lg-hover); }
-.sni-menu-item i { font-size: 19px; width: 19px; height: 19px; color: var(--accent); }
-.sni-menu-sep { height: 1px; background: var(--lg-line); margin: 6px 11px; }
-
-/* ── Modal — sólido sobre camada de escurecimento ──────────── */
 .sni-modal {
   position: relative;
   width: 100%;
@@ -591,13 +218,17 @@
   padding: 22px 24px 16px;
   border-bottom: 1px solid var(--line);
 }
+/* ⚠️ Caixa alta, peso 800, entreletra ZERO — a regra do v2.9 para todo título
+   em Platypi, igual à do `.modal h4` do design system. Estava em 700 com
+   entreletra negativa, do v2.7. */
 .sni-modal-title {
   margin: 0;
   font-family: var(--font-serif);
   font-size: 21px;
-  font-weight: 700;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0;
   color: var(--txt-1);
-  letter-spacing: -.005em;
   line-height: 1.3;
   text-wrap: balance;
 }
@@ -614,43 +245,10 @@
 /* Modais escritos direto na página (cartão dentro de uma camada de
    escurecimento): o cartão vira painel — raio de 24px, sombra alta,
    título em Platypi. */
-.sni-dimlayer > .sni-card {
-  border-radius: var(--r-panel);
-  padding: 24px;
-  border-color: var(--lg-edge);
-  box-shadow: var(--sh-3);
-}
-.sni-dimlayer > .sni-card .sni-card-title {
-  font-family: var(--font-serif);
-  font-size: 21px;
-  letter-spacing: -.005em;
-  line-height: 1.3;
-}
-
-/* ── Miscelânea ────────────────────────────────────────────── */
-.sni-spinner { border: 2px solid rgba(22,59,163,.15); border-top-color: var(--accent); }
-:root[data-theme="dark"] .sni-spinner { border-color: rgba(255,255,255,.14); border-top-color: var(--accent); }
-.sni-divider { background: var(--line-soft); }
-.sni-divider-vert { background: var(--line); }
-.sni-gradient { background: linear-gradient(180deg, var(--navy-800), var(--navy-600)); }
-
-/* ── Composição de página ──────────────────────────────────────
-   Classes que os primitivos de ui.tsx montam. Existem aqui, e não
-   como estilo na página, porque a regra do projeto é que nenhuma
-   tela escreva cor, raio, sombra ou tamanho por conta própria. */
-
-/* Cabeçalho de página: título à esquerda, ação à direita, e a ação
-   descendo para baixo do título quando não couberem lado a lado. */
-.sni-page-head { margin-bottom: 24px; }
 .sni-page-head-linha {
   display: flex; flex-wrap: wrap; align-items: flex-start;
   justify-content: space-between; gap: 16px;
 }
-.sni-page-head-texto { min-width: 0; }
-.sni-page-head-acao { flex-shrink: 0; }
-/* Descrição com medida de leitura: linha longa demais cansa e faz o
-   olho perder a volta. */
-.sni-page-subtitle { max-width: 68ch; }
 .sni-voltar {
   display: inline-flex; align-items: center; gap: 6px;
   min-height: 38px; font-size: 13px; font-weight: 600;
@@ -747,10 +345,7 @@
 }
 .sni-metric.alerta { border-color: var(--sni-warning); }
 .sni-metric-rotulo { font-size: 13.5px; font-weight: 600; color: var(--txt-3); }
-.sni-metric-detalhe { font-size: 13.5px; color: var(--txt-4); margin-top: 8px; }
-
-/* Estado vazio: a ação fica abaixo do texto, centrada. */
-.empty-acao { display: flex; justify-content: center; margin-top: 4px; }
+.sni-empty-acao { display: flex; justify-content: center; margin-top: 4px; }
 
 /* Texto só para leitor de tela: sai da vista sem sair da árvore de
    acessibilidade. `display:none` tiraria dos dois. */
@@ -760,15 +355,6 @@
 }
 
 /* Coluna que identifica a linha: destaque por peso, não por cor. */
-.sni-table td.forte { font-weight: 600; color: var(--txt-1); }
-
-/* ── Modal sobre <dialog> nativo ────────────────────────────────
-   O <dialog> dá de graça a camada superior (sem disputa de z-index),
-   o aprisionamento de foco e o ::backdrop. O clique fora já não fecha
-   por padrão; o Esc é barrado no evento `cancel`, em Modal.tsx.
-
-   O fundo é desfocado ALÉM de escurecido: o conteúdo atrás continua
-   reconhecível como contexto sem competir com o formulário. */
 dialog.sni-modal {
   padding: 0;
   width: calc(100vw - 2rem);
@@ -814,10 +400,6 @@ dialog.sni-modal::backdrop {
 .sni-field,
 .sni-label,
 .sni-hint,
-.sni-error { text-align: left; }
-
-/* Abas da ficha. Linha única com rolagem horizontal no celular: quebrar em
-   duas linhas faz a aba ativa sumir da vista quando há muitas. */
 .sni-abas {
   display: flex; gap: 4px; overflow-x: auto;
   border-bottom: 1px solid var(--line);

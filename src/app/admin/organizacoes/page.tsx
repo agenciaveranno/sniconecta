@@ -40,7 +40,7 @@ function Campos({
 
       <ToggleOrganizacao inicial={organizacao?.e_organizacao} />
 
-      <div className="sni-form-grid">
+      <div className="form-grid">
         <Campo label="Nome curto" dica="Como aparece em tabela e crachá, onde o nome inteiro não cabe.">
           <Input name="nome_curto" defaultValue={organizacao?.nome_curto ?? ""} maxLength={40} />
         </Campo>
@@ -56,7 +56,7 @@ function Campos({
           min={0}
           max={999}
           defaultValue={organizacao?.ordem ?? 0}
-          className="sni-input num"
+          className="num"
         />
       </Campo>
 
@@ -123,7 +123,7 @@ export default async function OrganizacoesPage({
               <Celula forte>
                 {o.nome}
                 {o.descricao && (
-                  <span className="sni-hint" style={{ marginTop: 2 }}>{o.descricao}</span>
+                  <span className="hint" style={{ marginTop: 2 }}>{o.descricao}</span>
                 )}
               </Celula>
               <Celula>
@@ -132,7 +132,7 @@ export default async function OrganizacoesPage({
                 {o.e_organizacao ? (
                   <Badge tom="success" ponto>Organização</Badge>
                 ) : (
-                  <span className="sni-hint">Administrativo</span>
+                  <span className="hint">Administrativo</span>
                 )}
               </Celula>
               <Celula>{o.codigo ?? "—"}</Celula>

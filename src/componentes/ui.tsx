@@ -36,15 +36,29 @@ const cx = (...partes: (string | false | null | undefined)[]) => partes.filter(B
 type Variante = "primary" | "secondary" | "glass" | "ghost" | "success" | "danger" | "dark" | "link";
 type Tamanho = "xl" | "lg" | "md" | "sm" | "xs";
 
+// ⚠️ Sem prefixo = vem do design system (tokens.css). Com `sni-` = é nosso,
+// e mora em componentes.css. A distinção não é cosmética: o tokens.css é
+// substituído inteiro a cada versão do design system, e o que estiver lá
+// dentro com a nossa cara some na próxima troca.
 const VARIANTE: Record<Variante, string> = {
-  primary: "sni-btn-primary",
-  secondary: "sni-btn-secondary",
-  glass: "sni-btn-secondary",
-  ghost: "sni-btn-ghost",
-  success: "sni-btn-success",
-  danger: "sni-btn-danger",
+  primary: "btn-primary",
+  secondary: "btn-glass",
+  glass: "btn-glass",
+  ghost: "btn-ghost",
+  success: "btn-success",
+  danger: "btn-danger",
   dark: "sni-btn-dark",
   link: "sni-btn-link",
+};
+
+// O design system traz lg, md e sm. `xl` e `xs` são nossos — o balcão pede um
+// botão maior que o do sistema, e a tabela um menor.
+const TAMANHO: Record<Tamanho, string> = {
+  xl: "sni-btn-xl",
+  lg: "btn-lg",
+  md: "btn-md",
+  sm: "btn-sm",
+  xs: "sni-btn-xs",
 };
 
 export function Botao({
@@ -56,7 +70,7 @@ export function Botao({
   ...rest
 }: ComponentProps<"button"> & { variante?: Variante; tamanho?: Tamanho; icone?: ReactNode }) {
   return (
-    <button className={cx("sni-btn", VARIANTE[variante], `sni-btn-${tamanho}`, className)} {...rest}>
+    <button className={cx("btn", VARIANTE[variante], TAMANHO[tamanho], className)} {...rest}>
       {icone}
       {children}
     </button>
@@ -73,7 +87,7 @@ export function BotaoLink({
   ...rest
 }: ComponentProps<typeof Link> & { variante?: Variante; tamanho?: Tamanho; icone?: ReactNode }) {
   return (
-    <Link className={cx("sni-btn", VARIANTE[variante], `sni-btn-${tamanho}`, className)} {...rest}>
+    <Link className={cx("btn", VARIANTE[variante], TAMANHO[tamanho], className)} {...rest}>
       {icone}
       {children}
     </Link>
@@ -93,7 +107,7 @@ export function BotaoIcone({
     <button
       aria-label={rotulo}
       title={rotulo}
-      className={cx("sni-btn sni-btn-icon", VARIANTE[variante], `sni-btn-${tamanho}`, className)}
+      className={cx("btn btn-icon", VARIANTE[variante], TAMANHO[tamanho], className)}
       {...rest}
     >
       {children}
@@ -149,13 +163,13 @@ export function Chave({
 // ─── Campos ──────────────────────────────────────────────────────────────────
 
 export function Input({ className, ...rest }: ComponentProps<"input">) {
-  return <input className={cx("sni-input", className)} {...rest} />;
+  return <input className={cx("inp", className)} {...rest} />;
 }
 export function Select({ className, ...rest }: ComponentProps<"select">) {
-  return <select className={cx("sni-select", className)} {...rest} />;
+  return <select className={cx("inp", className)} {...rest} />;
 }
 export function Textarea({ className, ...rest }: ComponentProps<"textarea">) {
-  return <textarea className={cx("sni-textarea", className)} {...rest} />;
+  return <textarea className={cx("inp", className)} {...rest} />;
 }
 
 /**
@@ -201,20 +215,20 @@ export function Campo({
     </>
   );
   const rodape = erro ? (
-    <span className="sni-error">
+    <span className="hint err">
       <IconAlertCircle size={15} className="ti" aria-hidden="true" />
       {erro}
     </span>
   ) : apoio ? (
-    <span className="sni-hint">{apoio}</span>
+    <span className="hint">{apoio}</span>
   ) : null;
 
   // Com `htmlFor`, o rótulo aponta para o controle pelo id e fica SOLTO —
   // envolver o controle além disso o associaria duas vezes.
   if (htmlFor) {
     return (
-      <div className="sni-field">
-        <label className="sni-label" htmlFor={htmlFor}>
+      <div className="field">
+        <label htmlFor={htmlFor}>
           {texto}
         </label>
         {children}
@@ -223,7 +237,7 @@ export function Campo({
     );
   }
   return (
-    <label className="sni-field">
+    <label className="field">
       <span className="sni-label">{texto}</span>
       {children}
       {rodape}
@@ -245,12 +259,12 @@ export function CampoChave({
   ...rest
 }: ComponentProps<"button"> & { rotulo: string; dica?: string; ligado: boolean }) {
   return (
-    <div className="sni-field sni-field-chave">
+    <div className="field sni-field-chave">
       <span className="sni-chave-linha">
         <Chave ligado={ligado} rotulo={rotulo} {...rest} />
         <span className="sni-label">{rotulo}</span>
       </span>
-      {dica && <span className="sni-hint">{dica}</span>}
+      {dica && <span className="hint">{dica}</span>}
     </div>
   );
 }
@@ -295,12 +309,13 @@ export function Abas({
 type Tom = "blue" | "success" | "warning" | "danger" | "info" | "gray" | "dark" | "navy" | "outline";
 
 const TOM: Record<Tom, string> = {
-  blue: "sni-badge-blue",
-  success: "sni-badge-success",
-  warning: "sni-badge-warning",
-  danger: "sni-badge-danger",
+  blue: "bg-blue",
+  success: "bg-ok",
+  warning: "bg-warn",
+  danger: "bg-dang",
+  gray: "bg-gray",
+  // `info`, `dark` e `outline` não existem no design system — são nossos.
   info: "sni-badge-info",
-  gray: "sni-badge-gray",
   dark: "sni-badge-dark",
   navy: "sni-badge-dark",
   outline: "sni-badge-outline-blue",
@@ -319,8 +334,8 @@ export function Badge({
   children: ReactNode;
 }) {
   return (
-    <span className={cx("sni-badge", TOM[tom], tamanho && tamanho !== "md" && `sni-badge-${tamanho}`)}>
-      {ponto && <span className="sni-badge-dot" aria-hidden="true" />}
+    <span className={cx("bg", TOM[tom], tamanho && tamanho !== "md" && `sni-badge-${tamanho}`)}>
+      {ponto && <span className="dot" aria-hidden="true" />}
       {children}
     </span>
   );
@@ -401,7 +416,7 @@ export function Card({
   ...rest
 }: ComponentProps<"div"> & { como?: "div" | "section" | "article" }) {
   return (
-    <Como className={cx("sni-card", className)} {...rest}>
+    <Como className={cx("card solid", className)} {...rest}>
       {children}
     </Como>
   );
@@ -426,11 +441,11 @@ export function CardCabecalho({
 }) {
   const legenda = subtitulo ?? descricao;
   return (
-    <div className="sni-card-header">
-      {icone && <div className={cx("sni-card-icon", tom)}>{icone}</div>}
+    <div className="card-h">
+      {icone && <div className={cx("card-i", tom)}>{icone}</div>}
       <div style={{ minWidth: 0 }}>
-        <div className="sni-card-title">{titulo}</div>
-        {legenda && <div className="sni-card-subtitle">{legenda}</div>}
+        <div className="t-card">{titulo}</div>
+        {legenda && <div className="t-support">{legenda}</div>}
       </div>
       {acao && <div style={{ marginLeft: "auto", flexShrink: 0 }}>{acao}</div>}
     </div>
@@ -473,8 +488,8 @@ export function Metrica({
       ) : (
         <div className="sni-metric-rotulo">{rotulo}</div>
       )}
-      <div className="sni-metric-value">{valor}</div>
-      {detalhe && <div className="sni-metric-detalhe">{detalhe}</div>}
+      <div className="kpi-v">{valor}</div>
+      {detalhe && <div className="kpi-d">{detalhe}</div>}
     </>
   );
   if (semCard) return <div>{corpo}</div>;
@@ -512,18 +527,18 @@ export function TituloPagina({
   voltar?: { href: string; texto: string };
 }) {
   return (
-    <header className="sni-page-head">
+    <header className="page-head">
       {voltar && (
         <Link href={voltar.href} className="sni-voltar">
           <span aria-hidden="true">←</span> {voltar.texto}
         </Link>
       )}
       <div className="sni-page-head-linha">
-        <div className="sni-page-head-texto">
+        <div className="grow">
           <h1 className="t-page">{titulo ?? children}</h1>
-          {descricao && <p className="sni-page-subtitle">{descricao}</p>}
+          {descricao && <p className="t-support">{descricao}</p>}
         </div>
-        {acao && <div className="sni-page-head-acao">{acao}</div>}
+        {acao && <div className="page-actions">{acao}</div>}
       </div>
     </header>
   );
@@ -558,7 +573,7 @@ export function GrupoCampos({
   return (
     <fieldset className="sni-grupo-campos">
       <legend className="sni-grupo-campos-legenda">{titulo}</legend>
-      {descricao && <p className="sni-hint sni-grupo-campos-apoio">{descricao}</p>}
+      {descricao && <p className="hint sni-grupo-campos-apoio">{descricao}</p>}
       {children}
     </fieldset>
   );
@@ -581,7 +596,7 @@ export function Vazio({
       {icone}
       {titulo && <h4>{titulo}</h4>}
       {children && <p>{children}</p>}
-      {acao && <div className="empty-acao">{acao}</div>}
+      {acao && <div className="sni-empty-acao">{acao}</div>}
     </div>
   );
 }
@@ -597,8 +612,8 @@ export function Vazio({
  */
 export function Tabela({ cabecalho, children }: { cabecalho?: string[]; children: ReactNode }) {
   return (
-    <div className="sni-card-flat sni-table-wrap">
-      <table className="sni-table">
+    <div className="sheet">
+      <table>
         {cabecalho && (
           <thead>
             <tr>

@@ -75,7 +75,7 @@ export default function ConfirmarPage() {
       className="sni-auth-bg"
       style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
     >
-      <div className="sni-card" style={{ width: "100%", maxWidth: 460, padding: 32 }}>
+      <div className="card solid" style={{ width: "100%", maxWidth: 460, padding: 32 }}>
         {erro ? (
           <>
             <Alerta tipo="danger" icone={<IconAlertCircle size={20} className="ti" />}>

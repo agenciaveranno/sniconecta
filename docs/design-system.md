@@ -1,33 +1,85 @@
-# SNI Conecta — regras de interface (design system v2.7)
+# SNI Conecta — regras de interface (design system v2.9)
 
-Plataforma da SEICHO-NO-IE DO BRASIL. Os tokens estão em `src/design/tokens.css`
-e as classes de componente em `src/design/componentes.css` — use as variáveis e
-os primitivos de `src/componentes/ui.tsx`, nunca valores literais. A referência
-visual completa está em `docs/referencia-visual.html` e a exportação dos tokens
-em `docs/tokens.json`.
+Plataforma da SEICHO-NO-IE DO BRASIL.
 
-## Como o v2.7 entra neste projeto
+## Os dois arquivos, e a diferença entre eles
+
+| Arquivo | O que é | Quem manda nele |
+|---|---|---|
+| `src/design/tokens.css` | **Cópia fiel** do arquivo publicado pelo design system. Tokens e classes **sem prefixo**: `.btn` `.inp` `.field` `.card` `.side` `.topbar` `.bg` `.sheet` `.modal` `.menu` `.t-page`. | O design system |
+| `src/design/componentes.css` | **Só o que é nosso**, sempre com prefixo `sni-`. | Este projeto |
+
+**O prefixo `sni-` passou a significar uma coisa só: isto não vem do design
+system.** São três grupos, e nenhum outro:
+
+1. **Esqueleto do aplicativo** — `.sni-app-shell`, `.sni-content`, `.sni-page`.
+2. **Componentes que o sistema não tem** — abas, alerta, paginação, busca,
+   métrica, o corpo do modal.
+3. **Variantes que a operação pediu** — `.sni-btn-xl` (o balcão pede um botão
+   maior que o do sistema), `.sni-btn-xs` (a linha de tabela, um menor),
+   `.sni-badge-info`, `.sni-btn-dark`.
+
+⚠️ **Antes de escrever regra nova, procurar no `tokens.css`.** Uma classe nossa
+que faz o que uma de lá já faz é dívida: na próxima versão do design system, a
+de lá muda e a nossa não — e a tela passa a ter duas aparências para a mesma
+coisa. Foi exatamente assim que este projeto ficou parado no v2.7 enquanto o
+design system ia para o v2.9, e a atualização veio junto com uma correção de
+produção que nunca tinha chegado aqui (o `box-sizing`).
+
+⚠️ Sobrescrever uma classe do sistema é permitido, mas **escopado por uma classe
+nossa** — `.sni-app-shell .side`, nunca `.side` solto. Escrita solta, a nossa
+regra viaja junto com o design system e fica invisível para quem o atualizar.
+`tests/design-system.test.ts` reprova quem escrever solto.
+
+## Como atualizar o design system
+
+1. Substituir `src/design/tokens.css` inteiro pelo arquivo novo.
+2. **Reaplicar a única adaptação nossa**: as três famílias de fonte vêm do
+   `next/font` (`src/app/layout.tsx`), então `--font`, `--font-serif` e
+   `--font-num` apontam para `var(--font-figtree)`, `var(--font-platypi)` e
+   `var(--font-plex-mono)`. O arquivo publicado escreve `'Figtree'` literal, o
+   que pede a fonte ao sistema operacional de quem abre a tela — onde ela não
+   estiver instalada, o sistema inteiro cai para o fallback sem avisar.
+   O teste reprova quem esquecer.
+3. Rodar `npm test`: os guardas conferem versão, fontes, `box-sizing`, a altura
+   compartilhada do cabeçalho e o prefixo.
+4. Podar de `componentes.css` o que a versão nova passou a cobrir.
+
+## O que a v2.9 mudou aqui
+
+- **`box-sizing: border-box`** entrou no `tokens.css` — era a causa dos campos
+  inflados em produção (padding somado por fora da caixa).
+- **Campo com `height` fixo**, não `min-height`: `input[type=date]` carrega um
+  botão de calendário interno que empurrava a caixa 2px além dos demais, e o
+  Safari em iOS ignora padding nesses tipos.
+- **Título institucional em CAIXA ALTA, peso 800, entreletra zero.** Vale para
+  título de página, de seção, de modal e de estado vazio.
+- **Cabeçalho com altura única**: `--header-h` veste o bloco de marca da lateral
+  e a barra superior. As duas faixas fecham na mesma linha horizontal.
+- **Identidade do usuário no canto superior direito** — avatar e primeiro nome,
+  com menu suspenso. **Sair mora dentro do menu**: não existe botão de saída
+  permanentemente visível, porque ação de saída não ocupa espaço fixo.
+- **A ação primária da tela saiu da barra superior** e vive em `.page-actions`,
+  ao lado do título, na área de conteúdo. A barra superior carrega só o título
+  da tela e a identidade.
+- **Marca**: emblema (`/marca/emblema.svg`) mais "SNI Conecta", sem subtítulo. O
+  logotipo completo (`/marca/completo.svg`) fica para relatório e impressão — a
+  assinatura vira borrão na altura do cabeçalho.
+- **Navegação lateral mais densa**: itens de 44px para 36px.
+
+## Como o design system entra neste projeto
 
 - **O aplicativo inteiro é painel**: tokens no `:root`, sem escopo. Páginas
-  públicas (landing de evento, checkout, landing de localidade, certificado)
-  usam os mesmos tokens.
+  públicas (landing de evento, checkout, certificado) usam os mesmos tokens.
 - Toda tela monta a interface com os primitivos de `ui.tsx` (`Botao`, `Campo`,
-  `Input`, `Badge`, `Card`, `Tabela`, `TituloPagina`, `Vazio`, `Num`,
-  `Entidade`…). As classes `.sni-*` são o que está por baixo deles.
-- Primitivas CSS com o nome do design system: `.ti`, `.num`, `.entidade`,
-  `.lg`, `.solid`, `.navy`, `.serif`, `.serif-cap`, `.serif-i`, `.t-page`,
-  `.t-section`, `.t-metric`, `.empty`, `.pull`, `.seg`, `.sw`, `.dimlayer`.
+  `Input`, `Badge`, `Card`, `Tabela`, `TituloPagina`, `Recado`, `Vazio`, `Num`,
+  `Entidade`…). É neles que a escolha entre classe do sistema e classe nossa
+  está feita — a página não escolhe.
 - **Tema escuro.** A pessoa escolhe em Minha conta (Claro, Escuro ou
   Automático). A escolha vai para `localStorage` e para a conta; um script no
   `<head>` aplica `data-theme` no `<html>` antes da primeira pintura. Lógica em
-  `src/lib/tema.ts`.
-  Para os estilos inline antigos não quebrarem, no escuro os tokens
-  `--sni-gray-50…300` viram superfície elevada e linha, `--sni-blue-50…200`
-  viram tinta translúcida, `--sni-blue-700/800` viram azul de texto claro e as
-  semânticas (`--sni-danger` etc.) clareiam. Fundo sólido com texto branco usa
-  `--sni-danger-solid`, `--sni-success-solid`, `--sni-warning-solid`, que não
-  mudam com o tema. Bloco institucional escuro usa `--navy-*`, nunca
-  `--sni-blue-800`.
+  `src/lib/tema.ts`. A barra lateral mantém o azul institucional nos dois temas
+  — é o único bloco de cor cheia do tema escuro, e é por isso que funciona.
 
 ## Quem usa o sistema
 

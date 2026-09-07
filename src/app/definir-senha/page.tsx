@@ -33,7 +33,7 @@ export default async function DefinirSenhaPage({
       className="sni-auth-bg"
       style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
     >
-      <div className="sni-card" style={{ width: "100%", maxWidth: 440, padding: 32 }}>
+      <div className="card solid" style={{ width: "100%", maxWidth: 440, padding: 32 }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
           <h1 className="t-page">Defina sua senha</h1>
           <p className="t-support" style={{ marginTop: 6 }}>
@@ -41,7 +41,7 @@ export default async function DefinirSenhaPage({
           </p>
         </div>
 
-        <p className="sni-hint" style={{ marginBottom: 20 }}>
+        <p className="hint" style={{ marginBottom: 20 }}>
           {eu ? `Bem-vindo, ${eu.nome.split(/\s+/)[0]}. ` : ""}
           Escolha uma senha para entrar em {data.user.email}. É com ela que você
           acessa daqui em diante.

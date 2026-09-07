@@ -45,7 +45,7 @@ export default function CamposLocal({
     <>
       {local && <input type="hidden" name="id" value={local.id} />}
 
-      <div className="sni-form-grid">
+      <div className="form-grid">
         <Campo label="Tipo" obrigatorio>
           <Select name="tipo" value={tipo} onChange={(e) => setTipo(e.target.value)} required>
             <option value="" disabled>
@@ -85,14 +85,14 @@ export default function CamposLocal({
       />
       <input type="hidden" name="proprio" value={proprio ? "1" : "0"} />
 
-      <div className="sni-form-grid">
+      <div className="form-grid">
         <Campo label="Capacidade" dica="Quantas pessoas cabem. Ajuda a escolher o local do evento.">
           <Input
             name="capacidade"
             type="number"
             min={1}
             defaultValue={local?.capacidade ?? ""}
-            className="sni-input num"
+            className="num"
           />
         </Campo>
         <Campo
@@ -111,7 +111,7 @@ export default function CamposLocal({
           negociar nem o que pagar. */}
       {!proprio && (
         <GrupoCampos titulo="Contratação">
-          <div className="sni-form-grid">
+          <div className="form-grid">
             <Campo label="Quem atende">
               <Input name="contato_nome" defaultValue={local?.contato_nome ?? ""} maxLength={150} />
             </Campo>
@@ -120,7 +120,7 @@ export default function CamposLocal({
                 name="contato_telefone"
                 defaultValue={local?.contato_telefone ?? ""}
                 maxLength={20}
-                className="sni-input num"
+                className="num"
               />
             </Campo>
           </div>
@@ -131,7 +131,7 @@ export default function CamposLocal({
               min={0}
               step="0.01"
               defaultValue={local?.diaria_centavos != null ? (local.diaria_centavos / 100).toFixed(2) : ""}
-              className="sni-input num"
+              className="num"
             />
           </Campo>
         </GrupoCampos>
@@ -143,7 +143,7 @@ export default function CamposLocal({
 
       <CamposContato valores={local} />
 
-      <div className="sni-form-grid">
+      <div className="form-grid">
         <Campo label="Código" dica="A numeração própria da instituição, se houver.">
           <Input name="codigo" defaultValue={local?.codigo ?? ""} maxLength={30} />
         </Campo>

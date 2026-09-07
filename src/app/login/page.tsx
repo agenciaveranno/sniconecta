@@ -9,7 +9,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const { erro, voltar } = await searchParams;
   return (
     <div className="sni-auth-bg" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div className="sni-card" style={{ width: "100%", maxWidth: 420, padding: 32, borderRadius: "var(--r-panel)", boxShadow: "var(--sh-3)", borderColor: "var(--lg-edge)" }}>
+      <div className="card solid" style={{ width: "100%", maxWidth: 420, padding: 32, borderRadius: "var(--r-panel)", boxShadow: "var(--sh-3)", borderColor: "var(--lg-edge)" }}>
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div
             aria-hidden="true"
