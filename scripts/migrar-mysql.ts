@@ -66,6 +66,21 @@ let destino: ReturnType<typeof postgres>;
 const relatorio: Relatorio = {};
 const rejeicoesDetalhe: { fase: string; legado_id: number; motivo: string }[] = [];
 
+/**
+ * O que fazer com quem foi recusado. Um número sozinho no relatório vira
+ * "quatro pessoas se perderam"; com a saída ao lado, vira uma tarefa.
+ *
+ * ⚠️ Estrangeiro agora tem lugar no cadastro (decisão 0013), mas o sistema de
+ * ORIGEM não tem campo de passaporte — não há o que migrar. As quatro entram
+ * pela tela com o documento na mão. Inventar documento seria dado falso para
+ * sempre.
+ */
+const SAIDA: Record<string, string> = {
+  sem_cpf: "sem CPF na origem; se for estrangeira, cadastrar pela tela com o passaporte",
+  cpf_invalido: "CPF não confere; se for estrangeira, cadastrar pela tela com o passaporte",
+  sem_nome: "sem nome na origem; nada identifica essa linha",
+};
+
 function conta(fase: string) {
   relatorio[fase] ??= { lidas: 0, gravadas: 0, rejeitadas: {}, pendencias: {}, avisos: 0 };
   return relatorio[fase];
@@ -1057,7 +1072,9 @@ async function principal() {
     )
   );
   for (const [fase, v] of Object.entries(relatorio)) {
-    for (const [motivo, n] of Object.entries(v.rejeitadas)) console.log(`  ❌ ${fase}: ${n} × ${motivo}`);
+    for (const [motivo, n] of Object.entries(v.rejeitadas)) {
+      console.log(`  ❌ ${fase}: ${n} × ${motivo}${SAIDA[motivo] ? ` — ${SAIDA[motivo]}` : ""}`);
+    }
     for (const [motivo, n] of Object.entries(v.pendencias)) console.log(`  ⚠️  ${fase}: ${n} × ${motivo} (gravado, revisar depois)`);
   }
   console.log(`Gravado em ${arquivo} (não contém dado pessoal; não versionar).`);

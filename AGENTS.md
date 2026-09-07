@@ -36,8 +36,9 @@ docs/                    decisões (ADR), design system, integração.
 
 ## Identidade e autorização
 
-- `pessoas` é a espinha: CPF identifica, `id` (uuid) referencia. Toda tabela
-  de módulo que fala de uma pessoa aponta para `pessoas.id`.
+- `pessoas` é a espinha: CPF identifica quem tem, **passaporte identifica quem
+  não tem** (decisão 0013 — exatamente um dos dois), e `id` (uuid) referencia.
+  Toda tabela de módulo que fala de uma pessoa aponta para `pessoas.id`.
 - Operador tem conta no Supabase Auth (`pessoas.auth_user_id`). **Quem só tem
   histórico não tem conta**: nunca criar conta em massa.
 - Comprador do checkout público não tem conta: autentica por magic link
@@ -78,7 +79,9 @@ docs/                    decisões (ADR), design system, integração.
   decisão passa por `exigir()` (`src/lib/supabase/consulta.ts`). Consulta que
   falhou não é consulta vazia.
 - Dinheiro em **centavos, inteiro**. CPF **só dígitos**, com dígito verificador
-  validado na entrada. Identificador externo (CodSNI) é `text`.
+  validado na entrada. Passaporte em **caixa alta, sem separador** — não tem
+  verificador, e apertar o formato recusaria documento legítimo no balcão.
+  Identificador externo (CodSNI) é `text`.
 - Segredo (credencial, chave de API, senha SMTP) vai **cifrado**
   (`src/lib/cripto.ts`) e em **tabela sem GRANT** para `anon`/`authenticated`.
   Nunca em auditoria, nem cifrado.

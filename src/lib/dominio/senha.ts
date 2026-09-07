@@ -21,6 +21,7 @@ export const MIN_SENHA = 8;
  */
 export interface DadosDaPessoa {
   cpf?: string | null;
+  passaporte?: string | null;
   codSni?: string | null;
   email?: string | null;
   nome?: string | null;
@@ -78,6 +79,17 @@ export function validarSenha(
     return {
       ok: false,
       erro: "A senha não pode conter o CPF — ele também é o login desta pessoa.",
+    };
+  }
+
+  // O passaporte identifica quem não tem CPF, e é o que essa pessoa digita
+  // para entrar: vale a mesma regra. Comparação sem caixa e sem separador,
+  // igual à normalização do cadastro.
+  const passaporte = (pessoa.passaporte ?? "").replace(/[\s.\-/]/g, "").toUpperCase();
+  if (passaporte.length >= 5 && senha.replace(/[\s.\-/]/g, "").toUpperCase().includes(passaporte)) {
+    return {
+      ok: false,
+      erro: "A senha não pode conter o passaporte — ele também é o login desta pessoa.",
     };
   }
 

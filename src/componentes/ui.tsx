@@ -231,6 +231,30 @@ export function Campo({
   );
 }
 
+/**
+ * Uma pergunta de sim ou não, com a chave ao lado do texto.
+ *
+ * `Campo` põe o rótulo ACIMA do controle, e acima de uma chave o rótulo fica
+ * órfão: a chave sozinha não diz do que ela é. Aqui os dois andam na mesma
+ * linha, que é como se lê uma pergunta.
+ */
+export function CampoChave({
+  rotulo,
+  dica,
+  ligado,
+  ...rest
+}: ComponentProps<"button"> & { rotulo: string; dica?: string; ligado: boolean }) {
+  return (
+    <div className="sni-field sni-field-chave">
+      <span className="sni-chave-linha">
+        <Chave ligado={ligado} rotulo={rotulo} {...rest} />
+        <span className="sni-label">{rotulo}</span>
+      </span>
+      {dica && <span className="sni-hint">{dica}</span>}
+    </div>
+  );
+}
+
 // ─── Marcadores e alertas ────────────────────────────────────────────────────
 
 /** `navy` e `outline` vêm do módulo ciclo; os demais são do design system. */

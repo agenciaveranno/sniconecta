@@ -24,6 +24,7 @@ import {
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { NOME_PAPEL, PAPEIS_NACIONAIS, type TipoPapel } from "@/lib/permissoes";
 import { formatarCpf } from "@/lib/dominio/cpf";
+import { formatarPassaporte } from "@/lib/dominio/passaporte";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import type {
@@ -76,9 +77,18 @@ export default async function PessoasPage({
     // procurando um número, e quem digita "Maria" um nome — a mesma caixa
     // serve aos dois sem a pessoa escolher em qual campo está buscando.
     const digitos = busca.replace(/\D/g, "");
+    // ⚠️ Passaporte tem letra E número, então cai nos dois ramos: procurado
+    // por "FH123456" ele não é dígito puro, e procurado por "123456" precisa
+    // aparecer junto do CPF. Fora daqui, quem é estrangeiro não seria
+    // encontrado por documento nenhum.
+    const alfanumerico = busca.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
     consulta = digitos
-      ? consulta.or(`cpf.ilike.%${digitos}%,cod_sni.ilike.%${digitos}%`)
-      : consulta.or(`nome.ilike.%${busca}%,nome_social.ilike.%${busca}%,email.ilike.%${busca}%`);
+      ? consulta.or(
+          `cpf.ilike.%${digitos}%,cod_sni.ilike.%${digitos}%,passaporte.ilike.%${digitos}%`
+        )
+      : consulta.or(
+          `nome.ilike.%${busca}%,nome_social.ilike.%${busca}%,email.ilike.%${busca}%,passaporte.ilike.%${alfanumerico}%`
+        );
   }
 
   const resposta = await consulta;
@@ -144,7 +154,7 @@ export default async function PessoasPage({
             rotulo="Nova pessoa"
             icone={<IconPlus size={18} className="ti" />}
             titulo="Nova pessoa"
-            descricao="O CPF identifica; o resto se completa depois."
+            descricao="O documento identifica; o resto se completa depois."
             acao={criarPessoa}
             rotuloConfirmar="Cadastrar"
             largura="lg"
@@ -170,7 +180,7 @@ export default async function PessoasPage({
       )}
 
       <form method="get" className="sni-busca">
-        <Campo label="Procurar" htmlFor="q" dica="Nome, e-mail, CPF ou CodSNI.">
+        <Campo label="Procurar" htmlFor="q" dica="Nome, e-mail, CPF, passaporte ou CodSNI.">
           <Input id="q" name="q" defaultValue={busca} placeholder="Maria, 845.032… ou 1792123" />
         </Campo>
       </form>
@@ -178,12 +188,12 @@ export default async function PessoasPage({
       {pessoas.length === 0 ? (
         <Vazio icone={<IconUsers size={34} className="ti" />} titulo={busca ? "Ninguém com esse dado" : "Ninguém cadastrado ainda"}>
           {busca
-            ? "Confira a grafia, ou procure pelo CPF — ele é o único dado que nunca muda."
+            ? "Confira a grafia, ou procure pelo documento — CPF e passaporte são os únicos dados que nunca mudam."
             : "A carga do sistema antigo traz dezesseis mil pessoas. Até lá, cadastre quem precisa operar."}
         </Vazio>
       ) : (
         <>
-          <Tabela cabecalho={["Pessoa", "CPF", "Onde está", "Papéis", "Acesso", ""]}>
+          <Tabela cabecalho={["Pessoa", "Documento", "Onde está", "Papéis", "Acesso", ""]}>
             {pessoas.map((pessoa) => {
               const vinculo = vinculoDe(pessoa.id);
               const meus = papeisDe(pessoa.id);
@@ -198,7 +208,19 @@ export default async function PessoasPage({
                     )}
                   </Celula>
                   <Celula>
-                    <Num>{formatarCpf(pessoa.cpf)}</Num>
+                    {/* Um documento ou o outro, nunca os dois (decisão 0013).
+                        A etiqueta aparece só no passaporte: CPF é o caso de
+                        99,98% da base e não precisa se anunciar. */}
+                    {pessoa.cpf ? (
+                      <Num>{formatarCpf(pessoa.cpf)}</Num>
+                    ) : (
+                      <>
+                        <Num>{formatarPassaporte(pessoa.passaporte)}</Num>
+                        <span className="sni-hint" style={{ marginTop: 2 }}>
+                          Passaporte
+                        </span>
+                      </>
+                    )}
                   </Celula>
                   <Celula>
                     {vinculo ? (
