@@ -26,7 +26,22 @@ import {
   transformarParticipante, type ParticipanteMysql,
 } from "./lib/transformar";
 
-type Relatorio = Record<string, { lidas: number; gravadas: number; rejeitadas: Record<string, number>; avisos: number }>;
+/**
+ * `rejeitadas` é o que NÃO entrou. `pendencias` é o que entrou e precisa de
+ * olho humano depois.
+ *
+ * ⚠️ Separados de propósito. Somar as duas faria 15 mil pessoas que foram
+ * gravadas corretamente aparecerem como falha, e ninguém autoriza uma carga
+ * assim. E juntar no sentido contrário — chamar tudo de sucesso — esconderia
+ * justamente a lista que alguém precisa revisar.
+ */
+type Relatorio = Record<string, {
+  lidas: number;
+  gravadas: number;
+  rejeitadas: Record<string, number>;
+  pendencias: Record<string, number>;
+  avisos: number;
+}>;
 
 const args = new Map(process.argv.slice(2).map((a) => {
   const [k, v] = a.replace(/^--/, "").split("=");
@@ -52,7 +67,7 @@ const relatorio: Relatorio = {};
 const rejeicoesDetalhe: { fase: string; legado_id: number; motivo: string }[] = [];
 
 function conta(fase: string) {
-  relatorio[fase] ??= { lidas: 0, gravadas: 0, rejeitadas: {}, avisos: 0 };
+  relatorio[fase] ??= { lidas: 0, gravadas: 0, rejeitadas: {}, pendencias: {}, avisos: 0 };
   return relatorio[fase];
 }
 
@@ -207,19 +222,53 @@ async function faseVinculos() {
       .map((v) => v.pessoa_id)
   );
 
-  const contar = (motivo: string) => { r.rejeitadas[motivo] = (r.rejeitadas[motivo] ?? 0) + 1; };
+  const rejeitar = (motivo: string) => { r.rejeitadas[motivo] = (r.rejeitadas[motivo] ?? 0) + 1; };
+  const pendente = (motivo: string) => { r.pendencias[motivo] = (r.pendencias[motivo] ?? 0) + 1; };
+
+  /**
+   * A Organização de quem tem Associação Local e não tem Organização.
+   *
+   * ⚠️ São 15.404 pessoas — 92% da base. Descartar a AL delas jogaria fora o
+   * nome que a origem tem, e ninguém reconstrói isso depois. Pendurá-las numa
+   * Organização EXPLICITAMENTE indefinida preserva a AL, põe cada pessoa na
+   * AL certa, e deixa a dívida visível: a tela lista, alguém move a AL para a
+   * Organização correta, e as pessoas vão junto — sem retrabalho pessoa a
+   * pessoa.
+   *
+   * `ordem` alta para cair no fim de toda lista de escolha: ela não é uma
+   * opção que se ofereça a quem está cadastrando.
+   */
+  let indefinidaId: string | undefined;
+  const organizacaoIndefinida = async (): Promise<string> => {
+    if (indefinidaId) return indefinidaId;
+    const jaTem = organizacoes.get(chaveNucleo("Indefinida"));
+    if (jaTem) return (indefinidaId = jaTem);
+    if (dryRun) return (indefinidaId = "simulada:indefinida");
+    const [nova] = await destino<{ id: string }[]>`
+      insert into public.organizacoes (nome, ordem) values ('Indefinida', 900)
+      on conflict (nome) do update set nome = excluded.nome
+      returning id`;
+    organizacoes.set(chaveNucleo("Indefinida"), nova.id);
+    return (indefinidaId = nova.id);
+  };
 
   for (const p of participantes) {
     const pessoa = pessoas.get(Number(p.id));
-    if (!pessoa) { contar("pessoa não migrada"); continue; }
+    if (!pessoa) { rejeitar("pessoa não migrada"); continue; }
     if (jaVinculadas.has(pessoa)) { r.avisos++; continue; }
 
-    const chaveRegional = chaveNucleo(p.regional);
-    if (!chaveRegional) { contar("sem Regional na origem"); continue; }
-
     // ── Regional ──
-    let regionalId = regionais.get(chaveRegional);
-    if (!regionalId) {
+    //
+    // Sem Regional na origem, a pessoa fica na SEDE CENTRAL. Decisão da Sede:
+    // é um lugar provisório e verdadeiro — ela pertence à instituição, e a
+    // qual Regional ninguém sabe. Deixá-la sem vínculo nenhum a esconderia de
+    // toda tela que lista por unidade.
+    const chaveRegional = chaveNucleo(p.regional);
+    let regionalId = chaveRegional ? regionais.get(chaveRegional) : sede.id;
+    if (!chaveRegional) {
+      pendente("sem Regional na origem — ficou na Sede Central");
+      regionalId = sede.id;
+    } else if (!regionalId) {
       const nome = texto(p.regional)!;
       if (!dryRun) {
         const [nova] = await destino<{ id: string }[]>`
@@ -262,7 +311,12 @@ async function faseVinculos() {
     const chaveAl = chaveNucleo(p.associacaoLocal);
     let unidadeDestino = regionalId;
 
-    if (chaveAl && organizacaoId) {
+    if (chaveAl) {
+      // Sem Organização na origem, a AL nasce sob "Indefinida" — ver acima.
+      if (!organizacaoId) {
+        organizacaoId = await organizacaoIndefinida();
+        pendente("Organização indefinida — revisar a Associação Local");
+      }
       const chave = `${regionalId}|${organizacaoId}|${chaveAl}`;
       let alId = associacoes.get(chave);
       if (!alId) {
@@ -281,10 +335,8 @@ async function faseVinculos() {
         criadas.associacoes++;
       }
       unidadeDestino = alId;
-    } else if (chaveAl && !organizacaoId) {
-      contar("Associação Local sem Organização — pessoa ficou na Regional");
     } else {
-      contar("sem Associação Local — pessoa ficou na Regional");
+      pendente("sem Associação Local na origem — ficou na Regional");
     }
 
     if (!dryRun) {
@@ -908,13 +960,15 @@ async function principal() {
           lidas: v.lidas,
           gravadas: v.gravadas,
           rejeitadas: Object.values(v.rejeitadas).reduce((a, b) => a + b, 0),
+          revisar: Object.values(v.pendencias).reduce((a, b) => a + b, 0),
           avisos: v.avisos,
         },
       ])
     )
   );
   for (const [fase, v] of Object.entries(relatorio)) {
-    for (const [motivo, n] of Object.entries(v.rejeitadas)) console.log(`  ${fase}: ${n} × ${motivo}`);
+    for (const [motivo, n] of Object.entries(v.rejeitadas)) console.log(`  ❌ ${fase}: ${n} × ${motivo}`);
+    for (const [motivo, n] of Object.entries(v.pendencias)) console.log(`  ⚠️  ${fase}: ${n} × ${motivo} (gravado, revisar depois)`);
   }
   console.log(`Gravado em ${arquivo} (não contém dado pessoal; não versionar).`);
 }
