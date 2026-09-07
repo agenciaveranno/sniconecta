@@ -110,19 +110,31 @@ async function fasePessoas() {
     if (dryRun) { r.gravadas++; continue; }
 
     const p = item.pessoa;
-    // ⚠️ Colunas de `pessoas` além das básicas (regional, organização,
-    // associação local, primeira vez, endereço detalhado) dependem do schema
-    // comum final. Enquanto ele não fecha, ficam em `migracao_extras` (jsonb)
-    // para nada se perder e a fase seguinte resolver.
+    // ⚠️ O endereço vai para as colunas de verdade — `logradouro`, `bairro`,
+    // `cidade`, `uf` — e NÃO para um campo único. A versão anterior grudava os
+    // quatro numa string e mandava para uma coluna `endereco` que não existe:
+    // a carga parava na primeira pessoa. Juntar também apagaria a única coisa
+    // que a origem separa direito, e é justamente o que a tela precisa em
+    // campos distintos para editar.
+    //
+    // `numero` e `complemento` ficam nulos porque a origem tem UM campo de
+    // texto livre para a rua inteira. Fatiar por vírgula acertaria em parte dos
+    // casos e erraria calado no resto — endereço errado é pior que incompleto.
+    //
+    // Regional, organização e associação local seguem em `migracao_extras`: a
+    // fase `vinculos` é quem os resolve para a árvore.
     await destino`
-      insert into public.pessoas (legado_id, cpf, cod_sni, nome, email, telefone, nascimento, endereco, migracao_extras, criado_em)
+      insert into public.pessoas (legado_id, cpf, cod_sni, nome, email, telefone, nascimento,
+                                  logradouro, bairro, cidade, uf, migracao_extras, criado_em)
       values (${p.legado_id}, ${p.cpf}, ${p.cod_sni}, ${p.nome}, ${p.email}, ${p.telefone}, ${p.nascimento},
-              ${[p.endereco, p.bairro, p.cidade, p.estado].filter(Boolean).join(", ") || null},
+              ${p.endereco}, ${p.bairro}, ${p.cidade}, ${p.estado},
               ${destino.json({ regional: p.regional_nome, organizacao: p.organizacao_nome, associacao_local: p.associacao_local, primeira_vez: p.primeira_vez })},
               ${p.criado_em ?? new Date().toISOString()})
       on conflict (legado_id) do update set
         cpf = excluded.cpf, cod_sni = excluded.cod_sni, nome = excluded.nome, email = excluded.email,
-        telefone = excluded.telefone, nascimento = excluded.nascimento, endereco = excluded.endereco,
+        telefone = excluded.telefone, nascimento = excluded.nascimento,
+        logradouro = excluded.logradouro, bairro = excluded.bairro,
+        cidade = excluded.cidade, uf = excluded.uf,
         migracao_extras = excluded.migracao_extras
     `;
     r.gravadas++;
