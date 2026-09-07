@@ -3,9 +3,8 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { criarClienteServidor } from "@/lib/supabase/server";
+import { TENTATIVAS } from "@/lib/dominio/identificador";
 import { criarClienteServico } from "@/lib/supabase/service";
-import { cpfValido, somenteDigitos } from "@/lib/dominio/cpf";
-import { normalizarPassaporte, passaporteValido } from "@/lib/dominio/passaporte";
 
 const schema = z.object({
   identificador: z.string().trim().min(3, "Informe seu CPF, passaporte ou e-mail."),
@@ -32,34 +31,8 @@ export async function entrar(formData: FormData) {
   if (!parsed.success) return falhar(parsed.error.issues[0].message);
   const { identificador, senha, voltar } = parsed.data;
 
-  let email = identificador.toLowerCase();
-  const digitos = somenteDigitos(identificador);
-  const soNumero = /^\d+$/.test(identificador.replace(/[.\-\s]/g, ""));
-
-  if (digitos.length === 11 && soNumero) {
-    if (!cpfValido(digitos)) return falhar("Credenciais inválidas.");
-    const servico = criarClienteServico();
-    const { data } = await servico.from("pessoas").select("email").eq("cpf", digitos).maybeSingle();
-    if (!data?.email) return falhar("Credenciais inválidas.");
-    email = data.email;
-  } else if (!identificador.includes("@")) {
-    // Quem é estrangeiro não tem CPF: o passaporte é o documento dela, e sem
-    // isto ela só entraria por e-mail — que é justamente o dado que muda.
-    //
-    // ⚠️ A ordem importa. O ramo do CPF vem antes porque um passaporte pode
-    // ser só dígitos (Estados Unidos emite assim), e onze dígitos são um CPF
-    // muito mais provavelmente do que um passaporte.
-    const documento = normalizarPassaporte(identificador);
-    if (!passaporteValido(documento)) return falhar("Credenciais inválidas.");
-    const servico = criarClienteServico();
-    const { data } = await servico
-      .from("pessoas")
-      .select("email")
-      .eq("passaporte", documento)
-      .maybeSingle();
-    if (!data?.email) return falhar("Credenciais inválidas.");
-    email = data.email;
-  }
+  const email = await emailDe(identificador);
+  if (!email) return falhar("Credenciais inválidas.");
 
   const supabase = await criarClienteServidor();
   const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
@@ -72,6 +45,28 @@ export async function entrar(formData: FormData) {
   }
 
   redirect(voltar && voltar.startsWith("/") ? voltar : "/painel");
+}
+
+
+/**
+ * O e-mail da conta, a partir do que a pessoa digitou. A ordem e o formato de
+ * cada tentativa moram em `@/lib/dominio/identificador`; aqui só a consulta.
+ */
+async function emailDe(identificador: string): Promise<string | null> {
+  // E-mail é ele mesmo: não precisa procurar ninguém para descobrir.
+  if (identificador.includes("@")) return identificador.trim().toLowerCase();
+
+  const servico = criarClienteServico();
+  for (const t of TENTATIVAS) {
+    if (!t.serve(identificador)) continue;
+    const { data } = await servico
+      .from("pessoas")
+      .select("email")
+      .eq(t.coluna, t.valor(identificador))
+      .maybeSingle();
+    if (data?.email) return data.email;
+  }
+  return null;
 }
 
 function falhar(mensagem: string): never {

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import * as Icones from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
-import { Alerta, Card, TituloPagina, TituloSecao, Vazio } from "@/componentes/ui";
+import { Card, Recado, TituloPagina, TituloSecao, Vazio } from "@/componentes/ui";
 import { pessoaAtual } from "@/lib/auth";
 import { MODULOS } from "@/modulos/registro";
 
@@ -20,11 +20,7 @@ export default async function PainelPage({ searchParams }: { searchParams: Promi
   return (
     <Painel titulo="Início">
       <TituloPagina descricao={`Bem-vindo, ${eu?.nome ?? ""}.`}>SNI Conecta</TituloPagina>
-      {erro && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="danger" icone={<Icones.IconAlertCircle size={20} className="ti" />}>{erro}</Alerta>
-        </div>
-      )}
+      <Recado erro={erro} />
       {total === 0 ? (
         <Vazio icone={<Icones.IconLock size={34} className="ti" />} titulo="Nenhum acesso liberado ainda">
           Sua conta existe, mas nenhum papel foi concedido. Peça a quem administra o acesso.

@@ -366,6 +366,27 @@ export function Alerta({
   );
 }
 
+/**
+ * O recado que a rota trouxe: `?erro=` ou `?ok=`.
+ *
+ * Toda tela que grava redireciona de volta com um dos dois, e o bloco estava
+ * copiado em onze páginas — com o `marginBottom: 16` inline que o design
+ * system proíbe, e com o ícone passado à mão. As cópias já divergiam: `size={20}`
+ * onde o padrão do `Alerta` é 18, e `IconCircleCheck` numa tela contra
+ * `IconCheck` na tela ao lado, para dizer a mesma coisa.
+ *
+ * ⚠️ Sem `icone`: o `Alerta` escolhe pelo tipo, e é essa escolha que mantém
+ * "deu certo" e "deu errado" com a mesma cara em todo o sistema.
+ */
+export function Recado({ erro, ok }: { erro?: string; ok?: string }) {
+  if (!erro && !ok) return null;
+  return (
+    <div className="sni-recado">
+      <Alerta tipo={erro ? "danger" : "success"}>{erro ?? ok}</Alerta>
+    </div>
+  );
+}
+
 // ─── Cards e dados ───────────────────────────────────────────────────────────
 
 /**

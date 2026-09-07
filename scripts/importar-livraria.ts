@@ -16,6 +16,7 @@
  */
 import "dotenv/config";
 import postgres from "postgres";
+import { centavosDe } from "../src/lib/dominio/dinheiro";
 import { arbitroDeUnicos, classificar } from "./lib/livraria";
 
 const LOJA = (process.env.LOJA_URL ?? "https://livraria.sni.org.br").replace(/\/+$/, "");
@@ -38,10 +39,15 @@ type Produto = {
   disponivel: boolean;
 };
 
-/** ⚠️ `Math.round`: 19.90 * 100 dá 1989.9999999999998 em ponto flutuante. */
+/**
+ * ⚠️ Delega a `centavosDe`, e não converte por conta própria: a conversão
+ * daqui só trocava a vírgula por ponto, então um preço em pt-BR com milhar —
+ * "1.234,56" — virava NaN, e o guarda `> 0` transformava o NaN em ZERO. O
+ * produto entrava no catálogo custando nada, e nada avisava.
+ */
 function centavos(valor: unknown): number {
-  const n = typeof valor === "number" ? valor : Number(String(valor ?? "").replace(",", "."));
-  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : 0;
+  const n = centavosDe(valor as string | number | null | undefined);
+  return n !== null && n > 0 ? n : 0;
 }
 
 function limpar(html: unknown): string | null {

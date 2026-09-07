@@ -7,17 +7,10 @@ import {
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
-  Alerta,
-  Badge,
-  Celula,
-  Etiqueta,
-  Linha,
-  Tabela,
-  TituloPagina,
-  Vazio,
+  Alerta, Badge, Celula, Etiqueta, Linha, Recado, Tabela, TituloPagina, Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
-import { listarCredenciais } from "@/lib/credenciais";
+import { contasCieloVisiveis } from "@/lib/credenciais";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
@@ -38,7 +31,12 @@ function achatarArvore(
   const porPai = new Map<string | null, UnidadeRow[]>();
   for (const u of unidades) {
     const chave = u.pai_id ?? null;
-    porPai.set(chave, [...(porPai.get(chave) ?? []), u]);
+    // ⚠️ `push` e não recriar o array: `[...anteriores, u]` copiava os irmãos
+    // já vistos a cada filho. Numa Regional com duzentas Associações Locais
+    // são duzentas cópias, e o custo cresce com o QUADRADO do número de ALs.
+    const irmaos = porPai.get(chave);
+    if (irmaos) irmaos.push(u);
+    else porPai.set(chave, [u]);
   }
   const saida: { unidade: UnidadeRow; profundidade: number }[] = [];
   const descer = (pai: string | null, profundidade: number) => {
@@ -68,7 +66,6 @@ export default async function EstruturaPage({
   // dinheiro se não administrar configuração também. A leitura só acontece
   // para quem pode — e traz apenas a parte pública.
   const podeVerCielo = eu.pode("configuracao.gerir");
-  const contas = podeVerCielo ? await listarCredenciais("cielo") : new Map();
 
   const supabase = await criarClienteServidor();
 
@@ -77,10 +74,15 @@ export default async function EstruturaPage({
   // alguém cadastraria a Sede Central pela segunda vez.
   // ⚠️ As três JUNTAS: nenhuma depende do resultado das outras, e em série
   // cada uma somava sua ida e volta ao banco no tempo de tela em branco.
-  const [rTipos, rUnidades, rOrganizacoes] = await Promise.all([
+  const [rTipos, rUnidades, rOrganizacoes, contas] = await Promise.all([
     supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
     supabase.from("unidades").select("*").order("nome"),
-    supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
+    // ⚠️ `e_organizacao`: a lista de escolha é de ORGANIZAÇÕES doutrinárias, não
+    // dos Departamentos administrativos da Sede nem da "Indefinida" que a carga
+    // criou como dívida a revisar. O gatilho do banco recusa o resto — este
+    // filtro é para a pessoa não ter de descobrir isso por mensagem de erro.
+    supabase.from("organizacoes").select("*").eq("ativo", true).eq("e_organizacao", true).order("ordem"),
+    contasCieloVisiveis(podeVerCielo),
   ]);
 
   const tipos = exigir(rTipos, "os tipos de unidade") as TipoUnidadeRow[];
@@ -91,10 +93,6 @@ export default async function EstruturaPage({
   const nomeDaOrganizacao = new Map(organizacoes.map((o) => [o.id, o.nome_curto ?? o.nome]));
   const linhas = achatarArvore(unidades);
   const paraEscolha = unidades.map((u) => ({ id: u.id, nome: u.nome, tipo: u.tipo }));
-  const contaDe = (id: string) => {
-    const c = contas.get(id);
-    return c && { ...c.publico, temSegredo: c.temSegredo };
-  };
 
   return (
     <Painel titulo="Estrutura">
@@ -120,13 +118,7 @@ export default async function EstruturaPage({
         }
       />
 
-      {erro && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="danger" icone={<IconAlertCircle size={20} className="ti" />}>
-            {erro}
-          </Alerta>
-        </div>
-      )}
+      <Recado erro={erro} />
 
       {linhas.length === 0 ? (
         <Vazio
@@ -177,7 +169,7 @@ export default async function EstruturaPage({
                       unidades={paraEscolha}
                       organizacoes={organizacoes}
                       unidade={unidade}
-                      cielo={contaDe(unidade.id)}
+                      cielo={contas.get(unidade.id)}
                       podeVerCielo={podeVerCielo}
                     />
                   </ModalCadastro>

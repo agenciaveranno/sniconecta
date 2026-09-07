@@ -1,20 +1,19 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
   IconAlertCircle, IconCheck, IconFile, IconPaperclip, IconTrash, IconUpload,
 } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import {
-  Abas, Alerta, Botao, BotaoLink, Campo, Card, CardCabecalho, Celula,
-  GrupoCampos, Input, Linha, Num, Select, Tabela, TituloPagina, Vazio,
+  Abas, Alerta, Botao, BotaoLink, Campo, Card, CardCabecalho, Celula, GrupoCampos, Input, Linha, Num, Recado, Select, Tabela, TituloPagina, Vazio,
 } from "@/componentes/ui";
-import { pessoaAtual } from "@/lib/auth";
+import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { criarClienteServico } from "@/lib/supabase/service";
 import { formatarCpf } from "@/lib/dominio/cpf";
 import { formatarPassaporte } from "@/lib/dominio/passaporte";
 import { formatarCep } from "@/lib/dominio/endereco-formato";
-import { TIPOS_ANEXO, urlAssinada } from "@/lib/anexos";
+import { TIPOS_ANEXO, urlsAssinadas } from "@/lib/anexos";
 import type { PessoaAnexoRow, PessoaRow } from "@/lib/supabase/tipos";
 import CamposPessoa from "../CamposPessoa";
 import { anexarDocumento, editarPessoa, removerAnexo } from "../actions";
@@ -35,8 +34,7 @@ export default async function FichaPessoaPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ aba?: string; erro?: string; ok?: string }>;
 }) {
-  const eu = await pessoaAtual();
-  if (!eu?.pode("pessoa.gerir")) redirect("/painel");
+  const eu = await exigirCapacidadeNaPagina("pessoa.gerir");
 
   const { id } = await params;
   const { aba = "dados", erro, ok } = await searchParams;
@@ -45,24 +43,28 @@ export default async function FichaPessoaPage({
   // operador alcança esta pessoa. Ler com a chave de serviço mostraria a ficha
   // de qualquer um a quem administra uma Regional só.
   const supabase = await criarClienteServidor();
-  const { data } = await supabase.from("pessoas").select("*").eq("id", id).maybeSingle();
-  if (!data) notFound();
-  const pessoa = data as PessoaRow;
 
+  // ⚠️ As duas JUNTAS: a de anexos usa o `id` da URL, não o resultado da
+  // primeira. Em série, a ficha esperava duas idas ao banco antes de qualquer
+  // pixel. A linha de baixo continua sendo o portão de RLS.
+  //
   // Anexos vêm pelo serviço: a tabela não tem GRANT para o navegador, e quem
-  // já provou alcançar a pessoa acima pode ver os documentos dela.
+  // provar alcançar a pessoa pode ver os documentos dela.
   const servico = criarClienteServico();
-  const { data: anexosData } = await servico
-    .from("pessoa_anexos")
-    .select("*")
-    .eq("pessoa_id", id)
-    .order("criado_em", { ascending: false });
-  const anexos = (anexosData ?? []) as PessoaAnexoRow[];
+  const [rPessoa, rAnexos] = await Promise.all([
+    supabase.from("pessoas").select("*").eq("id", id).maybeSingle(),
+    servico.from("pessoa_anexos").select("*").eq("pessoa_id", id).order("criado_em", { ascending: false }),
+  ]);
 
-  // ⚠️ URL assinada emitida AQUI, no servidor, uma por anexo. O caminho do
-  // arquivo nunca chega ao navegador — só um endereço que expira em uma hora.
-  const links = new Map<string, string | null>();
-  for (const a of anexos) links.set(a.id, await urlAssinada(a.caminho));
+  if (!rPessoa.data) notFound();
+  const pessoa = rPessoa.data as PessoaRow;
+  const anexos = (rAnexos.data ?? []) as PessoaAnexoRow[];
+
+  // ⚠️ URLs assinadas emitidas AQUI, no servidor, e todas de UMA vez. O caminho
+  // do arquivo nunca chega ao navegador — só um endereço que expira em uma
+  // hora. Uma chamada por anexo fazia a ficha esperar uma ida por documento.
+  const porCaminho = await urlsAssinadas(anexos.map((a) => a.caminho));
+  const links = new Map(anexos.map((a) => [a.id, porCaminho.get(a.caminho) ?? null]));
 
   const documento = pessoa.cpf
     ? { rotulo: "CPF", valor: formatarCpf(pessoa.cpf) }
@@ -88,20 +90,7 @@ export default async function FichaPessoaPage({
         voltar={{ href: "/admin/pessoas", texto: "Pessoas" }}
       />
 
-      {erro && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="danger" icone={<IconAlertCircle size={20} className="ti" />}>
-            {erro}
-          </Alerta>
-        </div>
-      )}
-      {ok && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="success" icone={<IconCheck size={20} className="ti" />}>
-            {ok}
-          </Alerta>
-        </div>
-      )}
+      <Recado erro={erro} ok={ok} />
 
       <Abas
         atual={aba}

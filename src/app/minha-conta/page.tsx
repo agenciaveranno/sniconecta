@@ -8,16 +8,7 @@ import {
 } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import {
-  Alerta,
-  Badge,
-  Campo,
-  Botao,
-  Card,
-  CardCabecalho,
-  Input,
-  Num,
-  TituloPagina,
-  TituloSecao,
+  Alerta, Badge, Botao, Campo, Card, CardCabecalho, Input, Num, Recado, TituloPagina, TituloSecao,
 } from "@/componentes/ui";
 import { pessoaAtual } from "@/lib/auth";
 import { NOME_PAPEL, type TipoPapel } from "@/lib/permissoes";
@@ -76,20 +67,7 @@ export default async function MinhaContaPage({
         descricao="Seus dados, onde você está na instituição e o que o sistema deixa você fazer."
       />
 
-      {erro && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="danger" icone={<IconAlertCircle size={20} className="ti" />}>
-            {erro}
-          </Alerta>
-        </div>
-      )}
-      {ok && (
-        <div style={{ marginBottom: 16 }}>
-          <Alerta tipo="success" icone={<IconCircleCheck size={20} className="ti" />}>
-            {ok}
-          </Alerta>
-        </div>
-      )}
+      <Recado erro={erro} ok={ok} />
 
       <TituloSecao>Quem você é</TituloSecao>
       <Card>

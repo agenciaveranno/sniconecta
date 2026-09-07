@@ -126,6 +126,9 @@
 .sni-badge-dot { border-radius: 50%; flex-shrink: 0; display: inline-block; }
 .sni-alert { display: flex; align-items: flex-start; border-left: 3px solid; }
 .sni-alert i { flex-shrink: 0; }
+/* O recado que a rota trouxe, acima do conteúdo. O espaçamento vem daqui e
+   não de `style` na página: estava inline em onze telas. */
+.sni-recado { margin-bottom: 16px; }
 .sni-section-eyebrow { display: flex; align-items: center; }
 
 /* Tabela. O invólucro rola sozinho: tabela larga não pode alargar a página. */

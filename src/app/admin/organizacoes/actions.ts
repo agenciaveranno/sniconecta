@@ -3,8 +3,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { exigirCapacidade, pessoaAtual } from "@/lib/auth";
-import { removerCredencial, salvarCredencial } from "@/lib/credenciais";
+import { exigirCapacidade } from "@/lib/auth";
+import { guardarCieloDoFormulario } from "@/lib/credenciais";
 import { criarClienteServidor } from "@/lib/supabase/server";
 
 const ROTA = "/admin/organizacoes";
@@ -34,35 +34,6 @@ function traduzirErro(mensagem: string): string {
   return `Não foi possível salvar: ${mensagem}`;
 }
 
-/** Ver o comentário gêmeo em `admin/estrutura/actions.ts`. */
-async function guardarCielo(formData: FormData, organizacaoId: string) {
-  const eu = await pessoaAtual();
-  if (!eu?.pode("configuracao.gerir")) return;
-
-  const merchantId = String(formData.get("cielo_merchant_id") ?? "").trim();
-  // ⚠️ Merchant ID em branco APAGA a conta. É o único jeito de a entidade
-  // parar de receber: se apenas ignorasse o campo vazio, quem limpou o
-  // cadastro sairia da tela achando que desligou a venda, e o dinheiro
-  // continuaria caindo na conta antiga. Vale também quando o tipo muda para
-  // um que não recebe em conta própria — o bloco some e o campo vem vazio.
-  if (!merchantId) {
-    await removerCredencial("cielo", { organizacao: organizacaoId });
-    return;
-  }
-
-  await salvarCredencial(
-    "cielo",
-    { organizacao: organizacaoId },
-    {
-      publico: {
-        merchant_id: merchantId,
-        nome_loja: String(formData.get("cielo_nome_loja") ?? "").trim(),
-      },
-      segredo: String(formData.get("cielo_merchant_key") ?? ""),
-    },
-    eu.id
-  );
-}
 
 export async function criarOrganizacao(formData: FormData) {
   await exigirCapacidade("estrutura.gerir");
@@ -78,7 +49,7 @@ export async function criarOrganizacao(formData: FormData) {
     .single();
   if (error) falhar(traduzirErro(error.message));
 
-  if (criada) await guardarCielo(formData, criada.id);
+  if (criada) await guardarCieloDoFormulario(formData, { organizacao: criada.id });
 
   revalidatePath(ROTA);
 }
@@ -96,7 +67,7 @@ export async function editarOrganizacao(formData: FormData) {
   const { error } = await supabase.from("organizacoes").update(dados.data).eq("id", id);
   if (error) falhar(traduzirErro(error.message));
 
-  await guardarCielo(formData, id);
+  await guardarCieloDoFormulario(formData, { organizacao: id });
 
   revalidatePath(ROTA);
 }

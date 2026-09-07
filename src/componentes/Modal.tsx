@@ -20,7 +20,13 @@ import { Botao, BotaoIcone } from "./ui";
  * de z-index, o aprisionamento de foco e o `::backdrop`. O clique fora já não
  * fecha por padrão; o Esc dispara `cancel`, barrado abaixo.
  */
-export function Modal({
+// ⚠️ `Modal`, `ModalCorpo` e `ModalAcoes` NÃO são exportados: o único
+// consumidor é o `ModalCadastro` deste mesmo arquivo. Exportados, ofereciam
+// quatro portas de entrada onde existe uma — e quem escolhesse a errada
+// (montar `<Modal>` + `<form>` à mão) reintroduziria o fechar-antes-de-gravar
+// que o `ModalCadastro` documenta como armadilha. O `export` volta com o
+// segundo consumidor na mão.
+function Modal({
   aberto,
   aoFechar,
   titulo,
@@ -82,12 +88,12 @@ export function Modal({
 }
 
 /** Corpo rolável. */
-export function ModalCorpo({ children }: { children: ReactNode }) {
+function ModalCorpo({ children }: { children: ReactNode }) {
   return <div className="sni-modal-body">{children}</div>;
 }
 
 /** Rodapé com os botões de comando — a outra forma legítima de fechar. */
-export function ModalAcoes({ children }: { children: ReactNode }) {
+function ModalAcoes({ children }: { children: ReactNode }) {
   return <div className="sni-modal-foot">{children}</div>;
 }
 

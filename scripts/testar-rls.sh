@@ -444,6 +444,14 @@ n_org=$(conta "select count(*) from organizacoes where e_organizacao;")
 n_dep=$(conta "select count(*) from organizacoes where not e_organizacao;")
 [ "$n_dep" -ge 14 ] || { echo "  ❌ esperava ao menos 14 Departamentos administrativos, veio $n_dep"; falhas=$((falhas+1)); }
 echo "  ✅ $n_org Organizações e $n_dep Departamentos no mesmo cadastro"
+# ⚠️ A marca não pode ser só filtro de tela: a carga escreve `organizacao_id`
+# direto, sem passar por tela nenhuma. Uma Associação Local pendurada no
+# Departamento Jurídico é recusada pelo banco.
+DEP_ADM=$(conta "select id from organizacoes where not e_organizacao order by nome limit 1;")
+escrita "AL pendurada em Departamento administrativo é recusada" $SEDE \
+  "insert into unidades (tipo, pai_id, organizacao_id, nome) values ('associacao_local','22220000-0000-0000-0000-000000000001','$DEP_ADM','AL no Jurídico');" NEGADO
+escrita "AL pendurada numa Organização de verdade é aceita" $SEDE \
+  "insert into unidades (tipo, pai_id, organizacao_id, nome) values ('associacao_local','22220000-0000-0000-0000-000000000001',$ORG_PROSP,'AL na Prosperidade');" OK
 escrita "Sede cria seção" $SEDE \
   "insert into secoes (organizacao_id, nome) values ($ORG_PROSP,'Seção de Eventos');" OK
 escrita "coordenadora NÃO cria seção" $CSUL \
