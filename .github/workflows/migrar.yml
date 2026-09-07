@@ -1,0 +1,91 @@
+name: Migrar dados do Credenciamento
+
+# Roda a carga MySQL (Railway) → Postgres (Supabase) a partir do GitHub, e não
+# da máquina de alguém.
+#
+# ⚠️ POR QUE AQUI. O runner do Actions alcança as duas pontas — o proxy público
+# do Railway e o pooler do Supabase — e já guarda os segredos. A alternativa
+# seria alguém clonar o repositório, instalar Node e colar duas strings de
+# conexão de produção num arquivo local: mais passos, e a credencial do banco
+# de dezesseis mil pessoas passando por mais um computador.
+#
+# Nunca dispara sozinho. Só por `workflow_dispatch`, e o padrão é ENSAIO.
+
+on:
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: "ensaio lê e não grava nada; gravar aplica de verdade"
+        type: choice
+        options: [ensaio, gravar]
+        default: ensaio
+      fase:
+        description: "Uma fase só (pessoas, estrutura, eventos, compras, comissao, configuracao, auditoria, sequencias). Vazio = todas, em ordem."
+        type: string
+        default: ""
+
+jobs:
+  migrar:
+    runs-on: ubuntu-latest
+    # Onde moram as credenciais das duas pontas.
+    environment: Production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      # ⚠️ Segredo ausente chega como string vazia. Sem esta conferência, a
+      # carga começaria e falharia no meio, com parte dos dados gravados e
+      # nenhuma pista de que o problema era configuração.
+      - name: Conferir os segredos
+        env:
+          MIGRACAO_MYSQL_URL: ${{ secrets.MIGRACAO_MYSQL_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CREDENCIAIS_ENCRYPTION_KEY: ${{ secrets.CREDENCIAIS_ENCRYPTION_KEY }}
+        run: |
+          faltam=""
+          [ -n "$MIGRACAO_MYSQL_URL" ] || faltam="$faltam MIGRACAO_MYSQL_URL"
+          [ -n "$DATABASE_URL" ]       || faltam="$faltam DATABASE_URL"
+          [ -n "$CREDENCIAIS_ENCRYPTION_KEY" ] || faltam="$faltam CREDENCIAIS_ENCRYPTION_KEY"
+          if [ -n "$faltam" ]; then
+            echo "::error::Faltam segredos:$faltam"
+            echo ""
+            echo "Defina em Settings → Environments → Production → Environment secrets:"
+            echo "  MIGRACAO_MYSQL_URL          mysql://sni_leitura:SENHA@monorail.proxy.rlwy.net:PORTA/railway"
+            echo "                              ⚠️ o host PÚBLICO do Railway, não o .internal — o"
+            echo "                              runner do GitHub está fora da rede privada dele."
+            echo "  DATABASE_URL                o pooler do Supabase, porta 6543"
+            echo "  CREDENCIAIS_ENCRYPTION_KEY  a MESMA da Vercel, senão a credencial da Cielo"
+            echo "                              é cifrada com uma chave que o sistema não abre."
+            echo ""
+            echo "Nada foi lido nem gravado."
+            exit 1
+          fi
+
+      - name: Rodar a carga
+        env:
+          MIGRACAO_MYSQL_URL: ${{ secrets.MIGRACAO_MYSQL_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CREDENCIAIS_ENCRYPTION_KEY: ${{ secrets.CREDENCIAIS_ENCRYPTION_KEY }}
+        run: |
+          argumentos=""
+          [ "${{ inputs.modo }}" = "ensaio" ] && argumentos="$argumentos --dry-run"
+          [ -n "${{ inputs.fase }}" ] && argumentos="$argumentos --fase=${{ inputs.fase }}"
+          if [ "${{ inputs.modo }}" = "gravar" ]; then
+            echo "::warning::Modo GRAVAR: isto escreve no banco de produção."
+          fi
+          npm run migrar -- $argumentos
+
+      # O relatório traz contagens por fase e as rejeições com motivo e id
+      # antigo. NÃO contém dado pessoal — é por isso que pode virar artefato.
+      - name: Guardar o relatório
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorio-${{ inputs.modo }}-${{ github.run_number }}
+          path: migracao-relatorio-*.json
+          if-no-files-found: warn
+          retention-days: 30

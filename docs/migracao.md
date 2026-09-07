@@ -6,10 +6,25 @@ Ver a decisão em `docs/decisoes/0006-migracao-repetivel.md`.
 
 São dois lugares diferentes, e confundi-los é a primeira pedra do caminho:
 
+### A carga roda no GitHub, não na sua máquina
+
+`Actions → Migrar dados do Credenciamento → Run workflow`, escolhendo **ensaio**
+ou **gravar**. O padrão é ensaio, que lê tudo e não grava nada.
+
+⚠️ **Por que ali e não num computador.** O runner alcança as duas pontas — o
+proxy público do Railway e o pooler do Supabase — e já guarda os segredos. A
+alternativa seria clonar o repositório, instalar Node e colar duas strings de
+conexão de produção num arquivo local: mais passos, e a credencial do banco de
+dezesseis mil pessoas passando por mais um computador.
+
+O relatório fica como artefato da execução, por 30 dias. Ele traz contagens por
+fase e as rejeições com motivo e id antigo — **sem dado pessoal**, que é o que
+permite compartilhá-lo.
+
 | O quê | Onde | Precisa instalar? |
 |---|---|---|
 | `scripts/esquema-origem.sql`, `scripts/contagens.sql`, o `CREATE USER` | Serviço MySQL no Railway → aba **Console** | Não |
-| `npm run migrar` | Terminal da sua máquina, na pasta do projeto | Node e o repositório |
+| `npm run migrar` | GitHub → Actions → *Migrar dados do Credenciamento* | Não |
 
 ⚠️ **Use a aba Console, não a Data.** A aba *Data → Query* serve para espiar
 dados, não para extrair esquema, e falha de três jeitos diferentes:
