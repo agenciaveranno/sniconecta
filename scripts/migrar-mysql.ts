@@ -155,8 +155,43 @@ async function fasePessoas() {
     // "pessoa não migrada". Adotar o id resolve na raiz: a partir daqui ela é
     // uma linha comum, atualizada pelo `on conflict` como todas as outras.
     if (jaExiste && jaExiste.legado_id === null) {
-      await destino`update public.pessoas set legado_id = ${p.legado_id} where id = ${jaExiste.id}`;
+      r.pendencias["já estava cadastrada no sistema — a origem só preencheu vazios"] =
+        (r.pendencias["já estava cadastrada no sistema — a origem só preencheu vazios"] ?? 0) + 1;
+
+      // ⚠️ NÃO cai no `on conflict do update` depois disto, e é de propósito:
+      // aquele caminho sobrescreve nome e e-mail com os da origem. Esta linha
+      // foi posta por uma pessoa, não por carga — é ela que tem a conta do
+      // Supabase e o papel — e trocar o e-mail dela pelo do sistema antigo
+      // mexeria em quem consegue entrar. Dado digitado por gente ganha de dado
+      // importado; a origem preenche o que está vazio e nada mais.
+      //
+      // `migracao_extras` PRECISA ser gravado mesmo assim: é de lá que a fase
+      // `vinculos` lê a Regional, a Organização e a Associação Local. Sem isso
+      // a pessoa ficaria sem vínculo nenhum, invisível em toda tela que lista
+      // por unidade. O `||` mescla em vez de trocar, para não apagar o que
+      // outra fase tenha deixado ali.
+      await destino`
+        update public.pessoas set
+          legado_id   = ${p.legado_id},
+          telefone    = coalesce(telefone, ${p.telefone}),
+          nascimento  = coalesce(nascimento, ${p.nascimento}),
+          logradouro  = coalesce(logradouro, ${p.endereco}),
+          bairro      = coalesce(bairro, ${p.bairro}),
+          cidade      = coalesce(cidade, ${p.cidade}),
+          uf          = coalesce(uf, ${p.estado}),
+          migracao_extras = coalesce(migracao_extras, '{}'::jsonb) || ${destino.json({
+            regional: p.regional_nome,
+            organizacao: p.organizacao_nome,
+            associacao_local: p.associacao_local,
+            primeira_vez: p.primeira_vez,
+            cadastro_anterior_a_carga: true,
+          })}
+        where id = ${jaExiste.id}`;
+
       jaExiste.legado_id = p.legado_id;
+      porCpf.set(p.cpf!, jaExiste);
+      r.gravadas++;
+      continue;
     }
 
     if (jaExiste && jaExiste.legado_id !== p.legado_id) {
