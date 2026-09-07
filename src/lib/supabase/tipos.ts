@@ -180,6 +180,26 @@ export type MandatoRow = {
   criado_por: string | null;
 };
 
+/** Livro ou Artigo Religioso do catálogo. */
+export type ProdutoRow = {
+  id: string;
+  categoria_id: string;
+  nome: string;
+  codigo: string | null;
+  codigo_barras: string | null;
+  descricao_curta: string | null;
+  descricao_longa: string | null;
+  idioma: string;
+  preco_capa_centavos: number;
+  origem_url: string | null;
+  imagens: unknown[];
+  /** Dá para comprar agora. Diferente de `ativo`: o indisponível continua na tela. */
+  disponivel: boolean;
+  ativo: boolean;
+  criado_em: string;
+  atualizado_em: string;
+};
+
 /** Subdivisão de um Departamento, com gestor próprio. */
 export type SecaoRow = {
   id: string;
@@ -355,6 +375,7 @@ export interface Database {
       ceps: Tabela<CepRow>;
       pessoa_anexos: Tabela<PessoaAnexoRow>;
       secoes: Tabela<SecaoRow>;
+      produtos: Tabela<ProdutoRow>;
       colegiados: Tabela<ColegiadoRow>;
       cargos: Tabela<CargoRow>;
       mandatos: Tabela<MandatoRow>;

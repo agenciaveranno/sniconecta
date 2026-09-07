@@ -530,6 +530,10 @@ escrita "local NOSSO com CNPJ de outra empresa continua recusado" $SEDE \
   "insert into locais (tipo, nome, cnpj, proprio) values ('academia','Academia Errada','11222333000181',true);" NEGADO
 escrita "categoria de produto que não fecha em 100% é recusada" $SEDE \
   "insert into produto_categorias (nome, pct_sede, pct_regional, pct_local) values ('Torta', 50, 25, 20);" NEGADO
+escrita "produto sem preço marcado como disponível é recusado" $SEDE \
+  "insert into produtos (categoria_id, nome, preco_capa_centavos, disponivel) values ((select id from produto_categorias where nome='Livros'),'De graça',0,true);" NEGADO
+escrita "produto sem preço e SEM estoque é aceito" $SEDE \
+  "insert into produtos (categoria_id, nome, preco_capa_centavos, disponivel) values ((select id from produto_categorias where nome='Livros'),'Esgotado',0,false);" OK
 escrita "código de barras com letra é recusado" $SEDE \
   "insert into produtos (categoria_id, nome, codigo_barras) values ((select id from produto_categorias where nome='Livros'),'Livro','ABC123');" NEGADO
 escrita "evento gratuito e parcelado é recusado" $SEDE \

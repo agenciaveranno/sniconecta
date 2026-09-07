@@ -34,6 +34,7 @@ type Produto = {
   codigo: string | null;
   codigo_barras: string | null;
   categorias: string[];
+  disponivel: boolean;
 };
 
 /** ⚠️ `Math.round`: 19.90 * 100 dá 1989.9999999999998 em ponto flutuante. */
@@ -110,6 +111,15 @@ function vtexExtrair(p: Record<string, unknown>): Produto {
   // Preço de CAPA é o "de", quando existe; senão o praticado.
   const preco = centavos(oferta.ListPrice) || centavos(oferta.Price);
 
+  // ⚠️ A disponibilidade vem da LOJA, não de um palpite: a VTEX diz quantos há
+  // em estoque e se está vendendo. Deduzir "tem preço, logo tem estoque" faria
+  // o catálogo prometer o que a livraria não entrega.
+  //
+  // E preço zero derruba a disponibilidade de qualquer jeito — o banco não
+  // aceita produto sem preço à venda, e a alternativa seria oferecê-lo por
+  // zero real.
+  const emEstoque = Number(oferta.AvailableQuantity ?? 0) > 0 && oferta.IsAvailable !== false;
+
   // "/Livros/Educação/" → ["Livros", "Educação"]. A VTEX manda o caminho
   // inteiro em cada entrada; a mais funda é a que tem mais barras.
   const caminhos = ((p.categories ?? []) as string[])
@@ -127,6 +137,7 @@ function vtexExtrair(p: Record<string, unknown>): Produto {
       ? String(primeiro.ean)
       : null,
     categorias: caminhos[0] ?? [],
+    disponivel: emEstoque && preco > 0,
   };
 }
 
@@ -185,6 +196,7 @@ function wooExtrair(p: Record<string, unknown>): Produto {
     categorias: ((p.categories ?? []) as { name?: string }[])
       .map((c) => String(c.name ?? "").trim())
       .filter(Boolean),
+    disponivel: p.is_in_stock !== false && preco > 0,
   };
 }
 
@@ -206,17 +218,59 @@ async function lerWoo(): Promise<Produto[] | null> {
 // ─── Classificação ───────────────────────────────────────────────────────────
 
 /**
- * ⚠️ Regra da Sede: o que a loja classifica como livro vai para `Livros`, com o
- * assunto como subcategoria; TODO O RESTO vai para `Artigos Religiosos`. Sem o
- * "todo o resto", um produto de categoria imprevista ficaria sem categoria — e
- * a coluna é obrigatória, então a carga pararia.
+ * Onde o produto entra no catálogo da instituição.
+ *
+ * ⚠️ Tudo aqui decide pela CATEGORIA DA LOJA, nunca pelo título. O primeiro
+ * ensaio mostrou que as regras que a Sede pediu já existem lá dentro —
+ * "Contos infantis", "Assinatura" — e casar por nome acertaria "A Abelha
+ * Abelinda" e erraria no dia em que entrasse um infantil chamado "Preceitos".
+ * Título é texto de marketing; categoria é classificação.
  */
-function classificar(categorias: string[]): { raiz: string; assunto: string | null } {
-  const eLivro = categorias.some((c) => /livro|book/i.test(c));
-  if (!eLivro) return { raiz: "Artigos Religiosos", assunto: null };
+
+/** Prateleira de vitrine, não tipo de produto. Ver `classificar`. */
+const VITRINE = /^(lan[çc]amentos?|promo[çc][õo]es?|ofertas?|destaques?|mais vendidos?|novidades?)$/i;
+
+function classificar(categorias: string[]): {
+  raiz: string;
+  assunto: string | null;
+  vitrineSoZinha: boolean;
+} {
+  const tem = (re: RegExp) => categorias.some((c) => re.test(c.trim()));
+
+  // ⚠️ ASSINATURA DE REVISTA NÃO É COTA DE REVISTA. A assinatura são 12
+  // exemplares enviados pelo Correio — produto, com preço, comprado na
+  // livraria. A cota é o mínimo mensal retirado na Associação Local conforme a
+  // função doutrinária, e mora no módulo de revistas. Mesmo substantivo, coisas
+  // diferentes: sem categoria própria, a assinatura ficaria ao lado do incenso,
+  // e quem conferisse as revistas do mês acharia que há duas verdades sobre
+  // revista no sistema.
+  if (tem(/assinatura/i)) {
+    return { raiz: "Assinaturas de Revista", assunto: null, vitrineSoZinha: false };
+  }
+
+  // ⚠️ A loja guarda os infantis em "Contos infantis", FORA da árvore de
+  // Livros. Seguir a loja ao pé da letra os deixaria entre incenso e talismã, e
+  // ninguém procura livro infantil ali. Decisão da Sede: `Livros / Livros
+  // Infantis`.
+  if (tem(/contos?\s*infantis|infanto/i)) {
+    return { raiz: "Livros", assunto: "Livros Infantis", vitrineSoZinha: false };
+  }
+
+  // ⚠️ "Lançamentos" é PRATELEIRA DE VITRINE, não tipo: cabe livro e cabe
+  // pingente, e o produto sai de lá quando deixa de ser novidade. O que está
+  // SÓ nela não tem classificação de verdade na loja — vai para Artigos
+  // Religiosos, que é o destino de tudo que não é livro, mas SE ANUNCIA no
+  // relatório: são poucos, e alguém decide um a um em vez de o script chutar
+  // pelo título.
+  const semVitrine = categorias.filter((c) => !VITRINE.test(c.trim()));
+  const vitrineSoZinha = categorias.length > 0 && semVitrine.length === 0;
+
+  const eLivro = semVitrine.some((c) => /livro|book/i.test(c));
+  if (!eLivro) return { raiz: "Artigos Religiosos", assunto: null, vitrineSoZinha };
+
   // A subcategoria é a mais funda que NÃO é a palavra "Livros" em si.
-  const assunto = [...categorias].reverse().find((c) => !/^livros?$/i.test(c.trim()));
-  return { raiz: "Livros", assunto: assunto ?? null };
+  const assunto = [...semVitrine].reverse().find((c) => !/^livros?$/i.test(c.trim()));
+  return { raiz: "Livros", assunto: assunto ?? null, vitrineSoZinha: false };
 }
 
 // ─── Execução ────────────────────────────────────────────────────────────────
@@ -239,7 +293,7 @@ async function principal() {
   }
 
   const destino = postgres(DESTINO!, { prepare: false, max: 3 });
-  const relatorio = { lidos: produtos.length, gravados: 0, semNome: 0, semPreco: 0, teste: 0 };
+  const relatorio = { lidos: produtos.length, gravados: 0, semNome: 0, semPreco: 0, semEstoque: 0, teste: 0, semClassificacao: [] as string[] };
 
   try {
     const categorias = new Map<string, string>();
@@ -274,8 +328,12 @@ async function principal() {
         continue;
       }
       if (p.preco_centavos <= 0) relatorio.semPreco++;
+      if (!p.disponivel) relatorio.semEstoque++;
 
-      const { raiz, assunto } = classificar(p.categorias);
+      const { raiz, assunto, vitrineSoZinha } = classificar(p.categorias);
+      if (vitrineSoZinha) {
+        relatorio.semClassificacao.push(p.nome);
+      }
       const categoriaId = await categoriaDe(raiz, assunto);
 
       if (dryRun) {
@@ -286,6 +344,7 @@ async function principal() {
         console.log(
           `   ${raiz}${assunto ? ` / ${assunto}` : ""} · ${p.nome} · ` +
           `R$ ${(p.preco_centavos / 100).toFixed(2)}${p.codigo_barras ? ` · ${p.codigo_barras}` : ""}` +
+          `${p.disponivel ? "" : "  ⟨sem estoque⟩"}` +
           `   [loja: ${p.categorias.join(" > ") || "sem categoria"}]`
         );
         relatorio.gravados++;
@@ -296,9 +355,11 @@ async function principal() {
       // isto, a segunda execução dobraria o catálogo inteiro.
       await destino`
         insert into produtos (categoria_id, nome, codigo, codigo_barras,
-                              descricao_curta, descricao_longa, preco_capa_centavos, origem_url)
+                              descricao_curta, descricao_longa, preco_capa_centavos, origem_url,
+                              disponivel)
         values (${categoriaId}, ${p.nome}, ${p.codigo}, ${p.codigo_barras},
-                ${p.descricao_curta}, ${p.descricao_longa}, ${p.preco_centavos}, ${p.url})
+                ${p.descricao_curta}, ${p.descricao_longa}, ${p.preco_centavos}, ${p.url},
+                ${p.disponivel})
         on conflict (origem_url) do update set
           nome = excluded.nome,
           categoria_id = excluded.categoria_id,
@@ -306,6 +367,7 @@ async function principal() {
           descricao_curta = excluded.descricao_curta,
           descricao_longa = excluded.descricao_longa,
           preco_capa_centavos = excluded.preco_capa_centavos,
+          disponivel = excluded.disponivel,
           atualizado_em = now()`;
       relatorio.gravados++;
     }
@@ -316,7 +378,16 @@ async function principal() {
   console.log(`\n${dryRun ? "Ensaio" : "Gravado"}: ${relatorio.gravados} de ${relatorio.lidos} produtos.`);
   if (relatorio.semNome) console.log(`  ❌ ${relatorio.semNome} sem nome — não dá para cadastrar.`);
   if (relatorio.semPreco) console.log(`  ⚠️  ${relatorio.semPreco} sem preço, com zero — conferir na tela.`);
+  if (relatorio.semEstoque) console.log(`  ⟨⟩ ${relatorio.semEstoque} sem estoque na loja, no catálogo e marcados como tal.`);
   if (relatorio.teste) console.log(`  ⊘ ${relatorio.teste} produto(s) de teste da loja, ignorados.`);
+  if (relatorio.semClassificacao.length) {
+    console.log(
+      `  ⚠️  ${relatorio.semClassificacao.length} produto(s) só em prateleira de vitrine ` +
+      `("Lançamentos" e afins), sem classificação de verdade na loja. Ficaram em ` +
+      `Artigos Religiosos — confira um a um:`
+    );
+    for (const n of relatorio.semClassificacao) console.log(`       · ${n}`);
+  }
 }
 
 principal().catch((e) => {
