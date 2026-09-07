@@ -436,11 +436,26 @@ escrita "estado civil fora da lista é recusado" $SEDE \
 escrita "anexo de tipo desconhecido é recusado" $SEDE \
   "insert into pessoa_anexos (pessoa_id, tipo, caminho, nome_arquivo) values ('d0000000-0000-0000-0000-000000000005','selfie','x/y','y.jpg');" NEGADO
 
+echo "── Departamentos: um cadastro, duas palavras"
+# ⚠️ A Organização é um Departamento MARCADO como tal. Se a marca sumir, a tela
+# de Associação Local passa a oferecer "Departamento Jurídico" como opção.
+n_org=$(conta "select count(*) from organizacoes where e_organizacao;")
+[ "$n_org" -ge 4 ] || { echo "  ❌ esperava ao menos as 4 Organizações marcadas, veio $n_org"; falhas=$((falhas+1)); }
+n_dep=$(conta "select count(*) from organizacoes where not e_organizacao;")
+[ "$n_dep" -ge 14 ] || { echo "  ❌ esperava ao menos 14 Departamentos administrativos, veio $n_dep"; falhas=$((falhas+1)); }
+echo "  ✅ $n_org Organizações e $n_dep Departamentos no mesmo cadastro"
+escrita "Sede cria seção" $SEDE \
+  "insert into secoes (organizacao_id, nome) values ($ORG_PROSP,'Seção de Eventos');" OK
+escrita "coordenadora NÃO cria seção" $CSUL \
+  "insert into secoes (organizacao_id, nome) values ($ORG_PROSP,'Seção Paralela');" NEGADO
+escrita "duas seções com o mesmo nome no mesmo Departamento são recusadas" $SEDE \
+  "insert into secoes (organizacao_id, nome) values ($ORG_PROSP,'Repetida'),($ORG_PROSP,'Repetida');" NEGADO
+
 echo "── Superfície de GRANT"
 # Tabelas e visões que PODEM ser lidas ou escritas pelo navegador. Toda a
 # lista é decisão registrada: quem entrar aqui sem estar no arquivo da
 # migração reprova.
-PERMITIDAS="auditoria,configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,organizacoes,papeis,pessoa_funcao_atual,pessoa_funcao_hist,pessoa_unidade_vinculos,pessoa_vinculo_atual,pessoas,solicitacoes_exclusao,tipos_local,tipos_papel,tipos_unidade,unidades"
+PERMITIDAS="auditoria,configuracoes,consentimentos_lgpd,funcoes_doutrinarias,locais,organizacoes,papeis,pessoa_funcao_atual,pessoa_funcao_hist,pessoa_unidade_vinculos,pessoa_vinculo_atual,pessoas,secoes,solicitacoes_exclusao,tipos_local,tipos_papel,tipos_unidade,unidades"
 inesperadas=$(P -t -A <<SQL
 select string_agg(distinct table_name, ', ' order by table_name)
   from information_schema.role_table_grants

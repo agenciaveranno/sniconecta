@@ -112,13 +112,32 @@ export type VinculoAtualRow = {
   data_inicio: string;
 };
 
+/**
+ * Departamento da Sede Central — que, marcado, é também uma Organização
+ * doutrinária. Um cadastro só para os dois: ver decisão do arquivo
+ * `20260907090000_departamentos.sql`.
+ */
 export type OrganizacaoRow = {
   id: string;
   codigo: string | null;
   nome: string;
   nome_curto: string | null;
+  descricao: string | null;
+  /** Marcado: aparece na escolha da Associação Local. */
+  e_organizacao: boolean;
   ordem: number;
   ativo: boolean;
+};
+
+/** Subdivisão de um Departamento, com gestor próprio. */
+export type SecaoRow = {
+  id: string;
+  organizacao_id: string;
+  nome: string;
+  descricao: string | null;
+  ordem: number;
+  ativo: boolean;
+  criado_em: string;
 };
 
 /** Endereço já consultado. Cache e porta de entrada da base dos Correios. */
@@ -284,6 +303,7 @@ export interface Database {
       notificacoes: Tabela<NotificacaoRow>;
       ceps: Tabela<CepRow>;
       pessoa_anexos: Tabela<PessoaAnexoRow>;
+      secoes: Tabela<SecaoRow>;
     };
     Views: {
       pessoa_vinculo_atual: { Row: VinculoAtualRow; Relationships: [] };
