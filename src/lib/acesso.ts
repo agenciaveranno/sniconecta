@@ -1,6 +1,7 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { registrar } from "@/lib/auditoria";
+import { pessoaAtual } from "@/lib/auth";
 import { criarClienteServico } from "@/lib/supabase/service";
 import { exigir } from "@/lib/supabase/consulta";
 import { gerarSenha, validarSenha } from "@/lib/dominio/senha";
@@ -100,6 +101,17 @@ export async function sincronizarEmailDeLogin(
   pessoaId: string,
   emailNovo: string
 ): Promise<{ sincronizado: boolean; erro?: string }> {
+  // ⚠️ SEGUNDA TRAVA, e de propósito. A primeira está em `editarPessoa`, que
+  // recusa a escrita. Esta está aqui porque quem escrever o próximo chamador
+  // não vai lembrar da primeira: trocar o e-mail de quem tem conta é mudar por
+  // onde a pessoa ENTRA, e o Supabase tem endpoint público de recuperação —
+  // quem controla o endereço controla a conta. Isto é ato de `acesso.gerir`, a
+  // mesma capacidade que define senha, e não de quem apenas mantém cadastro.
+  const eu = await pessoaAtual();
+  if (!eu?.pode("acesso.gerir")) {
+    return { sincronizado: false, erro: "sem acesso.gerir para trocar o e-mail de login" };
+  }
+
   const servico = criarClienteServico();
 
   const pessoa = exigir(

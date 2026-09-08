@@ -409,6 +409,48 @@ escrita "papel com recorte SEM a Organização é recusado" $SEDE \
 escrita "papel SEM recorte COM Organização é recusado" $SEDE \
   "insert into papeis (pessoa_id, tipo, unidade_id, organizacao_id) select 'd0000000-0000-0000-0000-000000000005','coordenador','22220000-0000-0000-0000-000000000001', id from organizacoes where nome='Associação da Prosperidade';" NEGADO
 
+echo "── Visões: o RLS de baixo tem de valer em cima"
+# ⚠️ O harness conferia a SUPERFÍCIE de GRANT das visões e nunca o que se lê por
+# elas. `mandato_atual` foi criada sem `security_invoker` e executava com os
+# privilégios do dono — que é dono de `pessoas` e, sem `force row level
+# security`, isento do RLS dela. Qualquer autenticado lia o nome de todo
+# titular de cargo do país. É esta asserção que pega a próxima visão esquecida.
+# ⚠️ Um cargo que aceita unidade e não exige função doutrinária alta: o gatilho
+# de requisito recusaria a aluna num cargo de direção, e o teste falharia por um
+# motivo que não é o que ele quer provar.
+mandato_ok=$(P -t -A -c "insert into mandatos (pessoa_id, cargo, unidade_id, data_inicio)
+  select 'd0000000-0000-0000-0000-000000000005', c.codigo,
+         '33330000-0000-0000-0000-000000000001', current_date
+    from cargos c join colegiados col on col.codigo = c.colegiado
+   where col.ambito in ('associacao_local','regional') and c.funcao_minima is null
+   limit 1 returning 1;" 2>&1)
+leitura "a Sede lê o mandato pela visão" $SEDE \
+  "select count(*) from mandato_atual;" 1
+leitura "quem NÃO alcança a pessoa não lê o mandato dela pela visão" $CCAMP \
+  "select count(*) from mandato_atual;" 0
+
+echo "── Mover pessoa: os dois passos numa transação só"
+# ⚠️ Em dois comandos separados, o fecho do vínculo COMMITAVA e a abertura era
+# recusada: a pessoa ficava sem vínculo nenhum e sumia de toda tela que lista
+# por unidade — inclusive para quem acabou de movê-la.
+leitura "coordenadora move dentro do alcance dela" $CSUL \
+  "select public.mover_pessoa('d0000000-0000-0000-0000-000000000005','33330000-0000-0000-0000-000000000002');
+   select count(*) from pessoa_unidade_vinculos
+    where pessoa_id='d0000000-0000-0000-0000-000000000005'
+      and unidade_id='33330000-0000-0000-0000-000000000002' and data_fim is null;" 1
+escrita "mover para fora do alcance é recusado" $CSUL \
+  "select public.mover_pessoa('d0000000-0000-0000-0000-000000000005','33330000-0000-0000-0000-000000000003');" NEGADO
+# ⚠️ A prova da ATOMICIDADE, na MESMA transação: a recusa é engolida, e mesmo
+# assim o fecho do vínculo antigo não sobreviveu a ela. Em duas transações —
+# que é o que dois `await` do PostgREST são — o fecho ficaria de pé e a pessoa
+# terminaria sem vínculo nenhum.
+leitura "a recusa desfaz TAMBÉM o fecho do vínculo antigo" $CSUL \
+  "do \$\$ begin
+     perform public.mover_pessoa('d0000000-0000-0000-0000-000000000005','33330000-0000-0000-0000-000000000003');
+   exception when others then null; end \$\$;
+   select count(*) from pessoa_unidade_vinculos
+    where pessoa_id='d0000000-0000-0000-0000-000000000005' and data_fim is null;" 1
+
 echo "── Identidade (decisões 0002, 0004 e 0011)"
 escrita "CPF fora do formato é recusado" $SEDE \
   "insert into pessoas (cpf, nome) values ('123','X');" NEGADO

@@ -398,6 +398,17 @@ export interface Database {
         Args: { alvo: string };
         Returns: { unidade_id: string }[];
       };
+      /**
+       * Fecha o vínculo atual e abre o novo NA MESMA transação.
+       *
+       * ⚠️ Em dois comandos separados, a recusa do segundo pela RLS deixava a
+       * pessoa sem vínculo nenhum — e sem vínculo ela some de toda tela que
+       * lista por unidade, inclusive para quem acabou de movê-la.
+       */
+      mover_pessoa: {
+        Args: { p_pessoa: string; p_unidade: string };
+        Returns: undefined;
+      };
     };
     Enums: { [_ in never]: never };
     CompositeTypes: { [_ in never]: never };
