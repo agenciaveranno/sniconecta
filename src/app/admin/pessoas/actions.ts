@@ -194,12 +194,44 @@ export async function editarPessoa(formData: FormData) {
   const dados = schema.safeParse(Object.fromEntries(formData));
   if (!dados.success) falhar(dados.error.issues[0].message);
 
+  const supabase = await criarClienteServidor();
+
+  // ⚠️ O E-MAIL DE QUEM TEM CONTA É A CHAVE DA CONTA. Trocá-lo aqui e pedir
+  // "esqueci minha senha" no Supabase entrega a sessão alheia: a recuperação
+  // é um endpoint público, alcançável com a chave anônima que todo navegador
+  // tem, e o sistema aceita o token de `recovery` e leva a `/definir-senha`.
+  //
+  // Sem esta trava, quem tem `pessoa.gerir` — Coordenador, Presidente de UAP —
+  // tomava a conta de qualquer pessoa dentro do alcance dele, INCLUSIVE de
+  // quem responde pela Sede: `pessoas_atualiza` olha a unidade da pessoa
+  // alvo, nunca os papéis que ela carrega.
+  //
+  // ⚠️ E a recusa é da ESCRITA, não só da sincronia. Deixar o e-mail entrar em
+  // `pessoas` e apenas não sincronizar seria uma armadilha adiada:
+  // `definirSenhaDePessoa` empurra `pessoa.email` para o Auth na próxima
+  // redefinição de senha, e a conta migraria para o endereço do atacante pela
+  // mão de quem estivesse consertando o acesso.
+  if (dados.data.email !== undefined && !eu.pode("acesso.gerir")) {
+    const { data: alvo } = await supabase
+      .from("pessoas")
+      .select("email, auth_user_id")
+      .eq("id", id)
+      .maybeSingle();
+    const trocaDeVerdade =
+      alvo?.auth_user_id && (alvo.email ?? null) !== (dados.data.email ?? null);
+    if (trocaDeVerdade) {
+      falhar(
+        "Só quem administra acessos troca o e-mail de quem já tem login: " +
+        "é por ele que a pessoa entra no sistema."
+      );
+    }
+  }
+
   // ⚠️ `.select()` no update NÃO é enfeite: é como se sabe que alguma coisa foi
   // escrita. A RLS não recusa um update fora de alcance — ela o reduz a ZERO
   // linhas, sem erro nenhum. Sem esta conferência a tela dizia "Ficha salva."
   // com o banco intacto, e quem editava a própria ficha sem administrar
   // unidade nenhuma via isso em toda gravação.
-  const supabase = await criarClienteServidor();
   const { data: alteradas, error } = await supabase
     .from("pessoas")
     .update(dados.data)
@@ -248,16 +280,20 @@ export async function moverPessoa(formData: FormData) {
 
   const supabase = await criarClienteServidor();
 
-  const { error: erroFecha } = await supabase
-    .from("pessoa_unidade_vinculos")
-    .update({ data_fim: new Date().toISOString().slice(0, 10) })
-    .eq("pessoa_id", id)
-    .is("data_fim", null);
-  if (erroFecha) falhar(traduzirErro(erroFecha.message));
-
-  const { error } = await supabase
-    .from("pessoa_unidade_vinculos")
-    .insert({ pessoa_id: id, unidade_id: unidade });
+  // ⚠️ UMA transação, pela função do banco. Em dois comandos separados — que é
+  // o que dois `await` do PostgREST são — o fecho do vínculo antigo COMMITAVA e
+  // a abertura do novo era recusada quando a unidade escolhida ficava fora do
+  // alcance do operador. A pessoa terminava sem vínculo nenhum, e sem vínculo
+  // ela some de toda tela que lista por unidade: some inclusive para quem
+  // acabou de movê-la, junto com o botão de desfazer.
+  //
+  // E não era preciso forjar pedido: a lista de destino oferece todas as
+  // Associações Locais do país, porque `unidades` é legível por qualquer
+  // autenticado. Bastava escolher errado no menu.
+  const { error } = await supabase.rpc("mover_pessoa", {
+    p_pessoa: id,
+    p_unidade: unidade,
+  });
   if (error) falhar(traduzirErro(error.message));
 
   await registrar({

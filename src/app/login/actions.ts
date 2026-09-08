@@ -44,7 +44,16 @@ export async function entrar(formData: FormData) {
     return falhar("Credenciais inválidas.");
   }
 
-  redirect(voltar && voltar.startsWith("/") ? voltar : "/painel");
+  // ⚠️ `startsWith("/")` NÃO basta: "//evil.example" começa com barra e o
+  // navegador o resolve como endereço EXTERNO (protocolo relativo). O mesmo
+  // com "/\evil.example", porque o parser de URL trata a contrabarra como
+  // barra depois da primeira. Quem entrasse de verdade, pela tela de verdade,
+  // era entregue ao site do atacante logo depois — que é o momento em que uma
+  // página de "sua sessão expirou, entre de novo" convence qualquer um.
+  //
+  // A regra é: barra seguida de algo que não seja outra barra nem contrabarra.
+  // Aceita todo caminho que o proxy produz e recusa endereço de fora.
+  redirect(voltar && /^\/[^/\\]/.test(voltar) ? voltar : "/painel");
 }
 
 
