@@ -62,9 +62,17 @@ export const pessoaAtual = cache(async (): Promise<PessoaSessao | null> => {
   // ⚠️ `papeis.ativo` filtra as linhas EMBUTIDAS, sem `!inner`: quem não tem
   // papel nenhum continua sendo uma pessoa com sessão — com `!inner` ela
   // sumiria, e o sistema a trataria como quem nunca entrou.
+  //
+  // ⚠️ `!papeis_pessoa_id_fkey` NÃO é enfeite: `papeis` aponta DUAS VEZES para
+  // `pessoas` — `pessoa_id` (de quem é o papel) e `concedido_por` (quem o deu).
+  // Sem dizer qual, o PostgREST recusa a consulta inteira com "more than one
+  // relationship was found", e como esta função roda em TODA página do painel,
+  // o painel inteiro sai do ar. Foi o que aconteceu por cinco dias: nenhum
+  // teste fala PostgREST, então nem o typecheck, nem o vitest, nem o harness de
+  // RLS — que usa SQL puro — encostaram nisso.
   const busca = await supabase
     .from("pessoas")
-    .select("id, nome, email, papeis(tipo, unidade_id)")
+    .select("id, nome, email, papeis!papeis_pessoa_id_fkey(tipo, unidade_id)")
     .eq("auth_user_id", user.id)
     .eq("papeis.ativo", true)
     .maybeSingle();
