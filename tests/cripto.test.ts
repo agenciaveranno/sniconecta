@@ -42,11 +42,21 @@ describe("cifragem de credencial", () => {
     // É por isto que o modo é GCM e não CBC: quem consegue ESCREVER no banco
     // poderia trocar a senha cifrada por outra e redirecionar os envios.
     const { cifrar, decifrar } = await carregar();
-    const guardado = cifrar("original");
-    const partes = guardado.split(".");
-    // Vira o último caractere do texto cifrado.
-    const ultimo = partes[3].slice(-1) === "A" ? "B" : "A";
-    partes[3] = partes[3].slice(0, -1) + ultimo;
+    const partes = cifrar("original").split(".");
+    // ⚠️ A adulteração é feita nos BYTES, e não no texto base64url. Virar o
+    // último CARACTERE não adultera coisa alguma em 1 de cada 16 execuções:
+    // o corpo aqui tem 8 bytes = 64 bits, e 11 caracteres carregam 66 — os
+    // dois bits finais são descartados na decodificação. Quando o último
+    // caractere é "A", trocá-lo por "B" mexe só nesses bits: "…ZA" e "…ZB"
+    // decodificam para os MESMOS bytes, o GCM não vê violação nenhuma e
+    // `decifrar` devolve o texto original, com toda a razão. O teste então
+    // acusava o que era o comportamento correto.
+    //
+    // Era falha intermitente de CI — passou 64 execuções e derrubou a `main`
+    // na 65ª. Mexer no byte torna a adulteração real em 100% das vezes.
+    const bytes = Buffer.from(partes[3], "base64url");
+    bytes[0] ^= 0x01;
+    partes[3] = bytes.toString("base64url");
     expect(() => decifrar(partes.join("."))).toThrow();
   });
 
