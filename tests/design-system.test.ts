@@ -70,6 +70,50 @@ describe("componentes.css só acrescenta", () => {
   });
 });
 
+describe("o cadastro lê da esquerda", () => {
+  // Regras de `componentes.css` separadas em seletor e corpo, sem comentários.
+  const regras = nossas
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("}")
+    .map((bloco) => {
+      const [seletor, corpo] = bloco.split("{");
+      return { seletor: (seletor ?? "").trim(), corpo: (corpo ?? "").trim() };
+    })
+    .filter((r) => r.seletor && r.corpo);
+
+  const alcanca = (r: { seletor: string }, classe: string) =>
+    r.seletor.split(",").some((parte) => parte.trim().endsWith(classe));
+
+  it("o modal corta o alinhamento herdado de onde foi aberto", () => {
+    // ⚠️ O <dialog> nasce no ponto do gatilho, e o gatilho de editar mora na
+    // última célula da tabela, alinhada à direita (`Celula alinhar="right"`).
+    // `text-align` é herdado: sem este corte no topo do modal, o formulário
+    // inteiro sai à direita — título de seção, texto de apoio, erro.
+    const corta = regras.some(
+      (r) => alcanca(r, ".sni-modal") && /text-align:\s*left/.test(r.corpo)
+    );
+    expect(corta).toBe(true);
+  });
+
+  it("nenhuma regra desenha linha embaixo do rótulo", () => {
+    // ⚠️ A régua sob cada rótulo apareceu porque as declarações de alinhamento
+    // foram FUNDIDAS com a regra de `.sni-abas`, e o `border-bottom` das abas
+    // passou a valer para todo `.sni-label`. Rótulo não tem linha por baixo; a
+    // régua é das abas.
+    const comLinha = regras
+      .filter((r) => alcanca(r, ".sni-label") && /border(-bottom)?\s*:/.test(r.corpo))
+      .map((r) => r.seletor);
+    expect(comLinha).toEqual([]);
+  });
+
+  it("enxerga as regras que deveria", () => {
+    // Sem isto, um erro de leitura do arquivo faria as duas asserções acima
+    // passarem por lista vazia — e o defeito voltaria calado.
+    expect(regras.length).toBeGreaterThan(50);
+    expect(regras.some((r) => alcanca(r, ".sni-label"))).toBe(true);
+  });
+});
+
 describe("nomenclatura da instituição", () => {
   it("a forma com \"do Brasil\" em minúsculas não aparece em lugar nenhum", () => {
     // Regra da Sede: sempre que "do Brasil" acompanha o nome, o conjunto

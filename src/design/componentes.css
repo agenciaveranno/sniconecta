@@ -391,15 +391,27 @@ dialog.sni-modal::backdrop {
    rótulo fica acima de um controle que sozinho não diz do que ele é. */
 .sni-field-chave { gap: 0; }
 .sni-chave-linha { display: flex; align-items: center; gap: 12px; }
-.sni-chave-linha .sni-label { margin-bottom: 0; cursor: pointer; }
+.sni-chave-linha .sni-label { cursor: pointer; }
 
-/* ⚠️ Rótulo à ESQUERDA, sempre. Não havia `text-align: right` em lugar nenhum
-   do sistema e mesmo assim os rótulos apareciam à direita na tela de cadastro:
-   veio de herança, de fora daqui. Declarar explicitamente resolve na origem e
-   impede que a próxima herança faça o mesmo. */
-.sni-field,
+/* ⚠️ Cadastro lê da ESQUERDA, sempre — e o alinhamento NÃO vem de onde o modal
+   foi aberto. O <dialog> nasce no ponto do gatilho, e o gatilho de editar mora
+   na última célula da tabela, alinhada à direita (`Celula alinhar="right"`).
+   `text-align` é herdado: sem cortar a herança no topo do modal, o formulário
+   inteiro saía à direita — título de seção, texto de apoio, mensagem de erro.
+   O corte fica aqui, e não na tela que reclamou, para valer em todo cadastro.
+
+   ⚠️ Estas declarações estavam FUNDIDAS com a regra de `.sni-abas` abaixo: o
+   que era para alinhar rótulo acabou desenhando uma régua embaixo de cada um,
+   porque o `border-bottom` das abas caía em todo `.sni-label`. Rótulo não tem
+   linha por baixo; a régua é das abas. Também caíam ali `display: flex` e
+   `margin-bottom`, e era o flex que segurava o rótulo à esquerda enquanto o
+   resto do formulário já estava torto — consertar um sem o outro reabre o
+   problema na primeira tela. */
+.sni-modal,
 .sni-label,
-.sni-hint,
+.sni-grupo-campos-legenda,
+.sni-section-eyebrow { text-align: left; }
+
 .sni-abas {
   display: flex; gap: 4px; overflow-x: auto;
   border-bottom: 1px solid var(--line);
