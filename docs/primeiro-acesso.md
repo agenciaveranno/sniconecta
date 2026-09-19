@@ -10,6 +10,11 @@ cria a conta é o convite do Auth, e um gatilho amarra as duas pelo e-mail.
 
 ## Antes: o que precisa estar configurado
 
+Este arquivo trata do que vai DENTRO do projeto Vercel. Onde esse projeto fica,
+de que conta ele é e de que concessão ele depende para publicar está em
+`docs/publicacao.md` — inclusive o motivo de uma variável nova só valer depois
+de um redeploy, e de um redeploy depender da ligação com o GitHub estar viva.
+
 ### O caminho curto: a integração Supabase↔Vercel
 
 Em *Vercel → Settings → Integrations → Supabase → Manage*, ligar o projeto

@@ -32,7 +32,7 @@ supabase/migrations/     SQL puro, prefixo de data/hora, aplicado por CI.
 supabase/rascunhos/      esquemas em discussão, ainda não aplicados.
 scripts/                 migração MySQL → Postgres e apoio.
 tests/                   vitest.
-docs/                    decisões (ADR), design system, integração.
+docs/                    decisões (ADR), design system, publicação, integração.
 ```
 
 ## Identidade e autorização
@@ -134,6 +134,21 @@ Regras completas em `docs/design-system.md`. As que mais se erram:
 ## Antes de publicar
 
 `npm run typecheck && npm test && npm run build`. Só com tudo verde.
+
+## Depois de publicar
+
+**CI verde e PR fechado não são prova de que o código está no ar.** São três
+esteiras independentes: os testes e as migrações rodam no GitHub Actions, e a
+aplicação é publicada pela Vercel — que está em OUTRA conta (o repositório é
+de `viniveranno`, o projeto Vercel é de `agenciaveranno`). Quando a concessão
+do app Vercel a este repositório privado cai, o GitHub responde "não
+encontrado" e a publicação para sem avisar: merge acontece, deploy não nasce,
+e o site serve a versão anterior por tempo indeterminado.
+
+Quem faz merge confere se o deploy de produção existe com o SHA que acabou de
+entrar. O sinal mais cedo aparece antes do merge: PR sem o status de commit da
+Vercel é ligação caída. Endereços, receita de conferência e conserto em
+`docs/publicacao.md`.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

@@ -37,10 +37,23 @@ alcança RLS.
 
 ## Como as coisas chegam à produção
 
+Código em `github.com/viniveranno/sniconecta` (privado). Aplicação publicada
+pela Vercel, projeto `sniconecta` da conta `agenciaveranno`, servindo
+`sniconecta.com.br`.
+
 - **Aplicação:** merge em `main` → Vercel publica.
 - **Banco:** merge em `main` com arquivo novo em `supabase/migrations/` →
   GitHub Actions aplica (`.github/workflows/migrations.yml`). Ninguém roda SQL
   à mão.
+
+⚠️ O GitHub e a Vercel estão em **contas diferentes**: o repositório é de
+`viniveranno`, o projeto Vercel é de `agenciaveranno`. A publicação automática
+só acontece enquanto o app Vercel do GitHub alcançar este repositório — e,
+como ele é privado, quando essa concessão cai o GitHub responde "não
+encontrado" e a Vercel para de publicar **em silêncio**, com o CI verde e o PR
+fechado. Quem faz merge confere o deploy, não só o CI.
+`docs/publicacao.md` traz os endereços, como conferir em dois minutos e como
+consertar.
 
 ## Migração dos dados de eventos
 
@@ -53,3 +66,4 @@ no Supabase, em fases e de forma repetível. Roda na sua máquina ou por
 - `AGENTS.md` — regras do repositório, para pessoas e para agentes.
 - `docs/decisoes/` — por que as coisas são como são.
 - `docs/design-system.md` — a interface.
+- `docs/publicacao.md` — onde o código mora e por onde ele chega ao ar.
