@@ -10,9 +10,9 @@ fecha, e o site continua servindo a versão da semana passada. Já aconteceu
 
 | O quê | Onde | Conta |
 |---|---|---|
-| Código | `github.com/viniveranno/sniconecta` (**privado**) | GitHub, conta pessoal `viniveranno` |
+| Código | `github.com/agenciaveranno/sniconecta` (**privado**) | GitHub, conta `agenciaveranno` |
 | Testes e migrações | GitHub Actions, no mesmo repositório | idem |
-| Aplicação no ar | Vercel, projeto `sniconecta` | Vercel, equipe `agenciaverannos-projects`, plano Hobby |
+| Aplicação no ar | Vercel, projeto `sniconecta` | Vercel, conta `agenciaveranno`, plano Hobby |
 | Banco | Supabase (Postgres, São Paulo) | projeto Supabase de produção |
 
 Domínios que o projeto Vercel atende: `sniconecta.com.br`,
@@ -24,42 +24,43 @@ não credenciais**; aparecem na URL do painel:
 - projeto: `prj_vt728DnBBDu4km75n0H5cxW0qACa`
 - equipe: `team_U3AnDGn761fI8sIVAAfRxZbO`
 
-## ⚠️ O GitHub e a Vercel estão em contas DIFERENTES
+## ⚠️ O repositório precisa morar na conta que a Vercel enxerga
 
-O repositório é da conta **`viniveranno`**. O projeto Vercel é da conta
-**`agenciaveranno`**. Não são a mesma conta, e é daí que vem toda a fragilidade
-desta ligação: a Vercel não é dona do repositório, ela é uma convidada.
+A Vercel amarra **um login do GitHub por conta Vercel**. A lista de escopos
+que ela oferece é: o namespace pessoal desse login, mais as **organizações**
+de que ele participa. Namespace pessoal de outra conta **nunca** entra nessa
+lista — conta pessoal não é compartilhável como organização é, e não adianta
+instalar o app do Vercel lá.
 
-A Vercel só lê o código enquanto o **app Vercel do GitHub** estiver instalado
-na conta `viniveranno` **com o repositório `sniconecta` na lista de acesso**.
-E como o repositório é privado, quando essa concessão some o GitHub não
-responde "sem permissão": responde **"não encontrado"**. Para a Vercel, o
-repositório simplesmente deixou de existir — e ela não avisa ninguém.
-
-A concessão mora aqui, e é a única tela que diz a verdade sobre ela:
-
-**GitHub → Settings → Integrations → Applications → Vercel → Configure**
-(`https://github.com/settings/installations`, entrando com a conta
-`viniveranno`)
+Por isso os dois lados têm de ser a mesma conta, `agenciaveranno`, e é isso
+que faz a publicação automática funcionar. **Tirar o repositório dessa conta
+quebra a publicação na hora**, e quebra em silêncio (foi o que aconteceu em
+19/09). Se um dia for preciso tirá-lo de lá — para uma conta pessoal de outra
+pessoa, por exemplo, ou para tirar o sistema institucional de cima de uma
+conta pessoal —, o destino tem de ser uma **organização do GitHub** da qual
+`agenciaveranno` seja membro, e não outra conta pessoal. Organização é grátis;
+o que é pago é o Time na Vercel (recurso Pro), que seria a outra forma de ter
+um escopo de Git próprio.
 
 ## ⚠️ A tela de Git da Vercel NÃO prova que o acesso existe
 
 *Vercel → projeto → Settings → Git* mostra o vínculo **guardado**: o id do
 repositório e o nome que ele tinha. Ela continua desenhando "Connected
-`viniveranno/sniconecta`" depois que o acesso caiu, porque o que caiu foi a
-concessão do outro lado. Conferir aquela tela e concluir "está tudo certo" é o
-erro natural — foi exatamente o que aconteceu em 19/09.
+`conta/sniconecta`" depois que o acesso caiu, porque o que caiu foi a
+capacidade de ler o repositório, não o registro do vínculo. Conferir aquela
+tela e concluir "está tudo certo" é o erro natural — foi exatamente o que
+aconteceu em 19/09.
 
-Pior: a Vercel guarda o caminho **antigo** do repositório
-(`agenciaveranno/sniconecta`) nos metadados dos deploys já feitos e nos filtros
-da API. Quem consultar a API por `repoUrl` encontra o projeto pelo caminho
-velho e **não** encontra pelo caminho atual. Esse dado é histórico, não é o
-vínculo — não tire conclusão dele (foi o que me fez acusar o repositório
-errado antes de achar a causa real).
+Pior: quando o repositório muda de dono, a Vercel guarda o caminho **antigo**
+nos metadados dos deploys já feitos e nos filtros da API. Quem consultar a API
+por `repoUrl` encontra o projeto pelo caminho velho e **não** encontra pelo
+atual. Esse dado é histórico, não é o vínculo — não tire conclusão dele.
 
-O acesso só se prova **pedindo o código**: um *Redeploy*, ou um deploy pela
-API. Se a resposta for `incorrect_git_source_info — The provided GitHub
-repository can't be found`, a concessão caiu.
+Como o repositório é privado, quando a Vercel perde o acesso o GitHub não
+responde "sem permissão": responde **"não encontrado"**. O acesso só se prova
+**pedindo o código** — um *Redeploy*, ou um deploy pela API. Se a resposta for
+`incorrect_git_source_info — The provided GitHub repository can't be found`, o
+vínculo está morto.
 
 ## As três esteiras, e o que cada uma precisa
 
@@ -70,15 +71,17 @@ ar.
 
 **2. Migrações (`.github/workflows/migrations.yml`).** Aplica os arquivos de
 `supabase/migrations/` no merge para `main`. Ninguém roda SQL à mão. Depende
-dos segredos do repositório no GitHub, não da Vercel.
+dos segredos do repositório no GitHub, não da Vercel. ⚠️ Repositório que muda
+de dono leva os segredos junto, mas confira — migração que roda sem eles falha
+depois de já ter mexido no banco.
 
-**3. Aplicação (Vercel).** Publica sozinha a cada push na `main` — enquanto a
-concessão do app Vercel alcançar o repositório. É o elo que cai calado.
+**3. Aplicação (Vercel).** Publica sozinha a cada push na `main` — enquanto o
+repositório estiver na conta que a Vercel enxerga. É o elo que cai calado.
 
 As três são independentes. A migração pode ter sido aplicada no banco enquanto
-a aplicação que a usa continua sem publicar: é o cenário que quebra a
-produção sem ninguém ter mexido nela. Por isso, **quem faz merge confere o
-deploy**, não só o CI.
+a aplicação que a usa continua sem publicar: é o cenário que quebra a produção
+sem ninguém ter mexido nela. Por isso, **quem faz merge confere o deploy**,
+não só o CI.
 
 ## Conferir se a ligação está viva (dois minutos)
 
@@ -103,17 +106,21 @@ GET /v6/deployments?projectId=prj_vt728DnBBDu4km75n0H5cxW0qACa
 
 ## Quando a ligação cai — o conserto
 
-1. GitHub → `https://github.com/settings/installations` na conta
-   `viniveranno` → **Vercel** → *Configure* → incluir `sniconecta` na lista de
-   repositórios. Repositório privado precisa estar marcado explicitamente
-   quando a instalação é "Only select repositories".
-2. Vercel → projeto → *Deployments* → *Redeploy* no commit atual da `main`.
-   Um push novo também serve; deploy não nasce sozinho para o que já passou.
-3. Conferir pelos três pontos acima.
-
-Se depois disso a Vercel ainda recusar, o vínculo guardado está podre: em
-*Settings → Git*, *Disconnect* e reconectar apontando para
-`viniveranno/sniconecta`.
+1. **O repositório ainda é da conta `agenciaveranno`?** Se saiu de lá, essa é
+   a causa, e nenhum ajuste na Vercel resolve enquanto ele estiver fora (ver a
+   primeira seção). Devolvê-lo, ou movê-lo para uma organização de que a conta
+   participe, é o conserto.
+2. **Vercel → projeto → *Settings → Git*.** Se o vínculo estiver caído,
+   *Disconnect* e conectar de novo: escolher o escopo `agenciaveranno` e o
+   repositório `sniconecta`. ⚠️ Repositório que não aparece na lista é
+   repositório que a conta não enxerga — volte ao passo 1.
+3. **Deploy não nasce retroativo.** Depois de reconectar, *Deployments* →
+   *Redeploy* no commit atual da `main`, ou um push novo. Sem isso, o que foi
+   mergeado durante a queda continua fora do ar.
+4. Conferir pelos três pontos da seção anterior — inclusive o **status no
+   próximo PR**, que é o que prova que a Vercel voltou a ser avisada dos
+   pushes, e não só a conseguir ler o repositório. São duas coisas diferentes:
+   o *Redeploy* prova a leitura; só o push seguinte prova o aviso.
 
 ## O cron e as rotas de máquina
 
@@ -149,12 +156,22 @@ configuração inicial e do escopo Production das variáveis.
 Um PR de correção de interface entrou na `main` com o CI verde. O site
 continuou exibindo a versão de 12/09. Nada estava errado no código.
 
-O que se via: nenhum deploy criado para o commit novo; nenhum status da Vercel
-no PR (o PR de 12/09 tinha o seu); e a tela *Settings → Git* mostrando o
-repositório conectado, o que fez a ligação parecer sadia. Dois pedidos de
-deploy pela API — um nomeando o repositório, outro mandando a Vercel usar o
-vínculo dela mesma — receberam `The provided GitHub repository can't be
-found`.
+A causa: o repositório tinha saído da conta `agenciaveranno` para uma conta
+pessoal diferente. O app do Vercel foi instalado na conta nova, com acesso a
+todos os repositórios, e mesmo assim não adiantou — porque o que faltava não
+era permissão no GitHub, era a Vercel **enxergar aquele namespace**, e
+namespace de conta pessoal alheia ela não enxerga nunca. Reconectar não
+resolveu: na hora de escolher o repositório, ele simplesmente não aparecia na
+lista. Criar um Time na Vercel resolveria, mas é recurso pago.
+
+O que se via enquanto isso: nenhum deploy criado para o commit novo; nenhum
+status da Vercel no PR (o PR de 12/09 tinha o seu); e a tela *Settings → Git*
+mostrando o repositório conectado, o que fez a ligação parecer sadia. Os
+pedidos de deploy pela API — inclusive um mandando a Vercel usar o vínculo
+dela mesma — voltavam com `The provided GitHub repository can't be found`.
+
+O conserto foi devolver o repositório à conta `agenciaveranno` e reconectar.
+Duas mudanças tinham ficado represadas por sete dias.
 
 A lição que este arquivo guarda: **o CI verde e o merge fechado não são prova
 de publicação**, e a tela de vínculo da Vercel não é prova de acesso. A prova é
