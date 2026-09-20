@@ -79,3 +79,74 @@ export async function totalDeEventos(): Promise<number> {
   `;
   return linha?.total ?? 0;
 }
+
+/**
+ * Quem pode PROMOVER um evento.
+ *
+ * ⚠️ Só entidade que recebe em conta própria. O banco aceitaria qualquer
+ * Organização, unidade ou local, mas promotor é quem diz em que conta o
+ * dinheiro cai: oferecer uma Associação Local que não tem conta seria oferecer
+ * um evento que não vende. O catálogo já responde isso em `aceita_conta_cielo`,
+ * e é dele que a lista sai — não de uma lista escrita aqui, que envelheceria
+ * na primeira vez que a Sede mudasse o catálogo.
+ */
+export type OpcaoPromotor = { valor: string; nome: string; grupo: string };
+
+export async function opcoesDePromotor(): Promise<OpcaoPromotor[]> {
+  const sql = conexao();
+  const linhas = await sql<OpcaoPromotor[]>`
+    select 'organizacao:' || o.id as valor, o.nome, 'Departamentos' as grupo
+      from public.organizacoes o
+     where o.ativo
+    union all
+    select 'unidade:' || u.id, u.nome, 'Unidades'
+      from public.unidades u
+      join public.tipos_unidade tu on tu.codigo = u.tipo
+     where u.ativo and tu.aceita_conta_cielo
+    union all
+    select 'local:' || l.id, l.nome, 'Locais'
+      from public.locais l
+      join public.tipos_local tl on tl.codigo = l.tipo
+     where l.ativo and tl.aceita_conta_cielo
+    order by grupo, nome
+  `;
+  return linhas;
+}
+
+export type EventoParaEdicao = {
+  id: number;
+  nome: string;
+  data_inicial: string;
+  data_final: string;
+  local_id: string | null;
+  ativo: boolean;
+  /** No formato do seletor: "unidade:<uuid>". Vazio quando não há promotor. */
+  promotor: string;
+};
+
+export async function eventosParaEdicao(): Promise<EventoParaEdicao[]> {
+  const sql = conexao();
+  return sql<EventoParaEdicao[]>`
+    select
+      e.id, e.nome, e.data_inicial, e.data_final, e.local_id, e.ativo,
+      coalesce(
+        case when e.promotor_organizacao_id is not null
+             then 'organizacao:' || e.promotor_organizacao_id end,
+        case when e.promotor_unidade_id is not null
+             then 'unidade:' || e.promotor_unidade_id end,
+        case when e.promotor_local_id is not null
+             then 'local:' || e.promotor_local_id end,
+        ''
+      ) as promotor
+    from eventos.eventos e
+    order by e.data_inicial desc
+  `;
+}
+
+/** Os locais onde um evento pode acontecer — todos, próprios ou de terceiro. */
+export async function locaisAtivos(): Promise<{ id: string; nome: string }[]> {
+  const sql = conexao();
+  return sql<{ id: string; nome: string }[]>`
+    select id, nome from public.locais where ativo order by nome
+  `;
+}
