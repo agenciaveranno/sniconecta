@@ -553,3 +553,101 @@ export async function porFormaDePagamento(eventoId: number): Promise<LinhaPorPag
     order by count(*) desc
   `;
 }
+
+// ─── Estornos ────────────────────────────────────────────────────────────────
+
+export type EstornoNaFila = {
+  id: number;
+  evento_id: number;
+  evento: string;
+  pessoa_nome: string;
+  documento: string | null;
+  ingresso: string | null;
+  tipo_venda: string;
+  valor_original_centavos: number;
+  desconto_centavos: number;
+  status: "pendente" | "pago" | "cancelado" | "expirado" | "transferido";
+  estorno_status: "pendente" | "feito" | "recusado" | null;
+  cancelamento_motivo: string | null;
+  cancelado_legivel: string | null;
+  /** O que já foi registrado sobre a devolução, no formato que a carga trouxe. */
+  estorno: {
+    valor_centavos?: number | null;
+    forma?: string | null;
+    efetuado_em?: string | null;
+    efetuado_por?: string | null;
+    comprovante?: string | null;
+    observacao?: string | null;
+  } | null;
+};
+
+/**
+ * A fila da tesouraria: cancelamentos que devem dinheiro a alguém.
+ *
+ * ⚠️ Só `estorno_status = 'pendente'`. Feito e recusado saem da fila — uma
+ * fila que guarda o que já foi resolvido deixa de ser fila e vira histórico,
+ * e quem abre para trabalhar não sabe onde parou.
+ */
+export async function estornosPendentes(): Promise<EstornoNaFila[]> {
+  const sql = conexao();
+  return sql<EstornoNaFila[]>`
+    select
+      i.id, i.evento_id, e.nome as evento,
+      p.nome as pessoa_nome, coalesce(p.cpf, p.passaporte) as documento,
+      t.nome as ingresso, i.tipo_venda,
+      i.valor_original_centavos, i.desconto_centavos,
+      i.status, i.estorno_status, i.cancelamento_motivo,
+      to_char(i.cancelado_em at time zone ${FUSO}, 'DD/MM/YYYY HH24:MI') as cancelado_legivel,
+      i.estorno
+    from eventos.inscricoes i
+    join eventos.eventos e on e.id = i.evento_id
+    join public.pessoas p on p.id = i.pessoa_id
+    left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
+    where i.estorno_status = 'pendente'
+    order by i.cancelado_em nulls last, i.id
+  `;
+}
+
+export type InscricaoParaCancelarNoBanco = {
+  id: number;
+  evento_id: number;
+  evento: string;
+  pessoa_nome: string;
+  documento: string | null;
+  ingresso: string | null;
+  status: "pendente" | "pago" | "cancelado" | "expirado" | "transferido";
+  tipo_venda: string;
+  valor_original_centavos: number;
+  desconto_centavos: number;
+  checkin_em: string | null;
+  estorno_status: "pendente" | "feito" | "recusado" | null;
+};
+
+/**
+ * As inscrições de uma pessoa, em todos os eventos, para quem vai cancelar.
+ *
+ * ⚠️ Todos os eventos, e não um só: quem pede cancelamento no balcão diz o
+ * nome, não o evento. Obrigar a escolher o evento antes faria o operador
+ * adivinhar em qual deles a pessoa se inscreveu.
+ */
+export async function inscricoesParaCancelar(termo: string): Promise<InscricaoParaCancelarNoBanco[]> {
+  const sql = conexao();
+  const digitos = termo.replace(/\D/g, "");
+  const documento = termo.trim().toUpperCase();
+  return sql<InscricaoParaCancelarNoBanco[]>`
+    select
+      i.id, i.evento_id, e.nome as evento,
+      p.nome as pessoa_nome, coalesce(p.cpf, p.passaporte) as documento,
+      t.nome as ingresso, i.status, i.tipo_venda,
+      i.valor_original_centavos, i.desconto_centavos, i.checkin_em, i.estorno_status
+    from eventos.inscricoes i
+    join eventos.eventos e on e.id = i.evento_id
+    join public.pessoas p on p.id = i.pessoa_id
+    left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
+    where (${digitos} <> '' and p.cpf = ${digitos})
+       or p.passaporte = ${documento}
+       or p.nome ilike ${"%" + termo.trim() + "%"}
+    order by e.data_inicial desc, p.nome, t.nome
+    limit 50
+  `;
+}
