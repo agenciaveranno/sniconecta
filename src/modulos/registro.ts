@@ -47,7 +47,7 @@ export const MODULOS: Modulo[] = [
       { href: "/eventos/pessoas", rotulo: "Pessoas", icone: "IconUsers", capacidade: "eventos.inscricoes.ver" },
       { href: "/eventos/venda", rotulo: "Venda balcão", icone: "IconShoppingCart", capacidade: "eventos.vender", pronto: true },
       { href: "/eventos/checkin", rotulo: "Check-in", icone: "IconCircleCheck", capacidade: "eventos.checkin", pronto: true },
-      { href: "/eventos/relatorios", rotulo: "Relatórios", icone: "IconChartBar", capacidade: "eventos.inscricoes.ver" },
+      { href: "/eventos/relatorios", rotulo: "Relatórios", icone: "IconChartBar", capacidade: "eventos.inscricoes.ver", pronto: true },
       { href: "/eventos/estornos", rotulo: "Estornos", icone: "IconReceiptRefund", capacidade: "eventos.estornos.gerir" },
       { href: "/eventos/admin", rotulo: "Eventos e convites", icone: "IconCalendarEvent", capacidade: "eventos.gerir", pronto: true },
       { href: "/eventos/configuracoes", rotulo: "Configurações", icone: "IconSettings", capacidade: "eventos.configurar" },
