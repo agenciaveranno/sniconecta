@@ -5,6 +5,9 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { exigirCapacidade } from "@/lib/auth";
 import { guardarCieloDoFormulario } from "@/lib/credenciais";
+import {
+  adicionarChavePix, alternarConta, criarConta, editarConta, removerChavePix,
+} from "@/lib/contas";
 import { somenteDigitosCep } from "@/lib/dominio/endereco-formato";
 import { cnpjValido, somenteDigitos } from "@/lib/dominio/cnpj";
 import { criarClienteServidor } from "@/lib/supabase/server";
@@ -246,4 +249,140 @@ export async function alternarAtivo(formData: FormData) {
   if (error) falhar(traduzirErro(error.message));
 
   revalidatePath(ROTA);
+}
+
+// ─── Contas bancárias, chaves Pix ───────────────────────────────────────────
+//
+// ⚠️ A capacidade destas ações é `configuracao.gerir`, e não `estrutura.gerir`:
+// quem cadastra a estrutura da instituição não necessariamente manda em por
+// onde o dinheiro dela entra. É a mesma separação da conta Cielo.
+
+const schemaConta = z.object({
+  apelido: z.string().trim().min(2, "Dê um apelido à conta — é por ele que ela aparece nas listas."),
+  // ⚠️ Três dígitos, completando com zero à esquerda: quem digita "1" para o
+  // Banco do Brasil está certo na intenção e errado no formato, e recusar
+  // obrigaria a adivinhar a regra. Todo arquivo bancário do país espera "001".
+  banco_codigo: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => {
+      const digitos = (v ?? "").replace(/\D/g, "");
+      return digitos ? digitos.slice(-3).padStart(3, "0") : null;
+    }),
+  banco_nome: z.string().trim().optional().transform((v) => v || null),
+  agencia: z.string().trim().optional().transform((v) => v || null),
+  agencia_dv: z.string().trim().optional().transform((v) => v || null),
+  conta: z.string().trim().optional().transform((v) => v || null),
+  conta_dv: z.string().trim().optional().transform((v) => v || null),
+  tipo: z.enum(["corrente", "poupanca", "pagamento"]).default("corrente"),
+  titular: z.string().trim().optional().transform((v) => v || null),
+  // O banco exige alfanumérico em caixa alta, de 11 a 14 — CPF, CNPJ e o CNPJ
+  // alfanumérico novo da Receita. A máscara que a pessoa digita some aqui.
+  titular_documento: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ?? "").toUpperCase().replace(/[^0-9A-Z]/g, "") || null)
+    .refine(
+      (v) => v === null || /^[0-9A-Z]{11,14}$/.test(v),
+      "O documento do titular deve ser um CPF ou CNPJ."
+    ),
+  observacoes: z.string().trim().optional().transform((v) => v || null),
+});
+
+/** Para onde a tela volta depois de mexer em conta: a aba de Pagamento. */
+function voltaPagamento(unidadeId: string): string {
+  return rotaDaUnidade(unidadeId, "pagamento");
+}
+
+export async function criarContaBancaria(formData: FormData) {
+  await exigirCapacidade("configuracao.gerir");
+
+  const unidade = String(formData.get("unidade") ?? "");
+  if (!unidade) falhar("Unidade não informada.");
+  const volta = voltaPagamento(unidade);
+
+  const dados = schemaConta.safeParse(Object.fromEntries(formData));
+  if (!dados.success) falhar(dados.error.issues[0].message, volta);
+
+  const r = await criarConta(unidade, dados.data);
+  if (!r.ok) falhar(r.erro, volta);
+
+  revalidatePath(volta);
+  redirect(`${volta}&ok=${encodeURIComponent("Conta cadastrada.")}`);
+}
+
+export async function editarContaBancaria(formData: FormData) {
+  await exigirCapacidade("configuracao.gerir");
+
+  const unidade = String(formData.get("unidade") ?? "");
+  const id = String(formData.get("id") ?? "");
+  if (!unidade || !id) falhar("Conta não informada.");
+  const volta = voltaPagamento(unidade);
+
+  const dados = schemaConta.safeParse(Object.fromEntries(formData));
+  if (!dados.success) falhar(dados.error.issues[0].message, volta);
+
+  const r = await editarConta(id, dados.data);
+  if (!r.ok) falhar(r.erro, volta);
+
+  revalidatePath(volta);
+  redirect(`${volta}&ok=${encodeURIComponent("Conta salva.")}`);
+}
+
+export async function alternarContaBancaria(formData: FormData) {
+  await exigirCapacidade("configuracao.gerir");
+
+  const unidade = String(formData.get("unidade") ?? "");
+  const id = String(formData.get("id") ?? "");
+  const ativo = formData.get("ativo") === "true";
+  if (!unidade || !id) falhar("Conta não informada.");
+  const volta = voltaPagamento(unidade);
+
+  const r = await alternarConta(id, ativo);
+  if (!r.ok) falhar(r.erro, volta);
+
+  revalidatePath(volta);
+  redirect(`${volta}&ok=${encodeURIComponent(ativo ? "Conta desativada." : "Conta reativada.")}`);
+}
+
+export async function adicionarPix(formData: FormData) {
+  await exigirCapacidade("configuracao.gerir");
+
+  const unidade = String(formData.get("unidade") ?? "");
+  const conta = String(formData.get("conta") ?? "");
+  const chave = String(formData.get("pix_chave") ?? "").trim();
+  if (!unidade || !conta) falhar("Conta não informada.");
+  const volta = voltaPagamento(unidade);
+  if (!chave) falhar("Informe a chave Pix.", volta);
+
+  // O tipo vem de um <select> nosso, mas quem envia formulário é o navegador
+  // de quem quiser: validar aqui é o que impede um tipo inventado de chegar ao
+  // banco e ser recusado com uma mensagem que fala de `check constraint`.
+  const tipo = z
+    .enum(["cpf", "cnpj", "email", "telefone", "aleatoria"])
+    .safeParse(formData.get("pix_tipo"));
+  if (!tipo.success) falhar("Escolha o tipo da chave Pix.", volta);
+
+  const r = await adicionarChavePix(conta, tipo.data, chave);
+  if (!r.ok) falhar(r.erro, volta);
+
+  revalidatePath(volta);
+  redirect(`${volta}&ok=${encodeURIComponent("Chave Pix cadastrada.")}`);
+}
+
+export async function removerPix(formData: FormData) {
+  await exigirCapacidade("configuracao.gerir");
+
+  const unidade = String(formData.get("unidade") ?? "");
+  const id = String(formData.get("pix") ?? "");
+  if (!unidade || !id) falhar("Chave não informada.");
+  const volta = voltaPagamento(unidade);
+
+  const r = await removerChavePix(id);
+  if (!r.ok) falhar(r.erro, volta);
+
+  revalidatePath(volta);
+  redirect(`${volta}&ok=${encodeURIComponent("Chave Pix removida.")}`);
 }
