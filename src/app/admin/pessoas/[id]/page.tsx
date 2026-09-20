@@ -108,7 +108,7 @@ export default async function FichaPessoaPage({
               titulo="Anexar documento"
               descricao="Imagem (JPG, PNG, WEBP, HEIC) ou PDF, até 10 MB."
             />
-            <form action={anexarDocumento}>
+            <form action={anexarDocumento} className="sni-form">
               <input type="hidden" name="pessoa_id" value={id} />
               <div className="form-grid">
                 <Campo label="Tipo" obrigatorio>
@@ -199,7 +199,7 @@ export default async function FichaPessoaPage({
           </div>
         </>
       ) : (
-        <form action={editarPessoa}>
+        <form action={editarPessoa} className="sni-form">
           <CamposPessoa pessoa={pessoa} />
           <GrupoCampos titulo="Endereço gravado">
             <p className="hint">

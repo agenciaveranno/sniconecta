@@ -170,7 +170,7 @@ export default async function MinhaContaPage({
           A senha atual é pedida porque a sessão pode estar aberta num computador
           emprestado. Sem ela, quem passasse por uma tela destrancada tomaria a conta.
         </p>
-        <form action={trocarMinhaSenha} style={{ display: "grid", gap: 16, maxWidth: 420 }}>
+        <form action={trocarMinhaSenha} className="sni-form sni-form-estreito">
           <Campo label="Senha atual" obrigatorio>
             <Input name="atual" type="password" autoComplete="current-password" required />
           </Campo>

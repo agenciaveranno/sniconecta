@@ -49,7 +49,7 @@ export default async function DefinirSenhaPage({
 
         <Recado erro={erro} />
 
-        <form action={definirPrimeiraSenha} style={{ display: "grid", gap: 16 }}>
+        <form action={definirPrimeiraSenha} className="sni-form">
           <Campo label="Senha" obrigatorio dica="Ao menos 8 caracteres. Não pode ser seu CPF nem seu CodSNI.">
             <Input name="nova" type="password" autoComplete="new-password" minLength={8} required autoFocus />
           </Campo>

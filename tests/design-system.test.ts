@@ -114,6 +114,37 @@ describe("o cadastro lê da esquerda", () => {
   });
 });
 
+describe("o formulário tem um ritmo só", () => {
+  it("o corpo do modal e o formulário de página declaram o mesmo vão", () => {
+    // ⚠️ 16px é o vão do `.form-grid` do design system. Empilhado tem de medir
+    // o mesmo que lado a lado, senão o formulário lê como duas grades. Sem esta
+    // declaração os blocos se encostam: só quem está dentro de um `.form-grid`
+    // respira, e o rótulo de um bloco nasce colado no campo do bloco anterior.
+    const regra = nossas
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("}")
+      .map((b) => ({ seletor: (b.split("{")[0] ?? "").trim(), corpo: (b.split("{")[1] ?? "").trim() }))
+      .find((r) => r.seletor.includes(".sni-modal-body") && r.seletor.includes(".sni-form"));
+
+    expect(regra).toBeDefined();
+    expect(regra!.corpo).toMatch(/display:\s*grid/);
+    expect(regra!.corpo).toMatch(/gap:\s*16px/);
+  });
+
+  it("nenhuma tela monta o layout do formulário por style inline", () => {
+    // ⚠️ Quatro telas declaravam `display: grid; gap: 16` no próprio <form>,
+    // cada uma por conta própria — a mesma dívida em quatro cópias, e a que
+    // esquecesse ficava com os campos grudados. O espaçamento é do sistema.
+    const culpados: string[] = [];
+    for (const a of globSync("src/**/*.tsx")) {
+      for (const [i, linha] of readFileSync(a, "utf-8").split("\n").entries()) {
+        if (/<form\b[^>]*\bstyle=\{\{/.test(linha)) culpados.push(`${a}:${i + 1}`);
+      }
+    }
+    expect(culpados).toEqual([]);
+  });
+});
+
 describe("nomenclatura da instituição", () => {
   it("a forma com \"do Brasil\" em minúsculas não aparece em lugar nenhum", () => {
     // Regra da Sede: sempre que "do Brasil" acompanha o nome, o conjunto
