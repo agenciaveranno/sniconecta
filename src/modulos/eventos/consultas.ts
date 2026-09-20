@@ -1,5 +1,6 @@
 import "server-only";
 import { conexao } from "@/lib/db";
+import { prepararBusca } from "@/lib/dominio/busca-pessoa";
 
 /**
  * Leituras do módulo `eventos`.
@@ -326,14 +327,14 @@ export type PessoaDoBalcao = {
  */
 export async function procurarPessoaNoBalcao(termo: string): Promise<PessoaDoBalcao[]> {
   const sql = conexao();
-  const digitos = termo.replace(/\D/g, "");
-  const documento = termo.trim().toUpperCase();
+  const busca = prepararBusca(termo);
+  if (!busca) return [];
   return sql<PessoaDoBalcao[]>`
     select id, nome, cpf, passaporte, email
       from public.pessoas
-     where (${digitos} <> '' and cpf = ${digitos})
-        or passaporte = ${documento}
-        or nome ilike ${"%" + termo.trim() + "%"}
+     where (${busca.digitos} <> '' and cpf = ${busca.digitos})
+        or passaporte = ${busca.documento}
+        or nome ilike ${busca.comoNome} escape '\\' 
      order by nome
      limit 20
   `;
@@ -395,8 +396,8 @@ export async function inscricoesNaPorta(
   termo: string
 ): Promise<InscricaoNaPorta[]> {
   const sql = conexao();
-  const digitos = termo.replace(/\D/g, "");
-  const documento = termo.trim().toUpperCase();
+  const busca = prepararBusca(termo);
+  if (!busca) return [];
   return sql<InscricaoNaPorta[]>`
     select
       i.id,
@@ -413,9 +414,9 @@ export async function inscricoesNaPorta(
     left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
     where i.evento_id = ${eventoId}
       and (
-        (${digitos} <> '' and p.cpf = ${digitos})
-        or p.passaporte = ${documento}
-        or p.nome ilike ${"%" + termo.trim() + "%"}
+        (${busca.digitos} <> '' and p.cpf = ${busca.digitos})
+        or p.passaporte = ${busca.documento}
+        or p.nome ilike ${busca.comoNome} escape '\\' 
       )
     order by p.nome, t.nome
     limit 50
@@ -632,8 +633,8 @@ export type InscricaoParaCancelarNoBanco = {
  */
 export async function inscricoesParaCancelar(termo: string): Promise<InscricaoParaCancelarNoBanco[]> {
   const sql = conexao();
-  const digitos = termo.replace(/\D/g, "");
-  const documento = termo.trim().toUpperCase();
+  const busca = prepararBusca(termo);
+  if (!busca) return [];
   return sql<InscricaoParaCancelarNoBanco[]>`
     select
       i.id, i.evento_id, e.nome as evento,
@@ -644,9 +645,9 @@ export async function inscricoesParaCancelar(termo: string): Promise<InscricaoPa
     join eventos.eventos e on e.id = i.evento_id
     join public.pessoas p on p.id = i.pessoa_id
     left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
-    where (${digitos} <> '' and p.cpf = ${digitos})
-       or p.passaporte = ${documento}
-       or p.nome ilike ${"%" + termo.trim() + "%"}
+    where (${busca.digitos} <> '' and p.cpf = ${busca.digitos})
+       or p.passaporte = ${busca.documento}
+       or p.nome ilike ${busca.comoNome} escape '\\' 
     order by e.data_inicial desc, p.nome, t.nome
     limit 50
   `;
@@ -779,17 +780,17 @@ export type PessoaComInscricoes = PessoaDoBalcao & { inscricoes: number };
  */
 export async function procurarParticipante(termo: string): Promise<PessoaComInscricoes[]> {
   const sql = conexao();
-  const digitos = termo.replace(/\D/g, "");
-  const documento = termo.trim().toUpperCase();
+  const busca = prepararBusca(termo);
+  if (!busca) return [];
   return sql<PessoaComInscricoes[]>`
     select
       p.id, p.nome, p.cpf, p.passaporte, p.email,
       count(i.id)::int as inscricoes
     from public.pessoas p
     left join eventos.inscricoes i on i.pessoa_id = p.id
-    where (${digitos} <> '' and p.cpf = ${digitos})
-       or p.passaporte = ${documento}
-       or p.nome ilike ${"%" + termo.trim() + "%"}
+    where (${busca.digitos} <> '' and p.cpf = ${busca.digitos})
+       or p.passaporte = ${busca.documento}
+       or p.nome ilike ${busca.comoNome} escape '\\' 
     group by p.id
     order by count(i.id) desc, p.nome
     limit 30
