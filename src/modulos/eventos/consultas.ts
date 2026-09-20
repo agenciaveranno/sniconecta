@@ -364,3 +364,75 @@ export async function eventosParaVenda(): Promise<
     order by e.data_inicial desc
   `;
 }
+
+// ─── Check-in ────────────────────────────────────────────────────────────────
+
+export type InscricaoNaPorta = {
+  id: number;
+  pessoa_id: string;
+  pessoa_nome: string;
+  documento: string | null;
+  ingresso: string | null;
+  status: "pendente" | "pago" | "cancelado" | "expirado" | "transferido";
+  tipo_venda: string;
+  /** ISO cru, para a regra de domínio decidir. */
+  checkin_em: string | null;
+  /** Já formatado no fuso de Brasília, para a tela não refazer a conta. */
+  checkin_legivel: string | null;
+};
+
+/**
+ * As inscrições de um evento para quem está na porta, achadas por documento ou
+ * nome.
+ *
+ * ⚠️ Traz TODAS as situações, inclusive cancelada e pendente. Filtrar só as
+ * pagas faria a porta dizer "não encontrei" para quem tem inscrição pendente —
+ * e a pessoa iria embora achando que nunca se inscreveu, quando o certo é
+ * mandá-la ao balcão pagar.
+ */
+export async function inscricoesNaPorta(
+  eventoId: number,
+  termo: string
+): Promise<InscricaoNaPorta[]> {
+  const sql = conexao();
+  const digitos = termo.replace(/\D/g, "");
+  const documento = termo.trim().toUpperCase();
+  return sql<InscricaoNaPorta[]>`
+    select
+      i.id,
+      i.pessoa_id,
+      p.nome as pessoa_nome,
+      coalesce(p.cpf, p.passaporte) as documento,
+      t.nome as ingresso,
+      i.status,
+      i.tipo_venda,
+      i.checkin_em,
+      to_char(i.checkin_em at time zone ${FUSO}, 'DD/MM/YYYY HH24:MI') as checkin_legivel
+    from eventos.inscricoes i
+    join public.pessoas p on p.id = i.pessoa_id
+    left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
+    where i.evento_id = ${eventoId}
+      and (
+        (${digitos} <> '' and p.cpf = ${digitos})
+        or p.passaporte = ${documento}
+        or p.nome ilike ${"%" + termo.trim() + "%"}
+      )
+    order by p.nome, t.nome
+    limit 50
+  `;
+}
+
+/** Quantos já entraram, para a porta saber o tamanho do salão sem abrir relatório. */
+export async function contagemDaPorta(
+  eventoId: number
+): Promise<{ entraram: number; esperados: number }> {
+  const sql = conexao();
+  const [linha] = await sql<{ entraram: number; esperados: number }[]>`
+    select
+      count(*) filter (where checkin_em is not null)::int as entraram,
+      count(*) filter (where status = 'pago')::int        as esperados
+    from eventos.inscricoes
+    where evento_id = ${eventoId}
+  `;
+  return linha ?? { entraram: 0, esperados: 0 };
+}
