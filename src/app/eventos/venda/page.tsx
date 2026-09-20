@@ -233,6 +233,17 @@ export default async function VendaPage({
                     })}
                   </Tabela>
 
+                  {/* ⚠️ O cupom é conferido no SERVIDOR, dentro da mesma
+                      transação do estoque: os limites de uso são disputados do
+                      mesmo jeito, e duas vendas simultâneas com o último uso
+                      leriam as duas "resta 1" se a conta ficasse na tela. */}
+                  <Campo
+                    label="Cupom"
+                    dica="Opcional. Não distingue maiúscula de minúscula."
+                  >
+                    <Input name="cupom" maxLength={40} placeholder="VERAO10" />
+                  </Campo>
+
                   <Campo label="Forma de pagamento" obrigatorio>
                     <Select name="forma" defaultValue="dinheiro" required>
                       {FORMAS_BALCAO.map((f) => (

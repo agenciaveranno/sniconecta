@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { IconId, IconPlus, IconTicket } from "@tabler/icons-react";
+import { IconDiscount2, IconId, IconPlus, IconTicket } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
@@ -9,14 +9,18 @@ import {
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { formatarCentavos } from "@/lib/dominio/dinheiro";
 import { porQueNaoVende } from "@/lib/dominio/ingressos";
+import { descreverCupom } from "@/lib/dominio/cupom";
 import {
-  eventoDaPagina, locaisAtivos, opcoesDePromotor, tiposDeIngresso,
+  cuponsDoEvento, eventoDaPagina, locaisAtivos, opcoesDePromotor,
+  tiposDeIngresso, tiposParaCupom,
 } from "@/modulos/eventos/consultas";
 import {
-  alternarTipoIngressoAtivo, criarTipoIngresso, editarEvento, editarTipoIngresso,
+  alternarCupomAtivo, alternarTipoIngressoAtivo, criarCupom, criarTipoIngresso,
+  editarCupom, editarEvento, editarTipoIngresso,
 } from "@/modulos/eventos/acoes";
 import CamposEvento from "../CamposEvento";
 import CamposIngresso from "../CamposIngresso";
+import CamposCupom from "../CamposCupom";
 
 /**
  * O evento por dentro (decisão 0020).
@@ -53,11 +57,13 @@ export default async function EventoPage({
   if (!Number.isInteger(eventoId) || eventoId <= 0) notFound();
 
   // As quatro juntas: nenhuma depende do resultado das outras.
-  const [evento, tipos, locais, promotores] = await Promise.all([
+  const [evento, tipos, locais, promotores, cupons, tiposDoCupom] = await Promise.all([
     eventoDaPagina(eventoId),
     tiposDeIngresso(eventoId),
     locaisAtivos(),
     opcoesDePromotor(),
+    cuponsDoEvento(eventoId),
+    tiposParaCupom(eventoId),
   ]);
 
   if (!evento) notFound();
@@ -95,6 +101,13 @@ export default async function EventoPage({
             href: `${base}?aba=ingressos`,
             contagem: tipos.length,
             icone: <IconTicket size={17} className="ti" />,
+          },
+          {
+            chave: "cupons",
+            rotulo: "Cupons",
+            href: `${base}?aba=cupons`,
+            contagem: cupons.length,
+            icone: <IconDiscount2 size={17} className="ti" />,
           },
         ]}
       />
@@ -202,6 +215,87 @@ export default async function EventoPage({
                         <input type="hidden" name="ativo" value={String(t.ativo)} />
                         <button type="submit" className="sni-acao">
                           {t.ativo ? "Desativar" : "Reativar"}
+                        </button>
+                      </form>
+                    </span>
+                  </Celula>
+                </Linha>
+              ))}
+            </Tabela>
+          )}
+        </>
+      )}
+
+      {aba === "cupons" && (
+        <>
+          <TituloSecao
+            acao={
+              <ModalCadastro
+                rotulo="Novo cupom"
+                icone={<IconPlus size={18} className="ti" />}
+                titulo="Novo cupom"
+                acao={criarCupom}
+                rotuloConfirmar="Cadastrar"
+                largura="lg"
+              >
+                <CamposCupom eventoId={eventoId} tipos={tiposDoCupom} />
+              </ModalCadastro>
+            }
+          >
+            Cupons de desconto
+          </TituloSecao>
+
+          {cupons.length === 0 ? (
+            <Vazio icone={<IconDiscount2 size={34} className="ti" />} titulo="Nenhum cupom">
+              Cupom desconta na venda balcão e, quando o checkout público
+              entrar, também nele. Preso a um ingresso, desconta só ele.
+            </Vazio>
+          ) : (
+            <Tabela cabecalho={["Código", "Desconto", "Vale para", "Usos", "Situação", ""]}>
+              {cupons.map((c) => (
+                <Linha key={c.id}>
+                  <Celula forte>
+                    <span className="num">{c.codigo}</span>
+                    {c.descricao && (
+                      <>
+                        <br />
+                        <span className="hint">{c.descricao}</span>
+                      </>
+                    )}
+                  </Celula>
+                  <Celula dado>{descreverCupom(c)}</Celula>
+                  <Celula>
+                    {c.ingresso_tipo_nome ?? <span className="hint">Qualquer ingresso</span>}
+                  </Celula>
+                  <Celula dado>
+                    {/* ⚠️ Conta inscrição NÃO cancelada. Contar tudo faria um
+                        cupom de cem usos esgotar com noventa cancelamentos, e
+                        ninguém entenderia por quê. */}
+                    <Num>{c.usos}</Num>
+                    {c.max_usos_total !== null && (
+                      <span className="hint"> de {c.max_usos_total}</span>
+                    )}
+                  </Celula>
+                  <Celula>
+                    <Etiqueta ativo={c.ativo} />
+                  </Celula>
+                  <Celula alinhar="right">
+                    <span style={{ display: "inline-flex", gap: 4, justifyContent: "flex-end" }}>
+                      <ModalCadastro
+                        gatilho="link"
+                        rotulo="Editar"
+                        titulo={`Editar ${c.codigo}`}
+                        acao={editarCupom}
+                        largura="lg"
+                      >
+                        <CamposCupom eventoId={eventoId} cupom={c} tipos={tiposDoCupom} />
+                      </ModalCadastro>
+                      <form action={alternarCupomAtivo}>
+                        <input type="hidden" name="evento_id" value={eventoId} />
+                        <input type="hidden" name="id" value={c.id} />
+                        <input type="hidden" name="ativo" value={String(c.ativo)} />
+                        <button type="submit" className="sni-acao">
+                          {c.ativo ? "Desativar" : "Reativar"}
                         </button>
                       </form>
                     </span>
