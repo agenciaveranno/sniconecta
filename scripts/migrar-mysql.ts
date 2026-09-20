@@ -407,7 +407,7 @@ const LOTE = 1000;
  * que faltam traduzir, de uma vez.
  */
 function daLista(
-  r: Relatorio[string],
+  t: { pendente(motivo: string): void },
   campo: string,
   bruto: unknown,
   permitidos: readonly string[],
@@ -417,7 +417,7 @@ function daLista(
   const { valor, desconhecido } = deLista(bruto, permitidos, padrao, sinonimos);
   if (desconhecido) {
     const motivo = `${campo} "${desconhecido}" desconhecido — virou "${padrao}"`;
-    r.pendencias[motivo] = (r.pendencias[motivo] ?? 0) + 1;
+    t.pendente(motivo);
   }
   return valor;
 }
@@ -837,13 +837,12 @@ async function faseEstrutura() {
  * Aqui vale o mesmo. O campo entra sem opções e a linha SE ANUNCIA no
  * relatório, para alguém abrir e conferir.
  */
-function opcoesDoCampo(r: ReturnType<typeof conta>, bruto: unknown) {
+function opcoesDoCampo(t: { pendente(motivo: string): void }, bruto: unknown) {
   if (bruto == null || String(bruto).trim() === "") return null;
   try {
     return destino.json(JSON.parse(String(bruto)));
   } catch {
-    r.pendencias["opções do campo em formato ilegível — campo ficou sem opções"] =
-      (r.pendencias["opções do campo em formato ilegível — campo ficou sem opções"] ?? 0) + 1;
+    t.pendente("opções do campo em formato ilegível — campo ficou sem opções");
     return null;
   }
 }
@@ -906,7 +905,7 @@ async function faseEventos() {
               ${centavos(t.valor)}, ${numero(t.maxParcelas) || 1}, ${numero(t.quantidade)},
               ${data(t.vendaInicio)}, ${data(t.vendaFim)},
               ${numero(t.idadeMin)}, ${numero(t.idadeMax)},
-              ${booleano(t.unicoPorCpf)}, ${daLista(r, "papel do ingresso", t.papel, ["principal", "adicional"], "adicional", { main: "principal", extra: "adicional", secundario: "adicional" })},
+              ${booleano(t.unicoPorCpf)}, ${daLista(tIngressoTipo, "papel do ingresso", t.papel, ["principal", "adicional"], "adicional", { main: "principal", extra: "adicional", secundario: "adicional" })},
               ${booleano(t.exigePrincipal)}, ${booleano(t.exibirVendaPublica)},
               ${booleano(t.ativo)}, ${data(t.createdAt) ?? new Date().toISOString()})
       on conflict (legado_id) do update set
@@ -929,14 +928,13 @@ async function faseEventos() {
     // vira `texto`, que aceita o que a pessoa digitou, e SE ANUNCIA.
     const traduzido = tipoDeCampo(c.tipo);
     if (traduzido.desconhecido) {
-      r.pendencias[`tipo de campo "${traduzido.desconhecido}" desconhecido — virou texto`] =
-        (r.pendencias[`tipo de campo "${traduzido.desconhecido}" desconhecido — virou texto`] ?? 0) + 1;
+      tIngressoCampo.pendente(`tipo de campo "${traduzido.desconhecido}" desconhecido — virou texto`);
     }
 
     await destino`
       insert into eventos.ingresso_campos (legado_id, ingresso_tipo_id, rotulo, tipo, opcoes, obrigatorio, ordem, ativo)
       values (${Number(c.id)}, ${tipo}, ${texto(c.label)}, ${traduzido.tipo},
-              ${opcoesDoCampo(r, c.opcoesJson)},
+              ${opcoesDoCampo(tIngressoCampo, c.opcoesJson)},
               ${booleano(c.obrigatorio)}, ${numero(c.ordem) || 0}, ${booleano(c.ativo)})
       on conflict (legado_id) do update set rotulo = excluded.rotulo, ativo = excluded.ativo`;
     tIngressoCampo.gravada();
@@ -984,7 +982,7 @@ async function faseEventos() {
     // ⚠️ O padrão é `valor`, e não `percentual`: um cupom de "10" lido como
     // percentual dá 10% de desconto; lido como valor, dá dez centavos. Errar
     // para menos é corrigível; errar para mais já saiu do caixa.
-    const tipo = daLista(r, "tipo de cupom", c.tipo, ["percentual", "valor"], "valor",
+    const tipo = daLista(tCupom, "tipo de cupom", c.tipo, ["percentual", "valor"], "valor",
       { percent: "percentual", porcentagem: "percentual", pct: "percentual", fixed: "valor", fixo: "valor" });
     await destino`
       insert into eventos.cupons (legado_id, evento_id, codigo, descricao, tipo, valor,
@@ -1066,7 +1064,7 @@ async function faseCompras() {
               ${mapaTipo.get(Number(p.ingressoTipoId)) ?? null}, ${mapaCombo.get(Number(p.comboId)) ?? null},
               ${numero(p.quantity) || 1}, ${mapaCupom.get(Number(p.cupomId)) ?? null},
               ${centavos(p.valorOriginal)}, ${centavos(p.descontoAplicado)},
-              ${destino.json(participantes as never)}, ${daLista(r, "status do pedido", p.status, ["pendente", "confirmado", "cancelado", "expirado"], "pendente", { pending: "pendente", paid: "confirmado", confirmed: "confirmado", pago: "confirmado", canceled: "cancelado", cancelled: "cancelado", expired: "expirado" })},
+              ${destino.json(participantes as never)}, ${daLista(tPedidoPendente, "status do pedido", p.status, ["pendente", "confirmado", "cancelado", "expirado"], "pendente", { pending: "pendente", paid: "confirmado", confirmed: "confirmado", pago: "confirmado", canceled: "cancelado", cancelled: "cancelado", expired: "expirado" })},
               ${destino.json(cielo(p) as never)},
               ${texto(p.inscricaoIds)?.split(",").map(Number).filter(Number.isFinite) ?? null},
               ${data(p.createdAt) ?? new Date().toISOString()}, ${data(p.updatedAt) ?? new Date().toISOString()})
@@ -1110,9 +1108,9 @@ async function faseCompras() {
         ${mapaPedido.get(Number(i.pedidoId)) ?? null}, ${mapaCupom.get(Number(i.cupomId)) ?? null},
         ${pessoas.get(Number(i.compradorId)) ?? null},
         ${texto(i.compraGrupoId)}, ${texto(i.numeroConvite)}, ${texto(i.formaPagamento)},
-        ${daLista(r, "tipo de venda", i.tipoVenda, ["online", "balcao", "importado", "cortesia"], "importado",
+        ${daLista(tInscricao, "tipo de venda", i.tipoVenda, ["online", "balcao", "importado", "cortesia"], "importado",
           { web: "online", site: "online", internet: "online", presencial: "balcao", counter: "balcao", manual: "balcao", free: "cortesia", gratuito: "cortesia", brinde: "cortesia" })},
-        ${daLista(r, "status da inscrição", i.status, ["pendente", "pago", "cancelado", "expirado", "transferido"], "pendente",
+        ${daLista(tInscricao, "status da inscrição", i.status, ["pendente", "pago", "cancelado", "expirado", "transferido"], "pendente",
           { paid: "pago", confirmado: "pago", pending: "pendente", canceled: "cancelado", cancelled: "cancelado", estornado: "cancelado", expired: "expirado", transferred: "transferido" })},
         ${centavos(i.valorOriginal)}, ${centavos(i.descontoAplicado)},
         ${data(i.dataPurchase)}, ${data(i.checkinAt)}, ${texto(i.qrCode)},
@@ -1121,7 +1119,7 @@ async function faseCompras() {
         ${data(i.canceladoEm)}, ${null}, ${texto(i.cancelamentoMotivo)}, ${numero(i.cancelamentoAncoraId)},
         ${i.estornoStatus == null || String(i.estornoStatus).trim() === ""
           ? null
-          : daLista(r, "status do estorno", i.estornoStatus, ["pendente", "feito", "recusado"], "pendente",
+          : daLista(tInscricao, "status do estorno", i.estornoStatus, ["pendente", "feito", "recusado"], "pendente",
               { refunded: "feito", refund: "feito", done: "feito", concluido: "feito", efetuado: "feito",
                 pending: "pendente", solicitado: "pendente", aberto: "pendente",
                 denied: "recusado", rejected: "recusado", negado: "recusado" })},
@@ -1319,7 +1317,11 @@ async function faseConfiguracao() {
   // olhar o que ainda faz sentido.
   const chaves = await ler("Configuracao", "chave");
   const tConfiguracao = daTabela(r, "Configuracao", chaves.length);
-  r.avisos += chaves.length;
+  // ⚠️ Conta na TABELA, não só na fase. Somando só no total, a linha
+  // `Configuracao` saía "21 lidas, 0 gravadas, 0 rejeitadas, 0 avisos" — 21
+  // linhas que somem sem explicação, que é exatamente o que a quebra por
+  // tabela existe para impedir.
+  tConfiguracao.aviso(chaves.length);
 }
 
 async function faseAuditoria() {

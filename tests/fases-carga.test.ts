@@ -80,3 +80,50 @@ describe("o relatório por tabela de origem", () => {
     expect(SCRIPT).toMatch(/por tabela de origem/);
   });
 });
+
+/** Corpo de cada `async function fase<Nome>()`, por fase. */
+function corpoDasFases(): Record<string, string> {
+  const corpos: Record<string, string> = {};
+  let fase = "";
+  for (const linha of SCRIPT.split("\n")) {
+    const nova = linha.match(/^async function fase(\w+)\(/);
+    if (nova) fase = nova[1].toLowerCase();
+    // ⚠️ Fecha a fase em QUALQUER função de topo, não só na próxima `fase…`.
+    // Sem isto, um helper solto entre duas fases era contado como parte da
+    // anterior, e o teste acusava `estrutura` por uma linha de `eventos`.
+    else if (/^(async )?function /.test(linha)) fase = "";
+    if (fase) corpos[fase] = (corpos[fase] ?? "") + linha + "\n";
+  }
+  return corpos;
+}
+
+describe("contador de fase não escapa da quebra por tabela", () => {
+  it("fase de mais de uma tabela não mexe no contador da fase direto", () => {
+    // ⚠️ É a CLASSE do defeito, não o caso da vez. `configuracao` fazia
+    // `r.avisos += chaves.length` e a linha `Configuracao` saiu com "21 lidas,
+    // 0 gravadas, 0 rejeitadas, 0 avisos" — 21 linhas sumindo sem explicação
+    // na primeira carga que usou a quebra por tabela.
+    //
+    // Quem escreve só no total da fase deixa a tabela mentindo. Numa fase de
+    // tabela única os dois são a mesma coisa; em `eventos`, que lê sete, não.
+    const tabelas = tabelasPorFase();
+    const proibido = [
+      "r.lidas", "r.gravadas", "r.avisos", "r.rejeitadas[", "r.pendencias[",
+      // recebe `r` e escreve pendência da fase: tem de receber a tabela
+      "daLista(r,",
+    ];
+    for (const [fase, corpoBruto] of Object.entries(corpoDasFases())) {
+      if ((tabelas[fase]?.length ?? 0) < 2) continue;
+      // A fase INTEIRA pulada é fato da fase, não de tabela nenhuma: ela
+      // retorna antes de ler a primeira. É a única escrita de fase permitida.
+      const corpo = corpoBruto.replace(
+        /r\.rejeitadas\["fase pulada: [^"]+"\] = 1;/g,
+        ""
+      );
+      for (const p of proibido) {
+        expect(corpo, `fase ${fase} escreve em ${p} em vez do contador da tabela`)
+          .not.toContain(p);
+      }
+    }
+  });
+});
