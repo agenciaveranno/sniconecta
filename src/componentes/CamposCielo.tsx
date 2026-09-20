@@ -51,10 +51,20 @@ export default function CamposCielo({
             : "A chave secreta da conta. Fica cifrada no banco e não volta a aparecer nesta tela."
         }
       >
+        {/* ⚠️ `new-password`, e não `off`: o Chrome IGNORA `off` em campo de
+            senha e preenchia a Merchant Key com uma senha salva do navegador —
+            gravando cifrado um segredo que não é o da loja, e derrubando a
+            venda da entidade sem erro nenhum na tela. `new-password` é o único
+            valor que ele respeita para dizer "não preencha com a guardada".
+            ⚠️ E a causa de raiz era outra: este campo morava no MESMO
+            formulário que o e-mail. Campo de senha ao lado de campo de e-mail
+            faz o navegador ler a tela como login e oferecer o par
+            usuário+senha. Hoje a conta Cielo tem aba e formulário próprios
+            (decisão 0019), e é isso que tira o par da frente dele. */}
         <Input
           name="cielo_merchant_key"
           type="password"
-          autoComplete="off"
+          autoComplete="new-password"
           placeholder={temChave ? "••••••••  (guardada)" : ""}
           maxLength={200}
         />

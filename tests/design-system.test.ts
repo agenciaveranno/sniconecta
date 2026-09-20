@@ -145,6 +145,55 @@ describe("o formulário tem um ritmo só", () => {
   });
 });
 
+describe("o navegador não preenche campo que ninguém pediu", () => {
+  it("todo campo de senha declara para que serve", () => {
+    // ⚠️ `autocomplete="off"` NÃO vale em campo de senha: o Chrome o ignora e
+    // preenche com a credencial salva. Foi assim que a Merchant Key da Cielo
+    // era gravada, cifrada, com a senha de quem estava editando — derrubando a
+    // venda da entidade sem erro nenhum aparecer na tela.
+    //
+    // O valor tem de ser explícito: `current-password` onde a pessoa digita a
+    // senha DELA, `new-password` em todo o resto — inclusive no segredo que
+    // nem senha é, porque é o único valor que significa "não preencha com a
+    // guardada".
+    const culpados: string[] = [];
+    for (const a of globSync("src/**/*.tsx")) {
+      // ⚠️ Comentário fora, NUMERAÇÃO intacta: um comentário que explica a
+      // armadilha cita `type="password"` em prosa, e sem isto ele seria
+      // acusado de ser a armadilha. Cada comentário vira o mesmo tanto de
+      // linhas em branco para o número da linha continuar apontando o lugar
+      // certo quando a asserção reprovar alguém de verdade.
+      const linhas = readFileSync(a, "utf-8")
+        .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "))
+        .replace(/\/\/[^\n]*/g, "")
+        .split("\n");
+      for (const [i, linha] of linhas.entries()) {
+        if (!/type="password"/.test(linha)) continue;
+        // O atributo pode estar na mesma linha ou nas vizinhas, porque o
+        // formatador quebra a marcação quando ela cresce.
+        const janela = linhas.slice(Math.max(0, i - 4), i + 5).join("\n");
+        if (!/autoComplete="(current-password|new-password)"/.test(janela)) {
+          culpados.push(`${a}:${i + 1}`);
+        }
+      }
+    }
+    expect(culpados).toEqual([]);
+  });
+
+  it("enxerga os campos de senha que deveria", () => {
+    // Sem isto, um erro de leitura faria a asserção acima passar por lista
+    // vazia — e o defeito voltaria calado.
+    const quantos = globSync("src/**/*.tsx")
+      .flatMap((a) =>
+        readFileSync(a, "utf-8")
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .split("\n")
+      )
+      .filter((l) => /type="password"/.test(l)).length;
+    expect(quantos).toBeGreaterThan(5);
+  });
+});
+
 describe("nomenclatura da instituição", () => {
   it("a forma com \"do Brasil\" em minúsculas não aparece em lugar nenhum", () => {
     // Regra da Sede: sempre que "do Brasil" acompanha o nome, o conjunto

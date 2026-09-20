@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import CamposCielo from "@/componentes/CamposCielo";
 import CamposContato from "@/componentes/CamposContato";
 import CamposEndereco from "@/componentes/CamposEndereco";
 import CampoMascarado from "@/componentes/CampoMascarado";
@@ -28,17 +27,12 @@ export default function CamposUnidade({
   unidades,
   organizacoes,
   unidade,
-  cielo,
-  podeVerCielo,
   tipoFixo,
 }: {
   tipos: TipoUnidadeRow[];
   unidades: Pick<UnidadeRow, "id" | "nome" | "tipo">[];
   organizacoes: OrganizacaoRow[];
   unidade?: UnidadeRow;
-  /** Parte pública da conta já cadastrada. A chave secreta nunca chega aqui. */
-  cielo?: { merchant_id: string; nome_loja: string; temSegredo: boolean };
-  podeVerCielo?: boolean;
   /**
    * A tela já sabe o tipo — é a de Regionais, a de Núcleos ou a de ALs. Some
    * o seletor: perguntar "que tipo?" na tela chamada "Nova Regional" é
@@ -143,21 +137,26 @@ export default function CamposUnidade({
         </Campo>
       )}
 
-      <Campo label="Nome" obrigatorio>
-        <Input name="nome" defaultValue={unidade?.nome ?? ""} required maxLength={150} />
-      </Campo>
+      {/* O código da instituição vem ANTES do nome: é por ele que a Sede
+          identifica a unidade nos sistemas antigos, e quem confere um cadastro
+          confere o código primeiro. */}
+      <div className="form-grid">
+        <Campo label="Código">
+          <Input name="codigo" defaultValue={unidade?.codigo ?? ""} maxLength={30} />
+        </Campo>
+        <Campo label="Nome" obrigatorio>
+          <Input name="nome" defaultValue={unidade?.nome ?? ""} required maxLength={150} />
+        </Campo>
+      </div>
 
       <div className="form-grid">
-        <Campo
-          label="Idioma das atividades"
-          dica="Decide em que língua esta unidade recebe convite, comprovante e certificado."
-        >
+        <Campo label="Idioma das atividades">
           <Select name="idioma" defaultValue={unidade?.idioma ?? "pt-BR"}>
             <option value="pt-BR">Português</option>
             <option value="ja">Japonês</option>
           </Select>
         </Campo>
-        <Campo label="CNPJ" dica="A Regional é filial da Sede Central e tem CNPJ próprio. Aceita o formato alfanumérico novo.">
+        <Campo label="CNPJ">
           <CampoMascarado tipo="cnpj" name="cnpj" defaultValue={unidade?.cnpj} />
         </Campo>
       </div>
@@ -168,33 +167,14 @@ export default function CamposUnidade({
 
       <CamposContato valores={unidade} />
 
-      <div className="form-grid">
-        <Campo label="Código" dica="A numeração própria da instituição, se houver.">
-          <Input name="codigo" defaultValue={unidade?.codigo ?? ""} maxLength={30} />
-        </Campo>
-        <Campo
-          label="Endereço na web"
-          dica="Letras minúsculas, números e hífen. Depois de publicado, mudar quebra o link."
-        >
-          <Input
-            name="slug"
-            defaultValue={unidade?.slug ?? ""}
-            maxLength={150}
-            pattern="[a-z0-9]+(-[a-z0-9]+)*"
-          />
-        </Campo>
-      </div>
-
-      {/* Só o tipo que recebe em conta própria mostra o bloco — e só para quem
-          administra configuração. Quem cadastra a estrutura não precisa
-          enxergar por onde entra o dinheiro. */}
-      {podeVerCielo && escolhido?.aceita_conta_cielo && (
-        <CamposCielo
-          merchantId={cielo?.merchant_id}
-          nomeLoja={cielo?.nome_loja}
-          temChave={cielo?.temSegredo}
+      <Campo label="Endereço na web">
+        <Input
+          name="slug"
+          defaultValue={unidade?.slug ?? ""}
+          maxLength={150}
+          pattern="[a-z0-9]+(-[a-z0-9]+)*"
         />
-      )}
+      </Campo>
     </>
   );
 }
