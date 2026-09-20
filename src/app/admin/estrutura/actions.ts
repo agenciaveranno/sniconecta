@@ -59,8 +59,18 @@ const schema = z.object({
 });
 
 
-function falhar(mensagem: string): never {
-  redirect(`${ROTA}?erro=${encodeURIComponent(mensagem)}`);
+/**
+ * ⚠️ A recusa volta para a tela de ONDE veio. Com destino fixo, quem estava
+ * editando uma unidade na página dela era jogado na árvore com um aviso solto,
+ * e o que havia digitado sumia sem ter sido gravado.
+ */
+function falhar(mensagem: string, rota: string = ROTA): never {
+  redirect(`${rota}?erro=${encodeURIComponent(mensagem)}`);
+}
+
+/** A página de uma unidade, com a aba certa. */
+function rotaDaUnidade(id: string, aba?: string): string {
+  return aba ? `${ROTA}/${id}?aba=${aba}` : `${ROTA}/${id}`;
 }
 
 /**
@@ -170,8 +180,9 @@ export async function editarUnidade(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   if (!id) falhar("Unidade não informada.");
 
+  const volta = rotaDaUnidade(id);
   const dados = schema.safeParse(Object.fromEntries(formData));
-  if (!dados.success) falhar(dados.error.issues[0].message);
+  if (!dados.success) falhar(dados.error.issues[0].message, volta);
 
   const supabase = await criarClienteServidor();
   const { error } = await supabase
@@ -182,11 +193,38 @@ export async function editarUnidade(formData: FormData) {
       ...CAMPOS_COMUNS(dados.data),
     })
     .eq("id", id);
-  if (error) falhar(traduzirErro(error.message));
+  if (error) falhar(traduzirErro(error.message), volta);
 
+  // ⚠️ Continua passando pelo guardião da Cielo, e continua sendo um NADA: o
+  // formulário de dados não desenha o bloco, então não manda a marca
+  // `cielo_na_tela` e a conta fica onde está. A chamada fica de propósito —
+  // se um dia o bloco voltar para esta tela, ela já está ligada.
   await guardarCieloDoFormulario(formData, { unidade: id });
 
   revalidatePath(ROTA);
+  revalidatePath(volta);
+  redirect(`${volta}?ok=${encodeURIComponent("Cadastro salvo.")}`);
+}
+
+/**
+ * Por onde a unidade recebe dinheiro — aba própria, formulário próprio.
+ *
+ * ⚠️ A capacidade aqui é `configuracao.gerir`, e não `estrutura.gerir`: quem
+ * cadastra a estrutura não necessariamente manda na conta que recebe. O
+ * guardião de dentro de `guardarCieloDoFormulario` confere de novo, e é de
+ * propósito — esta é a porta, aquele é o cofre.
+ */
+export async function salvarPagamentoUnidade(formData: FormData) {
+  await exigirCapacidade("configuracao.gerir");
+
+  const id = String(formData.get("id") ?? "");
+  if (!id) falhar("Unidade não informada.");
+
+  const volta = rotaDaUnidade(id, "pagamento");
+  await guardarCieloDoFormulario(formData, { unidade: id });
+
+  revalidatePath(volta);
+  redirect(`${volta}&ok=${encodeURIComponent("Dados de pagamento salvos.")}`);
 }
 
 /**

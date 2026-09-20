@@ -3,16 +3,15 @@ import Link from "next/link";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
-  Alerta, Badge, Celula, Etiqueta, Linha, Num, Recado, Tabela, TituloPagina, Vazio,
+  AcaoLink, Alerta, Badge, Celula, Etiqueta, Linha, Num, Recado, Tabela, TituloPagina, Vazio,
 } from "@/componentes/ui";
-import { exigirCapacidadeNaPagina, pessoaAtual } from "@/lib/auth";
+import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import { formatarCnpj } from "@/lib/dominio/cnpj";
-import { contasCieloVisiveis } from "@/lib/credenciais";
 import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
 import CamposUnidade from "./CamposUnidade";
-import { criarUnidade, editarUnidade } from "./actions";
+import { criarUnidade } from "./actions";
 
 /**
  * Uma lista por degrau da instituição — Regionais, Núcleos, Associações Locais.
@@ -34,12 +33,9 @@ export default async function ListaDeUnidades({
   searchParams: Promise<{ erro?: string; ok?: string }>;
 }) {
   await exigirCapacidadeNaPagina("estrutura.gerir");
-  const eu = await pessoaAtual();
   const { erro, ok } = await searchParams;
 
   const supabase = await criarClienteServidor();
-
-  const podeVerCielo = Boolean(eu?.pode("configuracao.gerir"));
 
   // ⚠️ As cinco JUNTAS, e não uma esperando a outra. Nenhuma depende do
   // resultado das outras, e em série cada uma soma sua ida e volta ao banco no
@@ -50,12 +46,11 @@ export default async function ListaDeUnidades({
   // esperar `tipos_unidade` chegar para só então perguntar quais tipos podem
   // ser pai — uma sexta ida, em série, para uma pergunta que o catálogo já
   // tinha respondido.
-  const [rUnidades, rTipos, rOrganizacoes, rTodas, contas] = await Promise.all([
+  const [rUnidades, rTipos, rOrganizacoes, rTodas] = await Promise.all([
     supabase.from("unidades").select("*").eq("tipo", tipo).order("nome"),
     supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
     supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
     supabase.from("unidades").select("id, nome, tipo").order("nome"),
-    contasCieloVisiveis(podeVerCielo),
   ]);
 
   const unidades = (exigir(rUnidades, `as unidades do tipo ${tipo}`) ?? []) as UnidadeRow[];
@@ -71,11 +66,10 @@ export default async function ListaDeUnidades({
   const nomeSuperior = new Map(todas.map((u) => [u.id, u.nome]));
   const nomeOrg = new Map(organizacoes.map((o) => [o.id, o.nome]));
 
-  // ⚠️ A conta Cielo TEM de chegar ao formulário de edição. Sem ela o bloco
-  // aparece vazio e, ao salvar, o Merchant ID em branco APAGAVA a conta da
-  // entidade — editar o telefone de uma Regional a tirava do ar para venda.
-  // Hoje `guardarCieloDoFormulario` também exige a marca de que o bloco foi
-  // desenhado, então o esquecimento não volta a custar a conta de ninguém.
+  // ⚠️ A conta Cielo NÃO passa por esta tela. Ela mora na aba Pagamento da
+  // página da unidade, com formulário só dela — o que mantém a Merchant Key
+  // longe do campo de e-mail, que era o que fazia o navegador tratar o
+  // cadastro como tela de login e preencher os dois sozinho.
 
   return (
     <Painel titulo={titulo}>
@@ -96,7 +90,6 @@ export default async function ListaDeUnidades({
               tipos={tipos}
               unidades={superiores}
               organizacoes={organizacoes}
-              podeVerCielo={podeVerCielo}
             />
           </ModalCadastro>
         }
@@ -149,23 +142,10 @@ export default async function ListaDeUnidades({
                 )}
               </Celula>
               <Celula alinhar="right">
-                <ModalCadastro
-                  gatilho="link"
-                  rotulo="Editar"
-                  titulo={`Editar ${u.nome}`}
-                  acao={editarUnidade}
-                  largura="lg"
-                >
-                  <CamposUnidade
-                    tipoFixo={tipo}
-                    tipos={tipos}
-                    unidades={superiores}
-                    organizacoes={organizacoes}
-                    unidade={u}
-                    cielo={contas.get(u.id)}
-                    podeVerCielo={podeVerCielo}
-                  />
-                </ModalCadastro>
+                {/* Editar abre PÁGINA, não modal: são quatro assuntos, um
+                    deles com upload (decisão 0019). Criar continua em modal —
+                    nascer é um punhado de campos. */}
+                <AcaoLink href={`/admin/estrutura/${u.id}`}>Editar</AcaoLink>
               </Celula>
             </Linha>
           ))}

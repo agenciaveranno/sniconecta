@@ -72,9 +72,13 @@ export default function CamposEndereco({
     <>
       {titulo && <h3 className="sni-section-eyebrow">{titulo}</h3>}
       <div className="form-grid">
+        {/* ⚠️ Sem texto de apoio fixo, mas COM o aviso de que está procurando:
+            um é explicação, o outro é o estado da busca. Tirar o segundo junto
+            faria o CEP preencher os campos de baixo sem nada dizer que houve
+            uma consulta — e quem digita rápido veria o endereço mudar sozinho. */}
         <Campo
           label="CEP"
-          dica={buscando ? "Procurando o endereço…" : "Preenche rua, bairro, cidade e UF. Dá para mudar tudo depois."}
+          dica={buscando ? "Procurando o endereço…" : undefined}
           erro={recado ?? undefined}
         >
           <Input
@@ -94,10 +98,11 @@ export default function CamposEndereco({
             placeholder="00000-000"
           />
         </Campo>
-        <Campo label="Bairro">
-          <Input name="bairro" value={bairro} onChange={(e) => setBairro(e.target.value)} maxLength={80} />
-        </Campo>
       </div>
+      {/* ⚠️ A ORDEM é a do envelope: CEP, rua, número, complemento, bairro,
+          cidade, UF. É a sequência em que se lê e se dita um endereço, e o CEP
+          vem sozinho porque é ele que preenche o resto — emparelhá-lo com um
+          campo que ele mesmo vai escrever confunde quem está digitando. */}
       <div className="form-grid">
         <Campo label="Logradouro">
           <Input name="logradouro" value={logradouro} onChange={(e) => setLogradouro(e.target.value)} maxLength={150} />
@@ -110,19 +115,24 @@ export default function CamposEndereco({
         <Campo label="Complemento">
           <Input name="complemento" defaultValue={valores?.complemento ?? ""} maxLength={80} />
         </Campo>
+        <Campo label="Bairro">
+          <Input name="bairro" value={bairro} onChange={(e) => setBairro(e.target.value)} maxLength={80} />
+        </Campo>
+      </div>
+      <div className="form-grid">
         <Campo label="Cidade">
           <Input name="cidade" value={cidade} onChange={(e) => setCidade(e.target.value)} maxLength={100} />
         </Campo>
+        <Campo label="UF">
+          <Input
+            name="uf"
+            value={uf}
+            onChange={(e) => setUf(e.target.value.toUpperCase().slice(0, 2))}
+            maxLength={2}
+            autoCapitalize="characters"
+          />
+        </Campo>
       </div>
-      <Campo label="UF">
-        <Input
-          name="uf"
-          value={uf}
-          onChange={(e) => setUf(e.target.value.toUpperCase().slice(0, 2))}
-          maxLength={2}
-          autoCapitalize="characters"
-        />
-      </Campo>
     </>
   );
 }

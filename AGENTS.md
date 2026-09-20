@@ -112,10 +112,16 @@ Regras completas em `docs/design-system.md`. As que mais se erram:
 - Nada abaixo de 13px. Corpo 15px. Caixa alta em rótulo pequeno é proibida.
 - Cor, raio, sombra e tamanho vêm dos tokens. Precisou de algo que não
   existe: crie o primitivo em `ui.tsx` ou pergunte antes de inventar.
-- Cadastro (criar e editar) acontece em modal. Esc e clique fora não fecham.
-  **Exceção registrada (decisão 0015): a ficha da pessoa é página com abas.**
+- Cadastro acontece em modal. Esc e clique fora não fecham.
+  **Exceções registradas: a ficha da pessoa (0015) e a unidade (0019) são
+  páginas com abas** — nas duas, CRIAR continua em modal e só EDITAR é página.
   Vira página quem tiver duas destas: mais de ~15 campos, upload de arquivo,
   mais de um assunto dentro, ou necessidade de URL própria.
+- **Campo de senha nunca divide formulário com campo de e-mail.** O navegador
+  lê os dois juntos como tela de login e preenche ambos com credencial salva,
+  sem ninguém pedir — foi assim que a Merchant Key da Cielo era gravada com a
+  senha de quem editava. Separe por aba, e marque `autocomplete`: `off` no
+  e-mail, `new-password` no campo secreto (o Chrome ignora `off` em senha).
 - A ação primária de uma tela vive ao lado do título, no conteúdo — nunca na
   barra superior, que carrega só o título da tela e a identidade de quem entrou.
   Sair fica dentro do menu do usuário: ação de saída não ocupa espaço fixo.

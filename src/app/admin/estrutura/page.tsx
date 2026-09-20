@@ -7,15 +7,14 @@ import {
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
-  Alerta, Badge, Celula, Etiqueta, Linha, Recado, Tabela, TituloPagina, Vazio,
+  AcaoLink, Alerta, Badge, Celula, Etiqueta, Linha, Recado, Tabela, TituloPagina, Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
-import { contasCieloVisiveis } from "@/lib/credenciais";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
 import CamposUnidade from "./CamposUnidade";
-import { alternarAtivo, criarUnidade, editarUnidade } from "./actions";
+import { alternarAtivo, criarUnidade } from "./actions";
 
 export const metadata = { title: "Estrutura" };
 
@@ -60,12 +59,10 @@ export default async function EstruturaPage({
   searchParams: Promise<{ erro?: string }>;
 }) {
   const { erro } = await searchParams;
-  const eu = await exigirCapacidadeNaPagina("estrutura.gerir");
+  await exigirCapacidadeNaPagina("estrutura.gerir");
 
-  // Conta Cielo é segredo: quem desenha a estrutura não vê por onde entra o
-  // dinheiro se não administrar configuração também. A leitura só acontece
-  // para quem pode — e traz apenas a parte pública.
-  const podeVerCielo = eu.pode("configuracao.gerir");
+  // A conta Cielo não é mais lida aqui: ela vive na aba Pagamento da página da
+  // unidade, que é quem a mostra a quem administra configuração.
 
   const supabase = await criarClienteServidor();
 
@@ -74,11 +71,10 @@ export default async function EstruturaPage({
   // alguém cadastraria a Sede Central pela segunda vez.
   // ⚠️ As três JUNTAS: nenhuma depende do resultado das outras, e em série
   // cada uma somava sua ida e volta ao banco no tempo de tela em branco.
-  const [rTipos, rUnidades, rOrganizacoes, contas] = await Promise.all([
+  const [rTipos, rUnidades, rOrganizacoes] = await Promise.all([
     supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
     supabase.from("unidades").select("*").order("nome"),
     supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
-    contasCieloVisiveis(podeVerCielo),
   ]);
 
   const tipos = exigir(rTipos, "os tipos de unidade") as TipoUnidadeRow[];
@@ -108,7 +104,6 @@ export default async function EstruturaPage({
               tipos={tipos}
               unidades={paraEscolha}
               organizacoes={organizacoes}
-              podeVerCielo={podeVerCielo}
             />
           </ModalCadastro>
         }
@@ -154,21 +149,8 @@ export default async function EstruturaPage({
               </Celula>
               <Celula alinhar="right">
                 <span style={{ display: "inline-flex", gap: 4, justifyContent: "flex-end" }}>
-                  <ModalCadastro
-                    gatilho="link"
-                    rotulo="Editar"
-                    titulo={`Editar ${unidade.nome}`}
-                    acao={editarUnidade}
-                  >
-                    <CamposUnidade
-                      tipos={tipos}
-                      unidades={paraEscolha}
-                      organizacoes={organizacoes}
-                      unidade={unidade}
-                      cielo={contas.get(unidade.id)}
-                      podeVerCielo={podeVerCielo}
-                    />
-                  </ModalCadastro>
+                  {/* Mesma porta da lista: editar é página (decisão 0019). */}
+                  <AcaoLink href={`/admin/estrutura/${unidade.id}`}>Editar</AcaoLink>
                   <form action={alternarAtivo}>
                     <input type="hidden" name="id" value={unidade.id} />
                     <input type="hidden" name="ativo" value={String(unidade.ativo)} />
