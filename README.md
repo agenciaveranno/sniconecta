@@ -37,8 +37,8 @@ alcança RLS.
 
 ## Como as coisas chegam à produção
 
-Código em `github.com/viniveranno/sniconecta` (privado). Aplicação publicada
-pela Vercel, projeto `sniconecta` da conta `agenciaveranno`, servindo
+Código em `github.com/agenciaveranno/sniconecta` (privado). Aplicação
+publicada pela Vercel, projeto `sniconecta` da mesma conta, servindo
 `sniconecta.com.br`.
 
 - **Aplicação:** merge em `main` → Vercel publica.
@@ -46,12 +46,12 @@ pela Vercel, projeto `sniconecta` da conta `agenciaveranno`, servindo
   GitHub Actions aplica (`.github/workflows/migrations.yml`). Ninguém roda SQL
   à mão.
 
-⚠️ O GitHub e a Vercel estão em **contas diferentes**: o repositório é de
-`viniveranno`, o projeto Vercel é de `agenciaveranno`. A publicação automática
-só acontece enquanto o app Vercel do GitHub alcançar este repositório — e,
-como ele é privado, quando essa concessão cai o GitHub responde "não
-encontrado" e a Vercel para de publicar **em silêncio**, com o CI verde e o PR
-fechado. Quem faz merge confere o deploy, não só o CI.
+⚠️ A publicação automática depende de o repositório **continuar na conta que a
+Vercel enxerga**. Ela amarra um login do GitHub por conta, e namespace pessoal
+de outra conta nunca aparece para ela — mover o repositório para fora de
+`agenciaveranno` quebra a publicação, e quebra **em silêncio**: CI verde, PR
+fechado, deploy nenhum. Em 12/09 isso custou sete dias de correções fora do
+ar. Quem faz merge confere o deploy, não só o CI.
 `docs/publicacao.md` traz os endereços, como conferir em dois minutos e como
 consertar.
 

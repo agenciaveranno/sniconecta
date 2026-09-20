@@ -139,11 +139,14 @@ Regras completas em `docs/design-system.md`. As que mais se erram:
 
 **CI verde e PR fechado não são prova de que o código está no ar.** São três
 esteiras independentes: os testes e as migrações rodam no GitHub Actions, e a
-aplicação é publicada pela Vercel — que está em OUTRA conta (o repositório é
-de `viniveranno`, o projeto Vercel é de `agenciaveranno`). Quando a concessão
-do app Vercel a este repositório privado cai, o GitHub responde "não
-encontrado" e a publicação para sem avisar: merge acontece, deploy não nasce,
-e o site serve a versão anterior por tempo indeterminado.
+aplicação é publicada pela Vercel. Repositório e projeto Vercel vivem na mesma
+conta (`agenciaveranno`), e **é isso que faz a publicação funcionar**: a Vercel
+amarra um login do GitHub por conta, e namespace pessoal de outra conta ela não
+enxerga nunca. Mover o repositório para fora dessa conta para a publicação sem
+avisar — merge acontece, deploy não nasce, e o site serve a versão anterior por
+tempo indeterminado. Foi o que custou sete dias em 12/09. Se um dia ele
+precisar sair de lá, o destino é uma ORGANIZAÇÃO do GitHub de que a conta
+participe, nunca outra conta pessoal.
 
 Quem faz merge confere se o deploy de produção existe com o SHA que acabou de
 entrar. O sinal mais cedo aparece antes do merge: PR sem o status de commit da
