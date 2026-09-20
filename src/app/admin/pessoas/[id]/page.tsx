@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import {
-  IconAlertCircle, IconCheck, IconFile, IconPaperclip, IconTrash, IconUpload,
+  IconAlertCircle, IconCheck, IconFile, IconId, IconPaperclip, IconTrash, IconUpload,
 } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import {
@@ -95,8 +95,21 @@ export default async function FichaPessoaPage({
       <Abas
         atual={aba}
         abas={[
-          { chave: "dados", rotulo: "Dados cadastrais", href: base },
-          { chave: "anexos", rotulo: "Anexos", href: `${base}?aba=anexos`, contagem: anexos.length },
+          // As duas telas de abas do sistema têm ícone: uma com e outra sem
+          // seriam duas aparências para a mesma coisa.
+          {
+            chave: "dados",
+            rotulo: "Dados cadastrais",
+            href: base,
+            icone: <IconId size={17} className="ti" />,
+          },
+          {
+            chave: "anexos",
+            rotulo: "Anexos",
+            href: `${base}?aba=anexos`,
+            contagem: anexos.length,
+            icone: <IconPaperclip size={17} className="ti" />,
+          },
         ]}
       />
 

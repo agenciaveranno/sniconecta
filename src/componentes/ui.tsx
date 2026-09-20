@@ -282,7 +282,8 @@ export function Abas({
   abas,
 }: {
   atual: string;
-  abas: { chave: string; rotulo: string; href: string; contagem?: number }[];
+  /** O ícone é enfeite acessório: quem lê por leitor de tela ouve só o rótulo. */
+  abas: { chave: string; rotulo: string; href: string; contagem?: number; icone?: ReactNode }[];
 }) {
   return (
     <nav className="sni-abas" aria-label="Seções desta ficha">
@@ -293,6 +294,13 @@ export function Abas({
           className="sni-aba"
           aria-current={a.chave === atual ? "page" : undefined}
         >
+          {/* ⚠️ `aria-hidden` no ícone: sem isso o leitor de tela anuncia o
+              nome do desenho antes do rótulo, e "foto foto" não ajuda ninguém. */}
+          {a.icone && (
+            <span className="sni-aba-icone" aria-hidden="true">
+              {a.icone}
+            </span>
+          )}
           {a.rotulo}
           {a.contagem !== undefined && a.contagem > 0 && (
             <span className="sni-aba-contagem num">{a.contagem}</span>
@@ -533,13 +541,21 @@ export function TituloPagina({
           <span aria-hidden="true">←</span> {voltar.texto}
         </Link>
       )}
-      <div className="sni-page-head-linha">
-        <div className="grow">
-          <h1 className="t-page">{titulo ?? children}</h1>
-          {descricao && <p className="t-support">{descricao}</p>}
+      {/* ⚠️ Sem título, NÃO se desenha o <h1>. Um cabeçalho vazio continua
+          existindo na árvore de acessibilidade: quem navega por títulos cai
+          num que não diz nada. A página que já se identifica na barra de cima
+          passa só a seta de voltar, e é isso que ela mostra. */}
+      {(titulo ?? children ?? descricao ?? acao) !== undefined && (
+        <div className="sni-page-head-linha">
+          <div className="grow">
+            {(titulo ?? children) !== undefined && (
+              <h1 className="t-page">{titulo ?? children}</h1>
+            )}
+            {descricao && <p className="t-support">{descricao}</p>}
+          </div>
+          {acao && <div className="page-actions">{acao}</div>}
         </div>
-        {acao && <div className="page-actions">{acao}</div>}
-      </div>
+      )}
     </header>
   );
 }
