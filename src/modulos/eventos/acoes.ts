@@ -12,6 +12,9 @@ import {
   conferirVenda, FORMAS_BALCAO, tipoDeVenda, totalCobrado, type FormaBalcao,
 } from "@/lib/dominio/venda";
 import { podeEntrar } from "@/lib/dominio/checkin";
+import {
+  podeCancelar, valorAEstornar, type InscricaoParaCancelar,
+} from "@/lib/dominio/estorno";
 import type { InscricaoNaPorta, TipoParaVendaDoBanco } from "./consultas";
 
 /**
@@ -711,4 +714,175 @@ export async function desfazerCheckin(formData: FormData) {
   revalidatePath(ROTA_CHECKIN);
   volta.set("ok", "Entrada desfeita.");
   redirect(`${ROTA_CHECKIN}?${volta}`);
+}
+
+// ─── Cancelamento e estorno ──────────────────────────────────────────────────
+
+const ROTA_ESTORNOS = "/eventos/estornos";
+
+function voltaDeEstorno(busca: string, extra?: [string, string]) {
+  const p = new URLSearchParams();
+  if (busca.trim()) p.set("busca", busca);
+  if (extra) p.set(extra[0], extra[1]);
+  return `${ROTA_ESTORNOS}?${p}`;
+}
+
+/**
+ * Cancela uma inscrição e, quando há dinheiro pago, abre o estorno.
+ *
+ * ⚠️ Cancelar NÃO devolve dinheiro sozinho. Abre uma pendência para a
+ * tesouraria resolver com comprovante: quem opera o balcão não é quem faz a
+ * devolução, e dar baixa nas duas coisas de uma vez faria o sistema afirmar um
+ * pagamento que ninguém fez.
+ *
+ * ⚠️ A vaga volta para o estoque no mesmo instante, sem nenhuma linha extra:
+ * a contagem de disponíveis já ignora inscrição cancelada. É por isso que ela
+ * conta `status <> 'cancelado'` em vez de contar tudo.
+ */
+export async function cancelarInscricao(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.estornos.gerir");
+
+  const id = Number(formData.get("id") ?? 0);
+  const motivo = String(formData.get("motivo") ?? "").trim();
+  const busca = String(formData.get("busca") ?? "");
+
+  const recusar = (mensagem: string): never =>
+    redirect(voltaDeEstorno(busca, ["erro", mensagem]));
+
+  if (!id) recusar("Inscrição não informada.");
+  if (!motivo) recusar("Diga o motivo do cancelamento — ele fica no histórico da pessoa.");
+
+  const sql = conexao();
+  const [linha] = await sql<{
+    status: InscricaoParaCancelar["status"];
+    tipo_venda: string;
+    valor_original_centavos: number;
+    desconto_centavos: number;
+    checkin_em: string | null;
+    nome: string;
+  }[]>`
+    select i.status, i.tipo_venda, i.valor_original_centavos, i.desconto_centavos,
+           i.checkin_em, p.nome
+      from eventos.inscricoes i
+      join public.pessoas p on p.id = i.pessoa_id
+     where i.id = ${id}
+  `;
+  if (!linha) recusar("Inscrição não encontrada.");
+
+  const inscricao: InscricaoParaCancelar = {
+    status: linha.status,
+    tipoVenda: linha.tipo_venda,
+    valorOriginalCentavos: linha.valor_original_centavos,
+    descontoCentavos: linha.desconto_centavos,
+    checkinEm: linha.checkin_em,
+  };
+
+  const veredito = podeCancelar(inscricao);
+  if (!veredito.pode) recusar(veredito.motivo);
+
+  const devolver = valorAEstornar(inscricao);
+
+  // ⚠️ `where status <> 'cancelado'` na própria gravação: dois cliques, ou
+  // duas pessoas na mesma inscrição, não podem reabrir um estorno já aberto e
+  // pôr a mesma devolução duas vezes na fila da tesouraria.
+  const [gravada] = await sql<{ id: number }[]>`
+    update eventos.inscricoes
+       set status = 'cancelado',
+           cancelado_em = now(),
+           cancelado_por = ${eu?.id ?? null},
+           cancelamento_motivo = ${motivo},
+           estorno_status = ${devolver > 0 ? "pendente" : null},
+           atualizado_em = now()
+     where id = ${id} and status <> 'cancelado'
+    returning id
+  `;
+  if (!gravada) recusar("Esta inscrição já estava cancelada.");
+
+  await registrar({
+    atorId: eu?.id,
+    acao: "eventos.inscricao.cancelada",
+    entidade: "eventos.inscricoes",
+    entidadeId: String(id),
+    detalhe: { motivo, estorno_aberto: devolver > 0, valor_centavos: devolver },
+  });
+
+  revalidatePath(ROTA_ESTORNOS);
+  revalidatePath("/eventos");
+  redirect(
+    voltaDeEstorno(busca, [
+      "ok",
+      devolver > 0
+        ? `Inscrição de ${linha.nome} cancelada. Estorno de ${(devolver / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} aberto.`
+        : `Inscrição de ${linha.nome} cancelada. Nada a devolver.`,
+    ])
+  );
+}
+
+/**
+ * Dá baixa no estorno: feito, com comprovante, ou recusado, com motivo.
+ *
+ * ⚠️ O comprovante é OBRIGATÓRIO no "feito". Sem ele, a fila esvazia sem
+ * ninguém conseguir provar depois que a devolução aconteceu — e a pergunta
+ * volta meses depois, quando ninguém lembra.
+ *
+ * ⚠️ O que já estava gravado em `estorno` é MESCLADO, não trocado: a carga
+ * trouxe devoluções do sistema antigo com valor e forma preenchidos, e
+ * sobrescrever apagaria o registro de quem devolveu lá atrás.
+ */
+export async function resolverEstorno(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.estornos.gerir");
+
+  const id = Number(formData.get("id") ?? 0);
+  const situacao = String(formData.get("situacao") ?? "").trim();
+  const comprovante = String(formData.get("comprovante") ?? "").trim();
+  const observacao = String(formData.get("observacao") ?? "").trim();
+  const forma = String(formData.get("forma") ?? "").trim();
+
+  const recusar = (mensagem: string): never =>
+    redirect(voltaDeEstorno("", ["erro", mensagem]));
+
+  if (!id) recusar("Estorno não informado.");
+  if (situacao !== "feito" && situacao !== "recusado") {
+    recusar("Diga se o estorno foi feito ou recusado.");
+  }
+  if (situacao === "feito" && !comprovante) {
+    recusar("Informe o comprovante da devolução — sem ele ninguém prova depois que ela aconteceu.");
+  }
+  if (situacao === "recusado" && !observacao) {
+    recusar("Diga por que o estorno foi recusado.");
+  }
+
+  const sql = conexao();
+  const [gravada] = await sql<{ id: number }[]>`
+    update eventos.inscricoes
+       set estorno_status = ${situacao},
+           estorno = coalesce(estorno, '{}'::jsonb) || ${sql.json({
+             forma: forma || null,
+             comprovante: comprovante || null,
+             observacao: observacao || null,
+             efetuado_em: new Date().toISOString(),
+             efetuado_por: eu?.id ?? null,
+           })},
+           atualizado_em = now()
+     where id = ${id} and estorno_status = 'pendente'
+    returning id
+  `;
+  // Sem linha: outra pessoa da tesouraria resolveu entre a tela e o clique.
+  if (!gravada) recusar("Este estorno já tinha sido resolvido por outra pessoa.");
+
+  await registrar({
+    atorId: eu?.id,
+    acao: situacao === "feito" ? "eventos.estorno.feito" : "eventos.estorno.recusado",
+    entidade: "eventos.inscricoes",
+    entidadeId: String(id),
+    detalhe: { forma: forma || null, comprovante: comprovante || null },
+  });
+
+  revalidatePath(ROTA_ESTORNOS);
+  redirect(
+    voltaDeEstorno("", [
+      "ok",
+      situacao === "feito" ? "Estorno registrado como feito." : "Estorno registrado como recusado.",
+    ])
+  );
 }
