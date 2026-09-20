@@ -651,3 +651,62 @@ export async function inscricoesParaCancelar(termo: string): Promise<InscricaoPa
     limit 50
   `;
 }
+
+// ─── Cupons ──────────────────────────────────────────────────────────────────
+
+export type CupomDoEvento = {
+  id: number;
+  codigo: string;
+  descricao: string | null;
+  tipo: "percentual" | "valor";
+  valor: number;
+  ingresso_tipo_id: number | null;
+  ingresso_tipo_nome: string | null;
+  max_usos_total: number | null;
+  max_usos_por_cpf: number | null;
+  vigencia_inicio: string | null;
+  vigencia_fim: string | null;
+  ativo: boolean;
+  /** Quantas inscrições vivas já usaram. É o que "esgotou" mede. */
+  usos: number;
+};
+
+/**
+ * ⚠️ `vigencia_inicio` e `vigencia_fim` voltam no fuso de Brasília, prontas
+ * para `datetime-local` — mesma razão da janela de venda do ingresso: gravadas
+ * cruas, seriam lidas como UTC e o cupom passaria a valer três horas antes do
+ * que a Sede combinou.
+ *
+ * ⚠️ `usos` conta inscrição NÃO cancelada. Contar tudo faria um cupom de cem
+ * usos esgotar com noventa cancelamentos, e ninguém entenderia por quê.
+ */
+export async function cuponsDoEvento(eventoId: number): Promise<CupomDoEvento[]> {
+  const sql = conexao();
+  return sql<CupomDoEvento[]>`
+    select
+      c.id, c.codigo, c.descricao, c.tipo, c.valor,
+      c.ingresso_tipo_id, t.nome as ingresso_tipo_nome,
+      c.max_usos_total, c.max_usos_por_cpf,
+      to_char(c.vigencia_inicio at time zone ${FUSO}, 'YYYY-MM-DD"T"HH24:MI') as vigencia_inicio,
+      to_char(c.vigencia_fim    at time zone ${FUSO}, 'YYYY-MM-DD"T"HH24:MI') as vigencia_fim,
+      c.ativo,
+      count(i.id) filter (where i.status <> 'cancelado')::int as usos
+    from eventos.cupons c
+    left join eventos.ingresso_tipos t on t.id = c.ingresso_tipo_id
+    left join eventos.inscricoes i on i.cupom_id = c.id
+    where c.evento_id = ${eventoId}
+    group by c.id, t.nome
+    order by c.ativo desc, c.codigo
+  `;
+}
+
+/** Os tipos de ingresso a que um cupom pode ser preso, para o seletor. */
+export async function tiposParaCupom(
+  eventoId: number
+): Promise<{ id: number; nome: string }[]> {
+  const sql = conexao();
+  return sql<{ id: number; nome: string }[]>`
+    select id, nome from eventos.ingresso_tipos
+     where evento_id = ${eventoId} order by papel desc, nome
+  `;
+}

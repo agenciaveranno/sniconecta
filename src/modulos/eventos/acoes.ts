@@ -7,10 +7,11 @@ import { z } from "zod";
 import { exigirCapacidade } from "@/lib/auth";
 import { conexao } from "@/lib/db";
 import { registrar } from "@/lib/auditoria";
-import { centavosDe } from "@/lib/dominio/dinheiro";
+import { centavosDe, ratear } from "@/lib/dominio/dinheiro";
 import {
   conferirVenda, FORMAS_BALCAO, tipoDeVenda, totalCobrado, type FormaBalcao,
 } from "@/lib/dominio/venda";
+import { conferirCupom, normalizarCodigo, type Cupom } from "@/lib/dominio/cupom";
 import { podeEntrar } from "@/lib/dominio/checkin";
 import {
   podeCancelar, valorAEstornar, type InscricaoParaCancelar,
@@ -210,8 +211,8 @@ function rotaDoEvento(id: number, aba = "ingressos") {
   return `/eventos/admin/${id}?aba=${aba}`;
 }
 
-function falharNoEvento(eventoId: number, mensagem: string): never {
-  redirect(`${rotaDoEvento(eventoId)}&erro=${encodeURIComponent(mensagem)}`);
+function falharNoEvento(eventoId: number, mensagem: string, aba = "ingressos"): never {
+  redirect(`${rotaDoEvento(eventoId, aba)}&erro=${encodeURIComponent(mensagem)}`);
 }
 
 /** Campo numérico opcional: vazio vira null, e ZERO continua sendo zero. */
@@ -450,6 +451,7 @@ export async function venderNoBalcao(formData: FormData) {
   const pessoaId = String(formData.get("pessoa_id") ?? "").trim();
   const formaBruta = String(formData.get("forma") ?? "").trim();
   const observacao = String(formData.get("observacao") ?? "").trim() || null;
+  const codigoCupom = normalizarCodigo(String(formData.get("cupom") ?? ""));
 
   // Preserva o contexto na volta: quem errou o troco não quer refazer a busca.
   const volta = new URLSearchParams();
@@ -525,7 +527,49 @@ export async function venderNoBalcao(formData: FormData) {
       // concatenada vira um parágrafo ilegível no alto da tela.
       if (conferido.erros.length > 0) throw new RecusaDeVenda(conferido.erros[0]);
 
-      total = totalCobrado(forma, conferido.totalCentavos);
+      // ⚠️ O cupom é conferido DENTRO da transação, como o estoque: os limites
+      // de uso são disputados do mesmo jeito. Duas vendas simultâneas com o
+      // último uso de um cupom leriam as duas "resta 1" se a conta ficasse
+      // fora daqui.
+      let cupomId: number | null = null;
+      let descontoTotal = 0;
+      // Nulo = o cupom vale para qualquer ingresso do evento.
+      let cupomAlcanca: number | null = null;
+
+      if (codigoCupom) {
+        const [cupom] = await tx<Cupom[]>`
+          select id, codigo, tipo, valor, ingresso_tipo_id, max_usos_total,
+                 max_usos_por_cpf, vigencia_inicio, vigencia_fim, ativo
+            from eventos.cupons
+           where evento_id = ${eventoId} and lower(codigo) = lower(${codigoCupom})
+             for update
+        `;
+        if (!cupom) throw new RecusaDeVenda(`Não existe o cupom ${codigoCupom} neste evento.`);
+
+        const [usos] = await tx<{ total: number; desta: number }[]>`
+          select
+            count(*) filter (where status <> 'cancelado')::int as total,
+            count(*) filter (where status <> 'cancelado' and pessoa_id = ${pessoaId})::int as desta
+          from eventos.inscricoes where cupom_id = ${cupom.id}
+        `;
+
+        const veredito = conferirCupom(
+          cupom,
+          conferido.itens.map((i) => ({
+            tipoId: i.tipo.id,
+            quantidade: i.quantidade,
+            valorCentavos: i.tipo.valor_centavos,
+          })),
+          { agora: new Date(), usosTotais: usos?.total ?? 0, usosDestaPessoa: usos?.desta ?? 0 }
+        );
+        if (!veredito.vale) throw new RecusaDeVenda(veredito.motivo);
+
+        cupomId = cupom.id;
+        cupomAlcanca = cupom.ingresso_tipo_id;
+        descontoTotal = veredito.descontoCentavos;
+      }
+
+      total = totalCobrado(forma, conferido.totalCentavos - descontoTotal);
       const venda = tipoDeVenda(forma);
       // ⚠️ Balcão grava PAGO: o dinheiro já está na mão de quem vendeu. Deixar
       // pendente faria o check-in recusar quem acabou de pagar na frente do
@@ -538,29 +582,48 @@ export async function venderNoBalcao(formData: FormData) {
       // segundo", que é adivinhação.
       const grupo = randomUUID();
 
-      const linhas = conferido.itens.flatMap(({ tipo, quantidade }) =>
+      // UMA linha por ingresso: cada uma tem o seu QR, entra sozinha no
+      // check-in e se estorna sem mexer nas outras.
+      const cruas = conferido.itens.flatMap(({ tipo, quantidade }) =>
         Array.from({ length: quantidade }, () => ({
-          compra_grupo_id: grupo,
-          pessoa_id: pessoaId,
-          evento_id: eventoId,
-          ingresso_tipo_id: tipo.id,
-          comprador_id: pessoaId,
-          tipo_venda: venda,
-          status,
-          forma_pagamento: forma,
-          valor_original_centavos: venda === "cortesia" ? 0 : tipo.valor_centavos,
-          cortesia_motivo: venda === "cortesia" ? observacao : null,
-          observacao: venda === "cortesia" ? null : observacao,
-          data_compra: new Date().toISOString(),
+          valor: venda === "cortesia" ? 0 : tipo.valor_centavos,
+          tipoId: tipo.id,
         }))
       );
+
+      // ⚠️ O desconto é REPARTIDO entre as linhas que o cupom alcança, e a
+      // soma das partes fecha com o total exato. Gravá-lo inteiro na primeira
+      // linha faria o estorno de UM ingresso devolver o desconto do pedido
+      // todo — e cancelar as outras devolveria mais do que entrou.
+      const alcanca = (tipoId: number) =>
+        !cupomAlcanca || cupomAlcanca === tipoId;
+      const pesos = cruas.map((l) => (alcanca(l.tipoId) ? l.valor : 0));
+      const descontos = ratear(descontoTotal, pesos);
+
+      const linhas = cruas.map((l, idx) => ({
+        compra_grupo_id: grupo,
+        pessoa_id: pessoaId,
+        evento_id: eventoId,
+        ingresso_tipo_id: l.tipoId,
+        comprador_id: pessoaId,
+        cupom_id: cupomId,
+        tipo_venda: venda,
+        status,
+        forma_pagamento: forma,
+        valor_original_centavos: l.valor,
+        desconto_centavos: descontos[idx] ?? 0,
+        cortesia_motivo: venda === "cortesia" ? observacao : null,
+        observacao: venda === "cortesia" ? null : observacao,
+        data_compra: new Date().toISOString(),
+      }));
       quantasLinhas = linhas.length;
 
       await tx`
         insert into eventos.inscricoes ${tx(
           linhas,
-          "compra_grupo_id", "pessoa_id", "evento_id", "ingresso_tipo_id", "comprador_id", "tipo_venda",
-          "status", "forma_pagamento", "valor_original_centavos", "cortesia_motivo",
+          "compra_grupo_id", "pessoa_id", "evento_id", "ingresso_tipo_id", "comprador_id",
+          "cupom_id", "tipo_venda", "status", "forma_pagamento",
+          "valor_original_centavos", "desconto_centavos", "cortesia_motivo",
           "observacao", "data_compra"
         )}
       `;
@@ -884,5 +947,165 @@ export async function resolverEstorno(formData: FormData) {
       "ok",
       situacao === "feito" ? "Estorno registrado como feito." : "Estorno registrado como recusado.",
     ])
+  );
+}
+
+// ─── Cupons ──────────────────────────────────────────────────────────────────
+
+/**
+ * ⚠️ A recusa do índice único vira frase sobre a consequência. O índice usa
+ * `lower(codigo)`, então "VERAO10" e "verao10" colidem — e é isso que a
+ * mensagem precisa explicar, porque quem cadastrou vê dois códigos diferentes
+ * na tela.
+ */
+function traduzirCupom(mensagem: string): string {
+  if (mensagem.includes("uq_cupom_codigo")) {
+    return "Já existe um cupom com esse código neste evento. O código não distingue maiúscula de minúscula.";
+  }
+  if (mensagem.includes("percentual_ate_cem")) {
+    return "Desconto percentual vai até 100%. Para desconto em reais, troque o tipo.";
+  }
+  if (mensagem.includes("cupom_codigo_nao_vazio")) {
+    return "Dê um código ao cupom — é o que a pessoa digita.";
+  }
+  if (mensagem.includes("cupons_valor_check") || mensagem.includes("valor >= 0")) {
+    return "O desconto não pode ser negativo.";
+  }
+  return mensagem;
+}
+
+const schemaCupom = z.object({
+  codigo: z.string().trim().min(2, "Dê um código ao cupom — é o que a pessoa digita."),
+  descricao: z.string().trim().optional().transform((v) => v || null),
+  tipo: z.enum(["percentual", "valor"]),
+});
+
+function camposDoCupom(formData: FormData) {
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  if (!eventoId) falhar("Evento não informado.");
+
+  const dados = schemaCupom.safeParse(Object.fromEntries(formData));
+  if (!dados.success) falharNoEvento(eventoId, dados.error.issues[0].message);
+
+  // ⚠️ Percentual é inteiro de 0 a 100; valor é DINHEIRO e passa por
+  // `centavosDe`. Ler os dois do mesmo jeito gravaria "10" como dez centavos
+  // num cupom de dez reais.
+  const bruto = String(formData.get("valor") ?? "").trim();
+  const valor =
+    dados.data.tipo === "percentual"
+      ? Math.trunc(Number(bruto.replace(",", ".")) || 0)
+      : (centavosDe(bruto) ?? 0);
+
+  return {
+    eventoId,
+    ...dados.data,
+    codigo: normalizarCodigo(dados.data.codigo),
+    valor,
+    ingresso_tipo_id: inteiroOuNulo(formData.get("ingresso_tipo_id")),
+    max_usos_total: inteiroOuNulo(formData.get("max_usos_total")),
+    max_usos_por_cpf: inteiroOuNulo(formData.get("max_usos_por_cpf")),
+    vigencia_inicio: quandoOuNulo(formData.get("vigencia_inicio")),
+    vigencia_fim: quandoOuNulo(formData.get("vigencia_fim")),
+  };
+}
+
+export async function criarCupom(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.gerir");
+  const c = camposDoCupom(formData);
+
+  const sql = conexao();
+  try {
+    const [criado] = await sql<{ id: number }[]>`
+      insert into eventos.cupons
+        (evento_id, codigo, descricao, tipo, valor, ingresso_tipo_id,
+         max_usos_total, max_usos_por_cpf, vigencia_inicio, vigencia_fim)
+      values
+        (${c.eventoId}, ${c.codigo}, ${c.descricao}, ${c.tipo}, ${c.valor},
+         ${c.ingresso_tipo_id}, ${c.max_usos_total}, ${c.max_usos_por_cpf},
+         ${c.vigencia_inicio}::timestamp at time zone ${FUSO},
+         ${c.vigencia_fim}::timestamp at time zone ${FUSO})
+      returning id
+    `;
+    await registrar({
+      atorId: eu?.id,
+      acao: "eventos.cupom.criado",
+      entidade: "eventos.cupons",
+      entidadeId: String(criado?.id ?? ""),
+      detalhe: { evento_id: c.eventoId, codigo: c.codigo, tipo: c.tipo, valor: c.valor },
+    });
+  } catch (e) {
+    falharNoEvento(c.eventoId, traduzirCupom(e instanceof Error ? e.message : String(e)), "cupons");
+  }
+
+  revalidatePath(rotaDoEvento(c.eventoId, "cupons"));
+  redirect(`${rotaDoEvento(c.eventoId, "cupons")}&ok=${encodeURIComponent("Cupom cadastrado.")}`);
+}
+
+export async function editarCupom(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.gerir");
+  const c = camposDoCupom(formData);
+
+  const id = Number(formData.get("id") ?? 0);
+  if (!id) falharNoEvento(c.eventoId, "Cupom não informado.", "cupons");
+
+  const sql = conexao();
+  try {
+    await sql`
+      update eventos.cupons set
+        codigo = ${c.codigo}, descricao = ${c.descricao},
+        tipo = ${c.tipo}, valor = ${c.valor},
+        ingresso_tipo_id = ${c.ingresso_tipo_id},
+        max_usos_total = ${c.max_usos_total},
+        max_usos_por_cpf = ${c.max_usos_por_cpf},
+        vigencia_inicio = ${c.vigencia_inicio}::timestamp at time zone ${FUSO},
+        vigencia_fim = ${c.vigencia_fim}::timestamp at time zone ${FUSO}
+      where id = ${id} and evento_id = ${c.eventoId}
+    `;
+    await registrar({
+      atorId: eu?.id,
+      acao: "eventos.cupom.editado",
+      entidade: "eventos.cupons",
+      entidadeId: String(id),
+      detalhe: { evento_id: c.eventoId, codigo: c.codigo },
+    });
+  } catch (e) {
+    falharNoEvento(c.eventoId, traduzirCupom(e instanceof Error ? e.message : String(e)), "cupons");
+  }
+
+  revalidatePath(rotaDoEvento(c.eventoId, "cupons"));
+  redirect(`${rotaDoEvento(c.eventoId, "cupons")}&ok=${encodeURIComponent("Cupom salvo.")}`);
+}
+
+/**
+ * Desativa em vez de apagar.
+ *
+ * ⚠️ `inscricoes.cupom_id` é `on delete set null`: apagar o cupom não derruba
+ * a inscrição, mas APAGA a explicação de por que ela saiu mais barata. O
+ * desconto continua gravado e ninguém mais sabe de onde veio.
+ */
+export async function alternarCupomAtivo(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.gerir");
+
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  const id = Number(formData.get("id") ?? 0);
+  const ativo = formData.get("ativo") === "true";
+  if (!eventoId) falhar("Evento não informado.");
+  if (!id) falharNoEvento(eventoId, "Cupom não informado.", "cupons");
+
+  const sql = conexao();
+  await sql`update eventos.cupons set ativo = ${!ativo} where id = ${id} and evento_id = ${eventoId}`;
+  await registrar({
+    atorId: eu?.id,
+    acao: ativo ? "eventos.cupom.desativado" : "eventos.cupom.reativado",
+    entidade: "eventos.cupons",
+    entidadeId: String(id),
+    detalhe: { evento_id: eventoId },
+  });
+
+  revalidatePath(rotaDoEvento(eventoId, "cupons"));
+  redirect(
+    `${rotaDoEvento(eventoId, "cupons")}&ok=${encodeURIComponent(
+      ativo ? "Cupom desativado." : "Cupom reativado."
+    )}`
   );
 }
