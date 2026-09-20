@@ -23,7 +23,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           </p>
         </div>
 
-        <form action={entrar} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <form action={entrar} className="sni-form">
           <input type="hidden" name="voltar" value={voltar ?? ""} />
           <Campo label="CPF, passaporte ou e-mail" htmlFor="identificador">
             <div className="sni-input-icon-wrap">

@@ -300,18 +300,55 @@
   gap: 16px; flex-wrap: wrap; margin-top: 16px;
 }
 
+/* ⚠️ O RITMO DO FORMULÁRIO MORA AQUI, e é um só: 16px entre blocos, que é o
+   mesmo vão do `.form-grid` do design system. Assim a distância entre dois
+   campos lado a lado e entre dois campos empilhados é idêntica, e o formulário
+   lê como uma grade só em vez de duas.
+
+   Sem esta regra os blocos se encostam: o corpo do modal empilhava os filhos
+   sem vão nenhum, e só quem estava dentro de um `.form-grid` respirava — por
+   isso o rótulo de um bloco nascia colado no campo do bloco anterior. Cada
+   tela resolvia por conta própria com `style={{ display: "grid", gap: 16 }}`,
+   que é a mesma dívida em quatro cópias. */
+.sni-modal-body,
+.sni-form { display: grid; gap: 16px; align-content: start; }
+/* Formulário de uma coluna só — troca de senha, por exemplo. Campo largo
+   demais para o que se digita parece campo de outra coisa. */
+.sni-form-estreito { max-width: 420px; }
+
 /* Grupo de campos: separa blocos de um formulário longo sem abrir um card
    dentro do modal — vidro sobre vidro é proibido, e caixa dentro de caixa
-   confunde o que é conteúdo e o que é moldura. Uma régua acima basta. */
+   confunde o que é conteúdo e o que é moldura. Uma régua acima basta.
+
+   A régua precisa de ar dos dois lados, senão ela vira sublinhado do campo de
+   cima e risco sobre o título de baixo: 8px somados aos 16px do vão dão 24px
+   acima dela, e 24px de `padding-top` abaixo. */
 .sni-grupo-campos {
-  border: none; padding: 0; margin: 8px 0 0;
-  border-top: 1px solid var(--line-soft); padding-top: 20px;
+  border: none; padding: 0; margin: 0;
   display: grid; gap: 16px;
 }
+/* ⚠️ A RÉGUA É DA LEGENDA, não do fieldset — e isto não é preferência.
+   Borda no fieldset é desenhada ATRÁS da legenda, que o navegador encaixa
+   dentro dela: a linha abre um rombo e o título fica grudado nela, que foi
+   exatamente como "Endereço" apareceu. Com a borda na própria legenda em
+   largura cheia, a régua fica inteira e o título nasce abaixo dela.
+   ⚠️ E não use `float` para tirar a legenda da borda: dentro de um container
+   `grid` o float sai do fluxo sem afastar as linhas da grade, e o título passa
+   a sobrepor o primeiro campo em quem implementa a regra à risca. */
 .sni-grupo-campos-legenda {
-  padding: 0; font-size: 15px; font-weight: 700; color: var(--txt-2);
+  width: 100%;
+  /* ⚠️ A margem de baixo é obrigatória: a legenda NÃO é item da grade, então o
+     `gap` do grupo não vale para ela — sem esta linha o título encosta no
+     primeiro campo. */
+  padding: 24px 0 0; margin: 8px 0 16px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 15px; font-weight: 700; color: var(--txt-2);
 }
 .sni-grupo-campos-apoio { margin-top: -8px; }
+
+/* O outro título de seção do sistema segue o mesmo ritmo: ar antes dele
+   quando há conteúdo acima, e nenhum quando ele abre o bloco. */
+.sni-section-eyebrow:not(:first-child) { margin-top: 8px; }
 
 .sni-section-head { display: flex; align-items: center; gap: 12px; margin: 32px 0 16px; }
 .sni-section-head:first-child { margin-top: 0; }
@@ -433,7 +470,9 @@ dialog.sni-modal::backdrop {
 
 /* Rodapé de formulário em PÁGINA (a ficha da pessoa). O modal tem o seu; aqui
    os botões precisam de um lugar próprio, alinhados à direita como lá. */
+/* Mesmo ritmo da régua do grupo de campos: 8px somados ao vão do formulário
+   acima da linha, 24px abaixo dela. */
 .sni-form-rodape {
   display: flex; justify-content: flex-end; gap: 10px;
-  padding-top: 20px; margin-top: 8px; border-top: 1px solid var(--line);
+  padding-top: 24px; margin-top: 8px; border-top: 1px solid var(--line);
 }

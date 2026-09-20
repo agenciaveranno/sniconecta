@@ -41,7 +41,7 @@ export default async function ConfiguracoesPage({
           nenhuma se perde, mas nenhuma chega.
         </p>
 
-        <form action={salvarSmtp} style={{ display: "grid", gap: 16 }}>
+        <form action={salvarSmtp} className="sni-form">
           <div className="form-grid">
             <Campo label="Servidor" obrigatorio dica="O host SMTP do provedor.">
               <Input name="host" defaultValue={p?.host ?? ""} required maxLength={150} placeholder="smtp.provedor.com.br" />

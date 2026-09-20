@@ -41,7 +41,7 @@ export default async function NovaPessoaPage({
 
       <Recado erro={erro} />
 
-      <form action={criarPessoa}>
+      <form action={criarPessoa} className="sni-form">
         <CamposPessoa unidades={associacoes ?? []} />
         <div className="sni-form-rodape">
           <BotaoLink href="/admin/pessoas" variante="secondary">
