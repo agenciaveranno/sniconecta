@@ -2,95 +2,27 @@ import { IconCalendarEvent, IconPlus } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
-  Badge, Campo, Celula, Etiqueta, Input, Linha, Recado, Select, Tabela, TituloPagina, Vazio,
+  AcaoLink, Badge, Celula, Etiqueta, Linha, Recado, Tabela, TituloPagina, Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { dataBR } from "@/lib/dominio/data";
-import {
-  eventosParaEdicao, locaisAtivos, opcoesDePromotor,
-  type EventoParaEdicao, type OpcaoPromotor,
-} from "@/modulos/eventos/consultas";
-import { alternarEventoAtivo, criarEvento, editarEvento } from "@/modulos/eventos/acoes";
+import { eventosParaEdicao, locaisAtivos, opcoesDePromotor } from "@/modulos/eventos/consultas";
+import { alternarEventoAtivo, criarEvento } from "@/modulos/eventos/acoes";
+import CamposEvento from "./CamposEvento";
 
 export const metadata = { title: "Eventos e convites" };
 
 /**
- * Cadastro de eventos.
+ * A lista de eventos. Cada um abre na página dele.
  *
- * ⚠️ Modal, e não página: o evento em si é um punhado de campos — nome, duas
- * datas, onde acontece e quem promove. O que vai virar página é o EVENTO por
- * dentro, quando os tipos de ingresso, os campos da compra e a comissão
- * entrarem (decisão 0019 dá o critério: dois entre muitos campos, upload, mais
- * de um assunto, e URL própria).
+ * ⚠️ CRIAR continua em modal: nascer é um punhado de campos — nome, duas
+ * datas, onde acontece e quem promove —, e quem cadastra três eventos seguidos
+ * não pode ter de navegar para outra tela e voltar três vezes.
+ *
+ * EDITAR virou página com abas (decisão 0020). Era o que o comentário daqui
+ * previa quando os tipos de ingresso entrassem: eles entraram, e com eles o
+ * evento passou a ter mais de um assunto dentro e endereço próprio.
  */
-
-/** Os campos do evento, no modal de criar e no de editar — nunca dois jeitos. */
-function CamposEvento({
-  evento,
-  locais,
-  promotores,
-}: {
-  evento?: EventoParaEdicao;
-  locais: { id: string; nome: string }[];
-  promotores: OpcaoPromotor[];
-}) {
-  // Agrupa por Departamentos / Unidades / Locais, na ordem que a consulta deu.
-  const grupos = [...new Set(promotores.map((p) => p.grupo))];
-
-  return (
-    <>
-      {evento && <input type="hidden" name="id" value={evento.id} />}
-
-      <Campo label="Nome" obrigatorio>
-        <Input name="nome" defaultValue={evento?.nome ?? ""} required maxLength={200} />
-      </Campo>
-
-      <div className="form-grid">
-        <Campo label="Começa em" obrigatorio>
-          <Input name="data_inicial" type="date" defaultValue={evento?.data_inicial ?? ""} required />
-        </Campo>
-        <Campo label="Termina em" obrigatorio>
-          <Input name="data_final" type="date" defaultValue={evento?.data_final ?? ""} required />
-        </Campo>
-      </div>
-
-      <Campo label="Onde acontece">
-        <Select name="local" defaultValue={evento?.local_id ?? ""}>
-          <option value="">A definir</option>
-          {locais.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.nome}
-            </option>
-          ))}
-        </Select>
-      </Campo>
-
-      {/* ⚠️ UM campo para o promotor, embora sejam três colunas no banco. Um
-          seletor por coluna deixaria preencher duas, e o banco recusaria
-          depois de tudo preenchido. A lista traz só quem recebe em conta
-          própria: promotor é quem diz em que conta o dinheiro cai. */}
-      <Campo
-        label="Quem promove"
-        dica="Define em qual conta Cielo o dinheiro do evento cai. Sem promotor, o evento não vende."
-      >
-        <Select name="promotor" defaultValue={evento?.promotor ?? ""}>
-          <option value="">A definir</option>
-          {grupos.map((g) => (
-            <optgroup key={g} label={g}>
-              {promotores
-                .filter((p) => p.grupo === g)
-                .map((p) => (
-                  <option key={p.valor} value={p.valor}>
-                    {p.nome}
-                  </option>
-                ))}
-            </optgroup>
-          ))}
-        </Select>
-      </Campo>
-    </>
-  );
-}
 
 export default async function EventosAdminPage({
   searchParams,
@@ -153,14 +85,11 @@ export default async function EventosAdminPage({
               </Celula>
               <Celula alinhar="right">
                 <span style={{ display: "inline-flex", gap: 4, justifyContent: "flex-end" }}>
-                  <ModalCadastro
-                    gatilho="link"
-                    rotulo="Editar"
-                    titulo={`Editar ${e.nome}`}
-                    acao={editarEvento}
-                  >
-                    <CamposEvento evento={e} locais={locais} promotores={promotores} />
-                  </ModalCadastro>
+                  {/* ⚠️ LINK, não modal. Editar virou página com abas
+                      (decisão 0020): é lá que moram os tipos de ingresso, sem
+                      os quais o evento não vende. Criar continua em modal, logo
+                      acima — nascer é um punhado de campos. */}
+                  <AcaoLink href={`/eventos/admin/${e.id}`}>Abrir</AcaoLink>
                   <form action={alternarEventoAtivo}>
                     <input type="hidden" name="id" value={e.id} />
                     <input type="hidden" name="ativo" value={String(e.ativo)} />

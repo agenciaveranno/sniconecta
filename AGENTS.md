@@ -113,8 +113,9 @@ Regras completas em `docs/design-system.md`. As que mais se erram:
 - Cor, raio, sombra e tamanho vêm dos tokens. Precisou de algo que não
   existe: crie o primitivo em `ui.tsx` ou pergunte antes de inventar.
 - Cadastro acontece em modal. Esc e clique fora não fecham.
-  **Exceções registradas: a ficha da pessoa (0015) e a unidade (0019) são
-  páginas com abas** — nas duas, CRIAR continua em modal e só EDITAR é página.
+  **Exceções registradas: a ficha da pessoa (0015), a unidade (0019) e o evento
+  (0020) são páginas com abas** — nas três, CRIAR continua em modal e só EDITAR
+  é página.
   Vira página quem tiver duas destas: mais de ~15 campos, upload de arquivo,
   mais de um assunto dentro, ou necessidade de URL própria.
 - **Campo de senha nunca divide formulário com campo de e-mail.** O navegador
