@@ -150,3 +150,97 @@ export async function locaisAtivos(): Promise<{ id: string; nome: string }[]> {
     select id, nome from public.locais where ativo order by nome
   `;
 }
+
+// ─── Tipos de ingresso ───────────────────────────────────────────────────────
+
+/**
+ * ⚠️ FUSO NOMEADO, e não deslocamento escrito à mão.
+ *
+ * `venda_inicio` e `venda_fim` são `timestamptz`, e a conexão não fixa fuso —
+ * o padrão do Supabase é UTC. Um `datetime-local` chega como "2026-09-20T10:00",
+ * sem fuso: gravado cru, o Postgres o leria como 10h UTC, e a venda que a Sede
+ * marcou para as 10h abriria às 7h da manhã em Brasília, sem erro nenhum
+ * aparecer.
+ *
+ * `at time zone 'America/Sao_Paulo'` nomeia a zona em vez de fixar `-03:00`:
+ * o Brasil não tem horário de verão desde 2019, mas se voltar a ter, quem
+ * acerta é o banco, e não uma constante nossa que ninguém lembraria de mudar.
+ */
+const FUSO = "America/Sao_Paulo";
+
+export type TipoDeIngresso = {
+  id: number;
+  nome: string;
+  descricao: string | null;
+  valor_centavos: number;
+  max_parcelas: number;
+  /** Nulo = sem limite. Zero é limite de verdade: esgotado. */
+  quantidade: number | null;
+  /** "AAAA-MM-DDTHH:MM" no fuso de Brasília, pronto para `datetime-local`. */
+  venda_inicio: string | null;
+  venda_fim: string | null;
+  idade_min: number | null;
+  idade_max: number | null;
+  unico_por_cpf: boolean;
+  papel: "principal" | "adicional";
+  exige_principal: boolean;
+  exibir_venda_publica: boolean;
+  ativo: boolean;
+  /** Quantas inscrições já apontam para este tipo — o que impede apagar. */
+  vendidos: number;
+};
+
+export async function tiposDeIngresso(eventoId: number): Promise<TipoDeIngresso[]> {
+  const sql = conexao();
+  return sql<TipoDeIngresso[]>`
+    select
+      t.id, t.nome, t.descricao, t.valor_centavos, t.max_parcelas, t.quantidade,
+      to_char(t.venda_inicio at time zone ${FUSO}, 'YYYY-MM-DD"T"HH24:MI') as venda_inicio,
+      to_char(t.venda_fim    at time zone ${FUSO}, 'YYYY-MM-DD"T"HH24:MI') as venda_fim,
+      t.idade_min, t.idade_max, t.unico_por_cpf, t.papel, t.exige_principal,
+      t.exibir_venda_publica, t.ativo,
+      count(i.id) filter (where i.status <> 'cancelado')::int as vendidos
+    from eventos.ingresso_tipos t
+    left join eventos.inscricoes i on i.ingresso_tipo_id = t.id
+    where t.evento_id = ${eventoId}
+    group by t.id
+    order by t.papel desc, t.nome
+  `;
+}
+
+export type EventoDaPagina = {
+  id: number;
+  nome: string;
+  data_inicial: string;
+  data_final: string;
+  local_id: string | null;
+  ativo: boolean;
+  promotor: string;
+  /** Sem promotor o evento não vende — a página precisa dizer isso. */
+  promotor_nome: string | null;
+};
+
+/** Um evento só, para a página dele. `null` quando o id não existe. */
+export async function eventoDaPagina(id: number): Promise<EventoDaPagina | null> {
+  const sql = conexao();
+  const [linha] = await sql<EventoDaPagina[]>`
+    select
+      e.id, e.nome, e.data_inicial, e.data_final, e.local_id, e.ativo,
+      coalesce(
+        case when e.promotor_organizacao_id is not null
+             then 'organizacao:' || e.promotor_organizacao_id end,
+        case when e.promotor_unidade_id is not null
+             then 'unidade:' || e.promotor_unidade_id end,
+        case when e.promotor_local_id is not null
+             then 'local:' || e.promotor_local_id end,
+        ''
+      ) as promotor,
+      coalesce(o.nome, u.nome, pl.nome) as promotor_nome
+    from eventos.eventos e
+    left join public.organizacoes o  on o.id  = e.promotor_organizacao_id
+    left join public.unidades     u  on u.id  = e.promotor_unidade_id
+    left join public.locais       pl on pl.id = e.promotor_local_id
+    where e.id = ${id}
+  `;
+  return linha ?? null;
+}
