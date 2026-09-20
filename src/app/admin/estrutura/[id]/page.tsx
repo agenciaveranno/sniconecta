@@ -1,15 +1,14 @@
 import { notFound } from "next/navigation";
-import { IconCamera, IconUsersGroup } from "@tabler/icons-react";
+import { IconCamera, IconCreditCard, IconId, IconPhoto, IconUsersGroup } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import CamposCielo from "@/componentes/CamposCielo";
 import {
-  Abas, Botao, BotaoLink, Num, Recado, TituloPagina, Vazio,
+  Abas, Botao, BotaoLink, Recado, TituloPagina, Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina, pessoaAtual } from "@/lib/auth";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import { contasCieloVisiveis } from "@/lib/credenciais";
-import { formatarCnpj } from "@/lib/dominio/cnpj";
 import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
 import CamposUnidade from "../CamposUnidade";
 import { editarUnidade, salvarPagamentoUnidade } from "../actions";
@@ -32,11 +31,16 @@ import { editarUnidade, salvarPagamentoUnidade } from "../actions";
  * senhas oferecia o par e trocava os dois campos sem ninguém pedir.
  */
 
-/** De qual lista esta unidade veio — é para lá que o "voltar" aponta. */
+/**
+ * De qual lista esta unidade veio — é para lá que o "voltar" aponta.
+ *
+ * O texto diz "Todas as", e não só o nome da lista, porque a seta é a única
+ * coisa no cabeçalho: sem o "todas", ela parece levar de volta a uma Regional.
+ */
 const LISTA: Record<string, { href: string; texto: string }> = {
-  regional: { href: "/admin/regionais", texto: "Regionais" },
-  nucleo: { href: "/admin/nucleos", texto: "Núcleos" },
-  associacao_local: { href: "/admin/associacoes", texto: "Associações Locais" },
+  regional: { href: "/admin/regionais", texto: "Todas as Regionais" },
+  nucleo: { href: "/admin/nucleos", texto: "Todos os Núcleos" },
+  associacao_local: { href: "/admin/associacoes", texto: "Todas as Associações Locais" },
 };
 
 export default async function UnidadePage({
@@ -80,39 +84,46 @@ export default async function UnidadePage({
   const voltar = LISTA[unidade.tipo] ?? { href: "/admin/estrutura", texto: "Árvore da instituição" };
 
   return (
-    <Painel titulo={unidade.nome}>
-      <TituloPagina
-        titulo={unidade.nome}
-        descricao={
-          <>
-            {tipo?.nome ?? unidade.tipo}
-            {unidade.codigo && (
-              <>
-                {" · "}Código <Num>{unidade.codigo}</Num>
-              </>
-            )}
-            {unidade.cnpj && (
-              <>
-                {" · "}CNPJ <Num>{formatarCnpj(unidade.cnpj)}</Num>
-              </>
-            )}
-            {!unidade.ativo && " · Desativada"}
-          </>
-        }
-        voltar={voltar}
-      />
+    // ⚠️ O nome da unidade aparece UMA vez, na barra de cima — que é onde o
+    // sistema diz em que tela se está. Repeti-lo no cabeçalho de baixo, a dois
+    // centímetros de distância, só empurrava as abas para fora da primeira
+    // dobra. Embaixo fica a seta, que é o que ali tem serventia.
+    <Painel titulo={`Editar ${tipo?.nome ?? "unidade"} ${unidade.nome}`}>
+      <TituloPagina voltar={voltar} />
 
       <Recado erro={erro} ok={ok} />
 
       <Abas
         atual={aba}
         abas={[
-          { chave: "dados", rotulo: "Dados cadastrais", href: base },
-          { chave: "fotos", rotulo: "Fotos", href: `${base}?aba=fotos` },
+          {
+            chave: "dados",
+            rotulo: "Dados cadastrais",
+            href: base,
+            icone: <IconId size={17} className="ti" />,
+          },
+          {
+            chave: "fotos",
+            rotulo: "Fotos",
+            href: `${base}?aba=fotos`,
+            icone: <IconPhoto size={17} className="ti" />,
+          },
           ...(mostraPagamento
-            ? [{ chave: "pagamento", rotulo: "Pagamento", href: `${base}?aba=pagamento` }]
+            ? [
+                {
+                  chave: "pagamento",
+                  rotulo: "Pagamento",
+                  href: `${base}?aba=pagamento`,
+                  icone: <IconCreditCard size={17} className="ti" />,
+                },
+              ]
             : []),
-          { chave: "cdor", rotulo: "CDOR", href: `${base}?aba=cdor` },
+          {
+            chave: "cdor",
+            rotulo: "CDOR",
+            href: `${base}?aba=cdor`,
+            icone: <IconUsersGroup size={17} className="ti" />,
+          },
         ]}
       />
 
@@ -159,7 +170,14 @@ export default async function UnidadePage({
 
       {aba === "dados" && (
         <form action={editarUnidade} className="sni-form">
+          {/* ⚠️ `tipoFixo` tira o seletor de Tipo da tela. Editar uma Regional
+              não é escolher entre Sede, Regional, Núcleo e AL: o degrau já foi
+              decidido quando ela nasceu, e oferecê-lo aqui é oferecer a chance
+              de transformar uma Regional em Núcleo por engano — levando junto
+              o vínculo de todas as unidades penduradas nela. O valor continua
+              viajando em campo escondido, porque o servidor o exige. */}
           <CamposUnidade
+            tipoFixo={unidade.tipo}
             tipos={tipos}
             unidades={superiores}
             organizacoes={organizacoes}

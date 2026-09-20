@@ -460,6 +460,9 @@ dialog.sni-modal::backdrop {
   font-size: 15px; font-weight: 600; color: var(--txt-3);
   border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
+/* O ícone acompanha a cor do rótulo, inclusive na aba atual: ícone que fica
+   cinza ao lado de um rótulo azul parece desligado. */
+.sni-aba-icone { display: inline-flex; align-items: center; color: inherit; }
 .sni-aba:hover { color: var(--txt-1); }
 .sni-aba[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); }
 .sni-aba-contagem {
