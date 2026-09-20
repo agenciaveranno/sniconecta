@@ -244,3 +244,123 @@ export async function eventoDaPagina(id: number): Promise<EventoDaPagina | null>
   `;
   return linha ?? null;
 }
+
+// ─── Venda balcão ────────────────────────────────────────────────────────────
+
+/**
+ * Os tipos de ingresso de um evento, com o que AINDA CABE em cada um.
+ *
+ * ⚠️ `disponivel` é `quantidade - vendidos`, e continua `null` quando não há
+ * limite. Devolver zero para "sem limite" faria todo ingresso ilimitado
+ * aparecer esgotado no balcão.
+ *
+ * ⚠️ Cancelada devolve a vaga. Contar toda linha faria um evento com muitos
+ * cancelamentos recusar venda com o salão vazio.
+ */
+export async function tiposParaVenda(eventoId: number): Promise<TipoParaVendaDoBanco[]> {
+  const sql = conexao();
+  return sql<TipoParaVendaDoBanco[]>`
+    select
+      t.id, t.nome, t.papel, t.ativo, t.valor_centavos,
+      t.unico_por_cpf, t.exige_principal,
+      case when t.quantidade is null then null
+           else greatest(t.quantidade - count(i.id) filter (where i.status <> 'cancelado'), 0)::int
+      end as disponivel
+    from eventos.ingresso_tipos t
+    left join eventos.inscricoes i on i.ingresso_tipo_id = t.id
+    where t.evento_id = ${eventoId}
+    group by t.id
+    order by t.papel desc, t.nome
+  `;
+}
+
+export type TipoParaVendaDoBanco = {
+  id: number;
+  nome: string;
+  papel: "principal" | "adicional";
+  ativo: boolean;
+  valor_centavos: number;
+  unico_por_cpf: boolean;
+  exige_principal: boolean;
+  disponivel: number | null;
+};
+
+/**
+ * Os tipos que ESTA pessoa já tem neste evento, em inscrição viva.
+ *
+ * ⚠️ É o que faz `unico_por_cpf` valer ENTRE compras. Sem isto, a pessoa leva
+ * o jantar hoje e outro amanhã: cada compra passa sozinha, e o salão recebe
+ * duas reservas para a mesma cadeira.
+ */
+export async function tiposQueAPessoaJaTem(
+  eventoId: number,
+  pessoaId: string
+): Promise<number[]> {
+  const sql = conexao();
+  const linhas = await sql<{ ingresso_tipo_id: number }[]>`
+    select distinct ingresso_tipo_id
+      from eventos.inscricoes
+     where evento_id = ${eventoId}
+       and pessoa_id = ${pessoaId}
+       and ingresso_tipo_id is not null
+       and status in ('pendente', 'pago')
+  `;
+  return linhas.map((l) => l.ingresso_tipo_id);
+}
+
+export type PessoaDoBalcao = {
+  id: string;
+  nome: string;
+  cpf: string | null;
+  passaporte: string | null;
+  email: string | null;
+};
+
+/**
+ * Quem está no balcão, procurado por documento ou nome.
+ *
+ * ⚠️ Documento vai por igualdade e nome por `ilike`: quem chega com o CPF na
+ * mão quer UMA pessoa, e uma busca solta por documento traria homônimos de
+ * número — que não existem. O CPF é normalizado para só dígitos porque a
+ * coluna guarda assim, e quem digita põe ponto e traço.
+ */
+export async function procurarPessoaNoBalcao(termo: string): Promise<PessoaDoBalcao[]> {
+  const sql = conexao();
+  const digitos = termo.replace(/\D/g, "");
+  const documento = termo.trim().toUpperCase();
+  return sql<PessoaDoBalcao[]>`
+    select id, nome, cpf, passaporte, email
+      from public.pessoas
+     where (${digitos} <> '' and cpf = ${digitos})
+        or passaporte = ${documento}
+        or nome ilike ${"%" + termo.trim() + "%"}
+     order by nome
+     limit 20
+  `;
+}
+
+/** Uma pessoa só, já escolhida no balcão. */
+export async function pessoaDoBalcao(id: string): Promise<PessoaDoBalcao | null> {
+  const sql = conexao();
+  const [linha] = await sql<PessoaDoBalcao[]>`
+    select id, nome, cpf, passaporte, email from public.pessoas where id = ${id}
+  `;
+  return linha ?? null;
+}
+
+/** Os eventos que o balcão pode abrir hoje: ativos, do mais próximo em diante. */
+export async function eventosParaVenda(): Promise<
+  { id: number; nome: string; data_inicial: string; tem_promotor: boolean }[]
+> {
+  const sql = conexao();
+  return sql<{ id: number; nome: string; data_inicial: string; tem_promotor: boolean }[]>`
+    select
+      e.id, e.nome, e.data_inicial,
+      (e.promotor_organizacao_id is not null
+        or e.promotor_unidade_id is not null
+        or e.promotor_local_id is not null) as tem_promotor
+    from eventos.eventos e
+    where e.ativo
+    order by e.data_inicial desc
+  `;
+}

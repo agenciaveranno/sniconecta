@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -7,6 +8,10 @@ import { exigirCapacidade } from "@/lib/auth";
 import { conexao } from "@/lib/db";
 import { registrar } from "@/lib/auditoria";
 import { centavosDe } from "@/lib/dominio/dinheiro";
+import {
+  conferirVenda, FORMAS_BALCAO, tipoDeVenda, totalCobrado, type FormaBalcao,
+} from "@/lib/dominio/venda";
+import type { TipoParaVendaDoBanco } from "./consultas";
 
 /**
  * Escritas do módulo `eventos`.
@@ -397,4 +402,193 @@ export async function alternarTipoIngressoAtivo(formData: FormData) {
       ativo ? "Tipo de ingresso desativado." : "Tipo de ingresso reativado."
     )}`
   );
+}
+
+// ─── Venda balcão ────────────────────────────────────────────────────────────
+
+const ROTA_VENDA = "/eventos/venda";
+
+/**
+ * Venda recusada por regra, não por falha.
+ *
+ * ⚠️ Existe para DESFAZER a transação sem chamar `redirect` lá dentro. O
+ * `redirect` do Next funciona lançando um erro próprio; lançado dentro de
+ * `sql.begin`, ele passa a depender de a biblioteca do banco repassá-lo
+ * intacto para continuar sendo um redirecionamento. Uma classe nossa não
+ * depende de nada disso.
+ */
+class RecusaDeVenda extends Error {}
+
+function falharNaVenda(params: URLSearchParams, mensagem: string): never {
+  params.set("erro", mensagem);
+  redirect(`${ROTA_VENDA}?${params}`);
+}
+
+/**
+ * Vende no balcão: uma pessoa, um evento, N ingressos, uma forma de pagamento.
+ *
+ * ⚠️ A CONFERÊNCIA DE ESTOQUE ACONTECE DENTRO DA TRANSAÇÃO, depois de travar
+ * as linhas dos tipos escolhidos. Conferir antes e gravar depois é a falha
+ * clássica: duas pessoas no balcão, ao mesmo tempo, leem "resta 1", as duas
+ * passam, e o evento vende dois lugares que não existem. O `for update`
+ * serializa as duas vendas do mesmo tipo — a segunda espera a primeira
+ * terminar e recalcula em cima do resultado dela.
+ *
+ * ⚠️ Uma inscrição POR INGRESSO, e não uma linha com quantidade. Cada ingresso
+ * tem o seu QR, entra sozinho no check-in e pode ser estornado ou transferido
+ * sem mexer nos outros. `compra_grupo_id` é o que reúne as linhas da mesma
+ * compra quando alguém quiser estornar tudo.
+ */
+export async function venderNoBalcao(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.vender");
+
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  const pessoaId = String(formData.get("pessoa_id") ?? "").trim();
+  const formaBruta = String(formData.get("forma") ?? "").trim();
+  const observacao = String(formData.get("observacao") ?? "").trim() || null;
+
+  // Preserva o contexto na volta: quem errou o troco não quer refazer a busca.
+  const volta = new URLSearchParams();
+  if (eventoId) volta.set("evento", String(eventoId));
+  if (pessoaId) volta.set("pessoa", pessoaId);
+
+  if (!eventoId) falharNaVenda(volta, "Escolha o evento.");
+  if (!pessoaId) falharNaVenda(volta, "Escolha quem está comprando.");
+  // ⚠️ Estreita o tipo com uma conferência de verdade, em vez de afirmar
+  // `as FormaBalcao` antes de olhar: o `as` calaria o compilador sobre um
+  // valor que chega de um formulário e pode ser qualquer coisa.
+  if (!(FORMAS_BALCAO as readonly string[]).includes(formaBruta)) {
+    falharNaVenda(volta, "Escolha a forma de pagamento.");
+  }
+  const forma = formaBruta as FormaBalcao;
+
+  // Os itens chegam como `qtd_<id>`: um campo por tipo de ingresso da tela.
+  const itens: { tipoId: number; quantidade: number }[] = [];
+  for (const [chave, valor] of formData.entries()) {
+    if (!chave.startsWith("qtd_")) continue;
+    const tipoId = Number(chave.slice(4));
+    const quantidade = Number(String(valor).trim() || 0);
+    if (Number.isInteger(tipoId) && tipoId > 0 && Number.isFinite(quantidade)) {
+      itens.push({ tipoId, quantidade: Math.trunc(quantidade) });
+    }
+  }
+
+  const sql = conexao();
+  let quantasLinhas = 0;
+  let total = 0;
+
+  try {
+    await sql.begin(async (tx) => {
+      const pedidos = itens.filter((i) => i.quantidade > 0).map((i) => i.tipoId);
+      if (pedidos.length === 0) throw new RecusaDeVenda("Escolha pelo menos um ingresso.");
+
+      // ⚠️ TRAVA primeiro, conta depois. `for update` sem `order by` entre duas
+      // vendas com os mesmos dois tipos em ordem trocada daria impasse; o
+      // `order by id` faz as duas pedirem as travas na mesma ordem.
+      await tx`
+        select id from eventos.ingresso_tipos
+         where evento_id = ${eventoId} and id = any(${pedidos})
+         order by id
+           for update
+      `;
+
+      const tipos = await tx<TipoParaVendaDoBanco[]>`
+        select
+          t.id, t.nome, t.papel, t.ativo, t.valor_centavos,
+          t.unico_por_cpf, t.exige_principal,
+          case when t.quantidade is null then null
+               else greatest(t.quantidade - count(i.id) filter (where i.status <> 'cancelado'), 0)::int
+          end as disponivel
+        from eventos.ingresso_tipos t
+        left join eventos.inscricoes i on i.ingresso_tipo_id = t.id
+        where t.evento_id = ${eventoId}
+        group by t.id
+      `;
+
+      const jaTem = await tx<{ ingresso_tipo_id: number }[]>`
+        select distinct ingresso_tipo_id
+          from eventos.inscricoes
+         where evento_id = ${eventoId} and pessoa_id = ${pessoaId}
+           and ingresso_tipo_id is not null and status in ('pendente', 'pago')
+      `;
+
+      const conferido = conferirVenda(
+        tipos,
+        itens,
+        jaTem.map((l) => l.ingresso_tipo_id)
+      );
+      // Só o primeiro motivo vai para a URL: a frase inteira cabe, e uma lista
+      // concatenada vira um parágrafo ilegível no alto da tela.
+      if (conferido.erros.length > 0) throw new RecusaDeVenda(conferido.erros[0]);
+
+      total = totalCobrado(forma, conferido.totalCentavos);
+      const venda = tipoDeVenda(forma);
+      // ⚠️ Balcão grava PAGO: o dinheiro já está na mão de quem vendeu. Deixar
+      // pendente faria o check-in recusar quem acabou de pagar na frente do
+      // operador.
+      const status = "pago";
+
+      // ⚠️ `compra_grupo_id` NÃO tem default no banco: sem gerar aqui, as
+      // linhas nasceriam com nulo e a compra deixaria de ser estornável como
+      // um todo — o estorno teria de achar "as inscrições feitas no mesmo
+      // segundo", que é adivinhação.
+      const grupo = randomUUID();
+
+      const linhas = conferido.itens.flatMap(({ tipo, quantidade }) =>
+        Array.from({ length: quantidade }, () => ({
+          compra_grupo_id: grupo,
+          pessoa_id: pessoaId,
+          evento_id: eventoId,
+          ingresso_tipo_id: tipo.id,
+          comprador_id: pessoaId,
+          tipo_venda: venda,
+          status,
+          forma_pagamento: forma,
+          valor_original_centavos: venda === "cortesia" ? 0 : tipo.valor_centavos,
+          cortesia_motivo: venda === "cortesia" ? observacao : null,
+          observacao: venda === "cortesia" ? null : observacao,
+          data_compra: new Date().toISOString(),
+        }))
+      );
+      quantasLinhas = linhas.length;
+
+      await tx`
+        insert into eventos.inscricoes ${tx(
+          linhas,
+          "compra_grupo_id", "pessoa_id", "evento_id", "ingresso_tipo_id", "comprador_id", "tipo_venda",
+          "status", "forma_pagamento", "valor_original_centavos", "cortesia_motivo",
+          "observacao", "data_compra"
+        )}
+      `;
+    });
+  } catch (e) {
+    // ⚠️ A recusa vira EXCEÇÃO dentro da transação, e o `redirect` acontece só
+    // aqui fora. `redirect` do Next funciona lançando: chamado lá dentro, ele
+    // seria indistinguível de uma falha do banco — e a transação e o
+    // redirecionamento ficariam dependendo de qual biblioteca reembrulha o
+    // erro primeiro. Lançar a recusa é o que desfaz a transação; traduzi-la é
+    // trabalho de fora.
+    const mensagem =
+      e instanceof RecusaDeVenda
+        ? e.message
+        : traduzirIngresso(e instanceof Error ? e.message : String(e));
+    falharNaVenda(volta, mensagem);
+  }
+
+  await registrar({
+    atorId: eu?.id,
+    acao: "eventos.venda.balcao",
+    entidade: "eventos.inscricoes",
+    entidadeId: String(eventoId),
+    detalhe: { pessoa_id: pessoaId, ingressos: quantasLinhas, total_centavos: total, forma },
+  });
+
+  revalidatePath(ROTA_VENDA);
+  revalidatePath("/eventos");
+  volta.set(
+    "ok",
+    `${quantasLinhas} ingresso(s) vendido(s)${total > 0 ? ` — ${(total / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : " como cortesia"}.`
+  );
+  volta.delete("pessoa");
+  redirect(`${ROTA_VENDA}?${volta}`);
 }
