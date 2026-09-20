@@ -44,9 +44,15 @@ describe("cifragem de credencial", () => {
     const { cifrar, decifrar } = await carregar();
     const guardado = cifrar("original");
     const partes = guardado.split(".");
-    // Vira o último caractere do texto cifrado.
-    const ultimo = partes[3].slice(-1) === "A" ? "B" : "A";
-    partes[3] = partes[3].slice(0, -1) + ultimo;
+    // ⚠️ Vira um BIT de um byte decodificado, e não um caractere do base64url.
+    // O último caractere carrega bits de sobra que não pertencem a byte nenhum:
+    // com oito bytes de corpo, "A" e "B" decodificam para os MESMOS bytes, o
+    // GCM valida, e o teste falhava em ~6% das execuções — a fração em que o
+    // último caractere caía em A–D. Falha intermitente em teste de segurança é
+    // pior que teste ausente: ensina a reexecutar até passar.
+    const corpo = Buffer.from(partes[3], "base64url");
+    corpo[0] ^= 0x01;
+    partes[3] = corpo.toString("base64url");
     expect(() => decifrar(partes.join("."))).toThrow();
   });
 
