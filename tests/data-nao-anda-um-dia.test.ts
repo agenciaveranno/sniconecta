@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dataBR } from "@/lib/colegiados";
+import { dataBR } from "@/lib/dominio/data";
 
 /**
  * ⚠️ A armadilha: `new Date("2026-09-01").toLocaleDateString("pt-BR")` devolve
