@@ -274,6 +274,11 @@
    frase inteira. */
 .sni-busca { max-width: 420px; margin-bottom: 20px; }
 
+/* Filtro com botão: o campo e o botão na mesma linha, alinhados pela base —
+   o botão embaixo do rótulo ficaria mais alto que o campo ao lado. */
+.sni-filtro { display: flex; align-items: flex-end; gap: 12px; }
+.sni-filtro > .field { flex: 1; }
+
 /* Papéis já concedidos, dentro do modal. Não é tabela: são poucas linhas e
    cada uma tem uma ação só. */
 .sni-lista-papeis { display: grid; gap: 8px; }
