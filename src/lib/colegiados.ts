@@ -2,6 +2,10 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CargoRow, MandatoRow } from "@/lib/supabase/tipos";
 
+// Reexportada para quem já a importava daqui não precisar saber que ela mudou
+// de casa — e para haver UM lugar onde a data do banco vira texto.
+export { dataBR } from "@/lib/dominio/data";
+
 /**
  * A composição de um colegiado numa unidade — quem ocupa cada cargo hoje e
  * quem já ocupou.
@@ -23,17 +27,6 @@ export type Composicao = {
   nomes: Map<string, string>;
   nomeCargo: Map<string, string>;
 };
-
-/** Data do banco (AAAA-MM-DD) na forma que se lê no Brasil. */
-export function dataBR(iso: string | null): string {
-  if (!iso) return "—";
-  // ⚠️ Partido à mão, e não `new Date(iso)`: a data do banco não tem hora, e o
-  // construtor a interpreta como UTC meia-noite. Num fuso a oeste de Greenwich
-  // — o nosso — isso volta um dia atrás, e toda posse do dia 1º aparecia como
-  // dia 31 do mês anterior.
-  const [ano, mes, dia] = iso.slice(0, 10).split("-");
-  return ano && mes && dia ? `${dia}/${mes}/${ano}` : iso;
-}
 
 export async function composicaoDoColegiado(
   // O cliente vem de fora porque é o da PESSOA que está na tela: é ele que
