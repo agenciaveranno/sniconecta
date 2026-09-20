@@ -44,7 +44,7 @@ export const MODULOS: Modulo[] = [
     rotulo: "Eventos",
     itens: [
       { href: "/eventos", rotulo: "Dashboard", icone: "IconLayoutDashboard", capacidade: "eventos.inscricoes.ver", pronto: true },
-      { href: "/eventos/pessoas", rotulo: "Pessoas", icone: "IconUsers", capacidade: "eventos.inscricoes.ver" },
+      { href: "/eventos/pessoas", rotulo: "Pessoas", icone: "IconUsers", capacidade: "eventos.inscricoes.ver", pronto: true },
       { href: "/eventos/venda", rotulo: "Venda balcão", icone: "IconShoppingCart", capacidade: "eventos.vender", pronto: true },
       { href: "/eventos/checkin", rotulo: "Check-in", icone: "IconCircleCheck", capacidade: "eventos.checkin", pronto: true },
       { href: "/eventos/relatorios", rotulo: "Relatórios", icone: "IconChartBar", capacidade: "eventos.inscricoes.ver", pronto: true },

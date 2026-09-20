@@ -710,3 +710,79 @@ export async function tiposParaCupom(
      where evento_id = ${eventoId} order by papel desc, nome
   `;
 }
+
+// ─── Ficha do participante ───────────────────────────────────────────────────
+
+export type InscricaoNaFicha = {
+  id: number;
+  evento_id: number;
+  evento: string;
+  data_inicial: string;
+  ingresso: string | null;
+  status: "pendente" | "pago" | "cancelado" | "expirado" | "transferido";
+  tipo_venda: string;
+  forma_pagamento: string | null;
+  valor_original_centavos: number;
+  desconto_centavos: number;
+  cupom: string | null;
+  comprou_legivel: string | null;
+  checkin_legivel: string | null;
+  estorno_status: "pendente" | "feito" | "recusado" | null;
+  cancelamento_motivo: string | null;
+};
+
+/**
+ * Tudo o que uma pessoa tem, em TODOS os eventos.
+ *
+ * ⚠️ Todos, e não um por vez: a pergunta que chega no balcão é "o que essa
+ * pessoa comprou?", sem dizer o evento. É esta a tela que responde — e por
+ * isso ela traz também cancelada e expirada, que é justamente o que explica
+ * por que a pessoa acha que tem inscrição e o sistema diz que não.
+ */
+export async function inscricoesDaPessoa(pessoaId: string): Promise<InscricaoNaFicha[]> {
+  const sql = conexao();
+  return sql<InscricaoNaFicha[]>`
+    select
+      i.id, i.evento_id, e.nome as evento, e.data_inicial,
+      t.nome as ingresso, i.status, i.tipo_venda, i.forma_pagamento,
+      i.valor_original_centavos, i.desconto_centavos,
+      c.codigo as cupom,
+      to_char(i.data_compra at time zone ${FUSO}, 'DD/MM/YYYY HH24:MI') as comprou_legivel,
+      to_char(i.checkin_em  at time zone ${FUSO}, 'DD/MM/YYYY HH24:MI') as checkin_legivel,
+      i.estorno_status, i.cancelamento_motivo
+    from eventos.inscricoes i
+    join eventos.eventos e on e.id = i.evento_id
+    left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
+    left join eventos.cupons c on c.id = i.cupom_id
+    where i.pessoa_id = ${pessoaId}
+    order by e.data_inicial desc, i.id
+  `;
+}
+
+export type PessoaComInscricoes = PessoaDoBalcao & { inscricoes: number };
+
+/**
+ * Procura quem tem inscrição, com quantas cada um tem.
+ *
+ * ⚠️ A contagem vem junto de propósito: numa lista de homônimos, é ela que
+ * distingue a Maria que veio a três eventos da Maria que nunca se inscreveu.
+ * Sem ela, o operador abre uma por uma até achar.
+ */
+export async function procurarParticipante(termo: string): Promise<PessoaComInscricoes[]> {
+  const sql = conexao();
+  const digitos = termo.replace(/\D/g, "");
+  const documento = termo.trim().toUpperCase();
+  return sql<PessoaComInscricoes[]>`
+    select
+      p.id, p.nome, p.cpf, p.passaporte, p.email,
+      count(i.id)::int as inscricoes
+    from public.pessoas p
+    left join eventos.inscricoes i on i.pessoa_id = p.id
+    where (${digitos} <> '' and p.cpf = ${digitos})
+       or p.passaporte = ${documento}
+       or p.nome ilike ${"%" + termo.trim() + "%"}
+    group by p.id
+    order by count(i.id) desc, p.nome
+    limit 30
+  `;
+}
