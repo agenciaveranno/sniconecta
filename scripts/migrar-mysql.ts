@@ -36,13 +36,25 @@ import {
  * assim. E juntar no sentido contrário — chamar tudo de sucesso — esconderia
  * justamente a lista que alguém precisa revisar.
  */
-type Relatorio = Record<string, {
+type Contagem = {
   lidas: number;
   gravadas: number;
   rejeitadas: Record<string, number>;
   pendencias: Record<string, number>;
   avisos: number;
-}>;
+};
+
+/**
+ * ⚠️ `tabelas` existe porque CINCO fases leem mais de uma tabela de origem e
+ * somavam tudo numa linha só: `eventos` lê sete, `compras` quatro. "46
+ * gravadas" na linha `eventos` nunca foram 46 eventos — eram 46 linhas de sete
+ * tabelas somadas, e o relatório não dizia quantos eventos existem.
+ *
+ * Quem decide autorizar a carga decide com esse número na mão, e essa linha já
+ * foi lida como "46 eventos" por quem conferia o ensaio. O total da fase
+ * continua sendo o total da fase: o contador escreve nos dois lugares.
+ */
+type Relatorio = Record<string, Contagem & { tabelas: Record<string, Contagem> }>;
 
 const args = new Map(process.argv.slice(2).map((a) => {
   const [k, v] = a.replace(/^--/, "").split("=");
@@ -100,8 +112,33 @@ const SAIDA: Record<string, string> = {
 };
 
 function conta(fase: string) {
-  relatorio[fase] ??= { lidas: 0, gravadas: 0, rejeitadas: {}, pendencias: {}, avisos: 0 };
+  relatorio[fase] ??= { lidas: 0, gravadas: 0, rejeitadas: {}, pendencias: {}, avisos: 0, tabelas: {} };
   return relatorio[fase];
+}
+
+/**
+ * Contador de UMA tabela de origem dentro da fase.
+ *
+ * Toda leitura da origem passa por aqui, inclusive nas fases de tabela única —
+ * uniformidade é o que deixa o teste `tabelas-da-carga` exigir o par sem
+ * exceção a decorar. `lidas` opcional porque metade das fases conta linha a
+ * linha dentro do laço e a outra metade já tem o array na mão.
+ */
+function daTabela(r: Relatorio[string], nome: string, lidas = 0) {
+  const t = (r.tabelas[nome] ??= { lidas: 0, gravadas: 0, rejeitadas: {}, pendencias: {}, avisos: 0 });
+  r.lidas += lidas;
+  t.lidas += lidas;
+  const soma = (onde: "rejeitadas" | "pendencias", motivo: string) => {
+    r[onde][motivo] = (r[onde][motivo] ?? 0) + 1;
+    t[onde][motivo] = (t[onde][motivo] ?? 0) + 1;
+  };
+  return {
+    lida() { r.lidas++; t.lidas++; },
+    gravada() { r.gravadas++; t.gravadas++; },
+    rejeitar: (motivo: string) => soma("rejeitadas", motivo),
+    pendente: (motivo: string) => soma("pendencias", motivo),
+    aviso(quantas = 1) { r.avisos += quantas; t.avisos += quantas; },
+  };
 }
 
 // ─── Fases ────────────────────────────────────────────────────────────────
@@ -750,7 +787,7 @@ async function faseEstrutura() {
   const r = conta("estrutura");
 
   const locais = await ler("Local");
-  r.lidas += locais.length;
+  const tLocal = daTabela(r, "Local", locais.length);
   for (const l of locais) {
     // Local do módulo vira local COMUM: a Academia já está lá pelo seed, e
     // duas listas de lugares seriam duas respostas para "onde é o evento?".
@@ -770,18 +807,18 @@ async function faseEstrutura() {
         nome = excluded.nome, logradouro = excluded.logradouro, bairro = excluded.bairro,
         cidade = excluded.cidade, uf = excluded.uf, telefone = excluded.telefone,
         email = excluded.email`;
-    r.gravadas++;
+    tLocal.gravada();
   }
 
   const orientadores = await ler("Orientador");
-  r.lidas += orientadores.length;
+  const tOrientador = daTabela(r, "Orientador", orientadores.length);
   for (const o of orientadores) {
     await destino`
       insert into eventos.orientadores (legado_id, nome, foto_url, bio)
       values (${Number(o.id)}, ${texto(o.nome)}, ${texto(o.fotoUrl)}, ${texto(o.bio)})
       on conflict (legado_id) do update set
         nome = excluded.nome, foto_url = excluded.foto_url, bio = excluded.bio`;
-    r.gravadas++;
+    tOrientador.gravada();
   }
 }
 
@@ -821,7 +858,7 @@ async function faseEventos() {
     select id from public.organizacoes where nome = 'Associação da Prosperidade' limit 1`;
 
   const eventos = await ler("Evento");
-  r.lidas += eventos.length;
+  const tEvento = daTabela(r, "Evento", eventos.length);
   for (const e of eventos) {
     await destino`
       insert into eventos.eventos (
@@ -850,16 +887,16 @@ async function faseEventos() {
         data_inicial = excluded.data_inicial, data_final = excluded.data_final,
         ativo = excluded.ativo, promotor_organizacao_id = excluded.promotor_organizacao_id,
         atualizado_em = now()`;
-    r.gravadas++;
+    tEvento.gravada();
   }
 
   const mapaEvento = await mapaDe("eventos.eventos");
 
   const tipos = await ler("IngressoTipo");
-  r.lidas += tipos.length;
+  const tIngressoTipo = daTabela(r, "IngressoTipo", tipos.length);
   for (const t of tipos) {
     const evento = mapaEvento.get(Number(t.eventoId));
-    if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
+    if (!evento) { tIngressoTipo.rejeitar("evento não migrado"); continue; }
     await destino`
       insert into eventos.ingresso_tipos (
         legado_id, evento_id, nome, descricao, valor_centavos, max_parcelas, quantidade,
@@ -875,16 +912,16 @@ async function faseEventos() {
       on conflict (legado_id) do update set
         nome = excluded.nome, valor_centavos = excluded.valor_centavos,
         quantidade = excluded.quantidade, ativo = excluded.ativo`;
-    r.gravadas++;
+    tIngressoTipo.gravada();
   }
 
   const mapaTipo = await mapaDe("eventos.ingresso_tipos");
 
   const campos = await ler("IngressoCampo");
-  r.lidas += campos.length;
+  const tIngressoCampo = daTabela(r, "IngressoCampo", campos.length);
   for (const c of campos) {
     const tipo = mapaTipo.get(Number(c.ingressoTipoId));
-    if (!tipo) { r.rejeitadas["tipo de ingresso não migrado"] = (r.rejeitadas["tipo de ingresso não migrado"] ?? 0) + 1; continue; }
+    if (!tipo) { tIngressoCampo.rejeitar("tipo de ingresso não migrado"); continue; }
     // ⚠️ A origem fala o vocabulário de um formulário HTML ("text", "select",
     // "checkbox") e o destino fala o da instituição. Passar o valor cru fez a
     // fase inteira parar no `check` do banco — e derrubar dezesseis mil pessoas
@@ -902,14 +939,14 @@ async function faseEventos() {
               ${opcoesDoCampo(r, c.opcoesJson)},
               ${booleano(c.obrigatorio)}, ${numero(c.ordem) || 0}, ${booleano(c.ativo)})
       on conflict (legado_id) do update set rotulo = excluded.rotulo, ativo = excluded.ativo`;
-    r.gravadas++;
+    tIngressoCampo.gravada();
   }
 
   const combos = await ler("Combo");
-  r.lidas += combos.length;
+  const tCombo = daTabela(r, "Combo", combos.length);
   for (const c of combos) {
     const evento = mapaEvento.get(Number(c.eventoId));
-    if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
+    if (!evento) { tCombo.rejeitar("evento não migrado"); continue; }
     await destino`
       insert into eventos.combos (legado_id, evento_id, nome, descricao, valor_centavos, quantidade,
                                   venda_inicio, venda_fim, limite_por_cpf, max_parcelas, ativo, criado_em)
@@ -918,29 +955,29 @@ async function faseEventos() {
               ${numero(c.limitePorCpf)}, ${numero(c.maxParcelas) || 1}, ${booleano(c.ativo)},
               ${data(c.createdAt) ?? new Date().toISOString()})
       on conflict (legado_id) do update set nome = excluded.nome, valor_centavos = excluded.valor_centavos, ativo = excluded.ativo`;
-    r.gravadas++;
+    tCombo.gravada();
   }
 
   const mapaCombo = await mapaDe("eventos.combos");
 
   const itens = await ler("ComboItem");
-  r.lidas += itens.length;
+  const tComboItem = daTabela(r, "ComboItem", itens.length);
   for (const i of itens) {
     const combo = mapaCombo.get(Number(i.comboId));
     const tipo = mapaTipo.get(Number(i.ingressoTipoId));
-    if (!combo || !tipo) { r.rejeitadas["combo ou tipo não migrado"] = (r.rejeitadas["combo ou tipo não migrado"] ?? 0) + 1; continue; }
+    if (!combo || !tipo) { tComboItem.rejeitar("combo ou tipo não migrado"); continue; }
     await destino`
       insert into eventos.combo_itens (combo_id, ingresso_tipo_id, quantidade)
       values (${combo}, ${tipo}, ${numero(i.quantidade) || 1})
       on conflict (combo_id, ingresso_tipo_id) do update set quantidade = excluded.quantidade`;
-    r.gravadas++;
+    tComboItem.gravada();
   }
 
   const cupons = await ler("Cupom");
-  r.lidas += cupons.length;
+  const tCupom = daTabela(r, "Cupom", cupons.length);
   for (const c of cupons) {
     const evento = mapaEvento.get(Number(c.eventoId));
-    if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
+    if (!evento) { tCupom.rejeitar("evento não migrado"); continue; }
     // ⚠️ Percentual fica como número inteiro (0..100); valor vira centavos.
     // A origem guarda os dois na mesma coluna DECIMAL, e multiplicar um
     // percentual por 100 daria 5000% de desconto.
@@ -960,21 +997,21 @@ async function faseEventos() {
               ${data(c.vigenciaInicio)}, ${data(c.vigenciaFim)},
               ${booleano(c.ativo)}, ${data(c.createdAt) ?? new Date().toISOString()})
       on conflict (legado_id) do update set codigo = excluded.codigo, valor = excluded.valor, ativo = excluded.ativo`;
-    r.gravadas++;
+    tCupom.gravada();
   }
 
   const mapaOrientador = await mapaDe("eventos.orientadores");
   const vinculos = await ler("EventoOrientador");
-  r.lidas += vinculos.length;
+  const tEventoOrientador = daTabela(r, "EventoOrientador", vinculos.length);
   for (const v of vinculos) {
     const evento = mapaEvento.get(Number(v.eventoId));
     const orientador = mapaOrientador.get(Number(v.orientadorId));
-    if (!evento || !orientador) { r.rejeitadas["evento ou orientador não migrado"] = (r.rejeitadas["evento ou orientador não migrado"] ?? 0) + 1; continue; }
+    if (!evento || !orientador) { tEventoOrientador.rejeitar("evento ou orientador não migrado"); continue; }
     await destino`
       insert into eventos.evento_orientadores (evento_id, orientador_id, ordem)
       values (${evento}, ${orientador}, ${numero(v.ordem) || 0})
       on conflict (evento_id, orientador_id) do update set ordem = excluded.ordem`;
-    r.gravadas++;
+    tEventoOrientador.gravada();
   }
 }
 
@@ -996,25 +1033,29 @@ async function faseCompras() {
   const mapaCombo = await mapaDe("eventos.combos");
   const mapaCupom = await mapaDe("eventos.cupons");
 
-  const rejeita = (motivo: string, id: number) => {
-    r.rejeitadas[motivo] = (r.rejeitadas[motivo] ?? 0) + 1;
+  // ⚠️ Recebe a TABELA que produziu a rejeição. Antes somava só no total da
+  // fase, e `compras` lê quatro tabelas: "4 × participante não migrado" não
+  // dizia se era inscrição, pedido, resposta ou carrinho.
+  const rejeita = (t: ReturnType<typeof daTabela>, motivo: string, id: number) => {
+    t.rejeitar(motivo);
     rejeicoesDetalhe.push({ fase: "compras", legado_id: id, motivo });
   };
 
   // ── Pedidos ──
+  const tPedidoPendente = daTabela(r, "PedidoPendente");
   for (const p of await ler("PedidoPendente")) {
-    r.lidas++;
+    tPedidoPendente.lida();
     const comprador = pessoas.get(Number(p.compradorId));
     const evento = mapaEvento.get(Number(p.eventoId));
-    if (!comprador) { rejeita("comprador não migrado", Number(p.id)); continue; }
-    if (!evento) { rejeita("evento não migrado", Number(p.id)); continue; }
+    if (!comprador) { rejeita(tPedidoPendente, "comprador não migrado", Number(p.id)); continue; }
+    if (!evento) { rejeita(tPedidoPendente, "evento não migrado", Number(p.id)); continue; }
 
     // `participantesJson` é texto na origem e pode estar malformado numa
     // linha antiga. Um pedido é histórico: perder o snapshot é ruim, perder o
     // pedido inteiro é pior.
     let participantes: unknown = [];
     try { participantes = p.participantesJson ? JSON.parse(String(p.participantesJson)) : []; }
-    catch { r.avisos++; participantes = { bruto: String(p.participantesJson) }; }
+    catch { tPedidoPendente.aviso(); participantes = { bruto: String(p.participantesJson) }; }
 
     await destino`
       insert into eventos.pedidos (
@@ -1032,7 +1073,7 @@ async function faseCompras() {
       on conflict (legado_id) do update set
         status = excluded.status, cielo = excluded.cielo,
         inscricao_ids = excluded.inscricao_ids, atualizado_em = excluded.atualizado_em`;
-    r.gravadas++;
+    tPedidoPendente.gravada();
   }
 
   const mapaPedido = await mapaDe("eventos.pedidos");
@@ -1045,12 +1086,13 @@ async function faseCompras() {
   // ciclo — A transferida para B, B com âncora em A. A segunda passagem
   // resolve os ponteiros quando todas já estão lá.
   const inscricoes = await ler("Inscricao");
+  const tInscricao = daTabela(r, "Inscricao");
   for (const i of inscricoes) {
-    r.lidas++;
+    tInscricao.lida();
     const pessoa = pessoas.get(Number(i.participanteId));
     const evento = mapaEvento.get(Number(i.eventoId));
-    if (!pessoa) { rejeita("participante não migrado", Number(i.id)); continue; }
-    if (!evento) { rejeita("evento não migrado", Number(i.id)); continue; }
+    if (!pessoa) { rejeita(tInscricao, "participante não migrado", Number(i.id)); continue; }
+    if (!evento) { rejeita(tInscricao, "evento não migrado", Number(i.id)); continue; }
 
     const temEstorno = i.estornoStatus || i.estornoValor;
     await destino`
@@ -1108,7 +1150,7 @@ async function faseCompras() {
         status = excluded.status, checkin_em = excluded.checkin_em,
         estorno_status = excluded.estorno_status, estorno = excluded.estorno,
         cielo = excluded.cielo, atualizado_em = now()`;
-    r.gravadas++;
+    tInscricao.gravada();
   }
 
   {
@@ -1130,23 +1172,25 @@ async function faseCompras() {
   // ── Respostas dos campos personalizados ──
   const mapaInscricao = await mapaDe("eventos.inscricoes");
   const mapaCampo = await mapaDe("eventos.ingresso_campos");
+  const tInscricaoResposta = daTabela(r, "InscricaoResposta");
   for (const a of await ler("InscricaoResposta")) {
-    r.lidas++;
+    tInscricaoResposta.lida();
     const inscricao = mapaInscricao.get(Number(a.inscricaoId));
-    if (!inscricao) { rejeita("inscrição não migrada", Number(a.id)); continue; }
+    if (!inscricao) { rejeita(tInscricaoResposta, "inscrição não migrada", Number(a.id)); continue; }
     await destino`
       insert into eventos.inscricao_respostas (id, inscricao_id, campo_id, rotulo, valor, criado_em)
       values (${Number(a.id)}, ${inscricao}, ${mapaCampo.get(Number(a.campoId)) ?? null},
               ${texto(a.label)}, ${texto(a.valor)}, ${data(a.createdAt) ?? new Date().toISOString()})
       on conflict (id) do update set valor = excluded.valor`;
-    r.gravadas++;
+    tInscricaoResposta.gravada();
   }
 
   // ── Carrinhos abandonados ──
+  const tCarrinhoAbandonado = daTabela(r, "CarrinhoAbandonado");
   for (const c of await ler("CarrinhoAbandonado")) {
-    r.lidas++;
+    tCarrinhoAbandonado.lida();
     const evento = mapaEvento.get(Number(c.eventoId));
-    if (!evento) { rejeita("evento não migrado", Number(c.id)); continue; }
+    if (!evento) { rejeita(tCarrinhoAbandonado, "evento não migrado", Number(c.id)); continue; }
     await destino`
       insert into eventos.carrinhos_abandonados (
         legado_id, evento_id, ingresso_tipo_id, pessoa_id, nome, email, telefone, cpf,
@@ -1156,7 +1200,7 @@ async function faseCompras() {
               ${texto(c.telefone)}, ${texto(c.cpf)}, ${numero(c.quantity) || 1}, ${booleano(c.convertido)},
               ${data(c.createdAt) ?? new Date().toISOString()}, ${data(c.updatedAt) ?? new Date().toISOString()})
       on conflict (legado_id) do update set convertido = excluded.convertido`;
-    r.gravadas++;
+    tCarrinhoAbandonado.gravada();
   }
 
   // ⚠️ MagicLink NÃO é migrado. São tokens de acesso com prazo — os antigos já
@@ -1175,14 +1219,15 @@ async function faseComissao() {
   // MySQL a mesma resposta — e abria a porta para as duas discordarem, numa
   // carga que se apoia em ser repetível.
   const setoresOrigem = await ler("ComissaoSetorPadrao");
+  const tComissaoSetorPadrao = daTabela(r, "ComissaoSetorPadrao");
 
   for (const s of setoresOrigem) {
-    r.lidas++;
+    tComissaoSetorPadrao.lida();
     await destino`
       insert into eventos.comissao_setores_padrao (nome, ordem)
       values (${texto(s.nome)}, ${numero(s.ordem) || 0})
       on conflict (nome) do update set ordem = excluded.ordem`;
-    r.gravadas++;
+    tComissaoSetorPadrao.gravada();
   }
 
   const setores = new Map(
@@ -1193,20 +1238,22 @@ async function faseComissao() {
     setoresOrigem.map((s) => [Number(s.id), texto(s.nome) ?? ""])
   );
 
+  const tComissaoFuncaoPadrao = daTabela(r, "ComissaoFuncaoPadrao");
   for (const f of await ler("ComissaoFuncaoPadrao")) {
-    r.lidas++;
+    tComissaoFuncaoPadrao.lida();
     await destino`
       insert into eventos.comissao_funcoes_padrao (setor_id, nome, ordem)
       values (${setores.get(setoresAntigos.get(Number(f.setorId)) ?? "") ?? null},
               ${texto(f.nome)}, ${numero(f.ordem) || 0})
       on conflict do nothing`;
-    r.gravadas++;
+    tComissaoFuncaoPadrao.gravada();
   }
 
+  const tComissaoMembro = daTabela(r, "ComissaoMembro");
   for (const m of await ler("ComissaoMembro")) {
-    r.lidas++;
+    tComissaoMembro.lida();
     const evento = mapaEvento.get(Number(m.eventoId));
-    if (!evento) { r.rejeitadas["evento não migrado"] = (r.rejeitadas["evento não migrado"] ?? 0) + 1; continue; }
+    if (!evento) { tComissaoMembro.rejeitar("evento não migrado"); continue; }
     const pessoa = pessoas.get(Number(m.participanteId));
     const [nome] = pessoa
       ? await destino<{ nome: string }[]>`select nome from public.pessoas where id = ${pessoa}`
@@ -1216,7 +1263,7 @@ async function faseComissao() {
       values (${Number(m.id)}, ${evento}, ${pessoa ?? null}, ${nome?.nome ?? "(sem cadastro)"},
               ${texto(m.setor)}, ${texto(m.funcao)}, ${data(m.createdAt) ?? new Date().toISOString()})
       on conflict (legado_id) do update set setor = excluded.setor, funcao = excluded.funcao`;
-    r.gravadas++;
+    tComissaoMembro.gravada();
   }
 }
 
@@ -1250,9 +1297,10 @@ async function faseConfiguracao() {
   const [prosperidade] = await destino<{ id: string }[]>`
     select id from public.organizacoes where nome = 'Associação da Prosperidade' limit 1`;
 
+  const tCieloAccount = daTabela(r, "CieloAccount");
   for (const c of await ler("CieloAccount")) {
-    r.lidas++;
-    if (!prosperidade) { r.rejeitadas["organização promotora não encontrada"] = 1; continue; }
+    tCieloAccount.lida();
+    if (!prosperidade) { tCieloAccount.rejeitar("organização promotora não encontrada"); continue; }
     await destino`
       insert into public.credenciais (servico, ambiente, organizacao_id, publico, segredo)
       values ('cielo', ${texto(c.environment) === 'sandbox' ? 'sandbox' : 'producao'},
@@ -1261,7 +1309,7 @@ async function faseConfiguracao() {
               ${cifrar(String(c.merchantKey))})
       on conflict (servico, organizacao_id, ambiente) where organizacao_id is not null
       do update set publico = excluded.publico, segredo = excluded.segredo, atualizado_em = now()`;
-    r.gravadas++;
+    tCieloAccount.gravada();
   }
 
   // ⚠️ `Configuracao` é lida e CONTADA, não aplicada. As chaves do sistema
@@ -1270,7 +1318,7 @@ async function faseConfiguracao() {
   // velho sem ninguém ter pedido. Entram uma a uma, pela tela, quando alguém
   // olhar o que ainda faz sentido.
   const chaves = await ler("Configuracao", "chave");
-  r.lidas += chaves.length;
+  const tConfiguracao = daTabela(r, "Configuracao", chaves.length);
   r.avisos += chaves.length;
 }
 
@@ -1439,6 +1487,29 @@ async function principal() {
       ])
     )
   );
+  // ⚠️ Quebra por TABELA DE ORIGEM nas fases que leem mais de uma. Sem isto,
+  // "46 gravadas" em `eventos` é a soma de sete tabelas e não responde a
+  // pergunta que se faz antes de autorizar a carga: quantos EVENTOS entram.
+  for (const [fase, v] of Object.entries(relatorio)) {
+    const tabelas = Object.entries(v.tabelas);
+    if (tabelas.length < 2) continue;
+    console.log(`\n${fase} — por tabela de origem:`);
+    console.table(
+      Object.fromEntries(
+        tabelas.map(([nome, t]) => [
+          nome,
+          {
+            lidas: t.lidas,
+            gravadas: t.gravadas,
+            rejeitadas: Object.values(t.rejeitadas).reduce((a, b) => a + b, 0),
+            revisar: Object.values(t.pendencias).reduce((a, b) => a + b, 0),
+            avisos: t.avisos,
+          },
+        ])
+      )
+    );
+  }
+
   for (const [fase, v] of Object.entries(relatorio)) {
     for (const [motivo, n] of Object.entries(v.rejeitadas)) {
       console.log(`  ❌ ${fase}: ${n} × ${motivo}${SAIDA[motivo] ? ` — ${SAIDA[motivo]}` : ""}`);
