@@ -560,12 +560,19 @@ export function TituloPagina({
   );
 }
 
-/** Título de seção: Platypi 700 em caixa alta, com régua ocupando o vão. */
-export function TituloSecao({ children }: { children: ReactNode }) {
+/**
+ * Título de seção: Platypi 700 em caixa alta, com régua ocupando o vão.
+ *
+ * `acao` entra DEPOIS da régua, no fim da linha: a ação de uma seção vive ao
+ * lado do título dela, como a da tela vive ao lado do título da tela. Posta
+ * em outro canto, ninguém liga uma à outra.
+ */
+export function TituloSecao({ children, acao }: { children: ReactNode; acao?: ReactNode }) {
   return (
     <div className="sni-section-head">
       <h2 className="t-section">{children}</h2>
       <span className="sni-section-rule" aria-hidden="true" />
+      {acao}
     </div>
   );
 }

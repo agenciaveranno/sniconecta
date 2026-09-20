@@ -180,6 +180,57 @@ export type MandatoRow = {
   criado_por: string | null;
 };
 
+/**
+ * Conta bancária de uma entidade — Sede, Regional, Academia, AL.
+ *
+ * ⚠️ Estas três tabelas NÃO têm GRANT para `authenticated`: quem as lê é o
+ * servidor, com a chave de serviço, depois de conferir a capacidade. O tipo
+ * entra aqui porque o cliente tipado é um só; o acesso é que não é.
+ */
+export type ContaBancariaRow = {
+  id: string;
+  unidade_id: string | null;
+  local_id: string | null;
+  organizacao_id: string | null;
+  apelido: string;
+  /** Sempre três dígitos, com zero à esquerda: o Banco do Brasil é "001". */
+  banco_codigo: string | null;
+  banco_nome: string | null;
+  agencia: string | null;
+  agencia_dv: string | null;
+  conta: string | null;
+  conta_dv: string | null;
+  tipo: "corrente" | "poupanca" | "pagamento";
+  titular: string | null;
+  titular_documento: string | null;
+  ativo: boolean;
+  observacoes: string | null;
+  criado_em: string;
+  atualizado_em: string;
+};
+
+/** Chave Pix de uma conta. Várias por conta, de tipos diferentes. */
+export type ChavePixRow = {
+  id: string;
+  conta_id: string;
+  tipo: "cpf" | "cnpj" | "email" | "telefone" | "aleatoria";
+  chave: string;
+  ativo: boolean;
+  criado_em: string;
+};
+
+/** Identificação do terminal. A credencial da operadora fica em `credenciais`. */
+export type MaquininhaRow = {
+  id: string;
+  conta_id: string;
+  apelido: string;
+  operadora: string;
+  numero_serie: string | null;
+  numero_logico: string | null;
+  ativo: boolean;
+  criado_em: string;
+};
+
 /** Livro ou Artigo Religioso do catálogo. */
 export type ProdutoRow = {
   id: string;
@@ -388,6 +439,9 @@ export interface Database {
       colegiados: Tabela<ColegiadoRow>;
       cargos: Tabela<CargoRow>;
       mandatos: Tabela<MandatoRow>;
+      contas_bancarias: Tabela<ContaBancariaRow>;
+      chaves_pix: Tabela<ChavePixRow>;
+      maquininhas: Tabela<MaquininhaRow>;
     };
     Views: {
       pessoa_vinculo_atual: { Row: VinculoAtualRow; Relationships: [] };

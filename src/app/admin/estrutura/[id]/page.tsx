@@ -1,17 +1,26 @@
 import { notFound } from "next/navigation";
-import { IconCamera, IconCreditCard, IconId, IconPhoto, IconUsersGroup } from "@tabler/icons-react";
+import {
+  IconCamera, IconCreditCard, IconId, IconPhoto, IconPlus, IconUsersGroup,
+} from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import CamposCielo from "@/componentes/CamposCielo";
+import CamposConta from "@/componentes/CamposConta";
+import { ModalCadastro } from "@/componentes/Modal";
 import {
-  Abas, Botao, BotaoLink, Recado, TituloPagina, Vazio,
+  Abas, Botao, BotaoLink, Campo, Celula, Etiqueta, Input, Linha, Recado, Select,
+  Tabela, TituloPagina, TituloSecao, Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina, pessoaAtual } from "@/lib/auth";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import { contasCieloVisiveis } from "@/lib/credenciais";
+import { contasDaUnidade, descreverConta, TIPOS_CONTA, TIPOS_PIX } from "@/lib/contas";
 import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
 import CamposUnidade from "../CamposUnidade";
-import { editarUnidade, salvarPagamentoUnidade } from "../actions";
+import {
+  adicionarPix, alternarContaBancaria, criarContaBancaria, editarContaBancaria,
+  editarUnidade, removerPix, salvarPagamentoUnidade,
+} from "../actions";
 
 /**
  * A unidade deixou de caber num modal (decisão 0019).
@@ -61,12 +70,16 @@ export default async function UnidadePage({
   // ⚠️ As cinco JUNTAS. Nenhuma depende do resultado das outras — em série,
   // cada uma somaria sua ida ao banco no tempo de tela em branco. A linha que
   // lê a unidade é o portão de RLS: quem não alcança esta unidade não passa.
-  const [rUnidade, rTipos, rOrganizacoes, rTodas, contas] = await Promise.all([
+  // ⚠️ As contas bancárias só são LIDAS por quem administra configuração. A
+  // tabela não tem GRANT para o navegador e a leitura usa a chave de serviço:
+  // o portão é esta linha, não a policy — não existe policy para segurar.
+  const [rUnidade, rTipos, rOrganizacoes, rTodas, cielo, contas] = await Promise.all([
     supabase.from("unidades").select("*").eq("id", id).maybeSingle(),
     supabase.from("tipos_unidade").select("*").eq("ativo", true).order("ordem"),
     supabase.from("organizacoes").select("*").eq("ativo", true).order("ordem"),
     supabase.from("unidades").select("id, nome, tipo").order("nome"),
     contasCieloVisiveis(podeVerCielo),
+    podeVerCielo ? contasDaUnidade(id) : Promise.resolve([]),
   ]);
 
   if (!rUnidade.data) notFound();
@@ -145,27 +158,143 @@ export default async function UnidadePage({
       )}
 
       {aba === "pagamento" && mostraPagamento && (
-        // ⚠️ Formulário PRÓPRIO, e não um pedaço do cadastro. É o que mantém a
-        // Merchant Key longe do campo de e-mail — e o que faz salvar o
-        // telefone não passar perto de por onde a entidade recebe.
-        <form action={salvarPagamentoUnidade} className="sni-form">
-          <input type="hidden" name="id" value={id} />
-          <CamposCielo
-            merchantId={contas.get(id)?.merchant_id}
-            nomeLoja={contas.get(id)?.nome_loja}
-            temChave={contas.get(id)?.temSegredo}
-          />
-          <p className="hint">
-            As contas bancárias da unidade entram aqui na próxima etapa, ao lado
-            da conta Cielo: é o mesmo assunto — por onde o dinheiro entra.
-          </p>
-          <div className="sni-form-rodape">
-            <BotaoLink href={voltar.href} variante="secondary">
-              Cancelar
-            </BotaoLink>
-            <Botao type="submit">Salvar</Botao>
-          </div>
-        </form>
+        <>
+          {/* ⚠️ Formulário PRÓPRIO, e não um pedaço do cadastro. É o que mantém
+              a Merchant Key longe do campo de e-mail — e o que faz salvar o
+              telefone não passar perto de por onde a entidade recebe. */}
+          <form action={salvarPagamentoUnidade} className="sni-form">
+            <input type="hidden" name="id" value={id} />
+            <CamposCielo
+              merchantId={cielo.get(id)?.merchant_id}
+              nomeLoja={cielo.get(id)?.nome_loja}
+              temChave={cielo.get(id)?.temSegredo}
+            />
+            <div className="sni-form-rodape">
+              <Botao type="submit">Salvar conta Cielo</Botao>
+            </div>
+          </form>
+
+          <TituloSecao
+            acao={
+              <ModalCadastro
+                rotulo="Nova conta"
+                tamanho="sm"
+                icone={<IconPlus size={16} className="ti" />}
+                titulo="Nova conta bancária"
+                acao={criarContaBancaria}
+                rotuloConfirmar="Cadastrar"
+                largura="lg"
+              >
+                <CamposConta unidadeId={id} />
+              </ModalCadastro>
+            }
+          >
+            Contas bancárias
+          </TituloSecao>
+
+          {contas.length === 0 ? (
+            <Vazio titulo="Nenhuma conta cadastrada">
+              É para estas contas que a Missão Sagrada reparte e é por elas que o
+              evento recebe. Sem nenhuma, a unidade só aparece no rateio como
+              destino sem endereço.
+            </Vazio>
+          ) : (
+            <Tabela cabecalho={["Apelido", "Banco", "Tipo", "Titular", "Pix", "Situação", ""]}>
+              {contas.map((c) => (
+                <Linha key={c.id}>
+                  <Celula forte>{c.apelido}</Celula>
+                  <Celula dado>{descreverConta(c)}</Celula>
+                  <Celula>{TIPOS_CONTA.find((t) => t.codigo === c.tipo)?.nome ?? c.tipo}</Celula>
+                  <Celula>{c.titular ?? "—"}</Celula>
+                  <Celula>
+                    {c.chaves.length === 0 ? "—" : `${c.chaves.length}`}
+                  </Celula>
+                  <Celula>
+                    <Etiqueta ativo={c.ativo} />
+                  </Celula>
+                  <Celula alinhar="right">
+                    <span style={{ display: "inline-flex", gap: 4, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                      <ModalCadastro
+                        gatilho="link"
+                        rotulo="Editar"
+                        titulo={`Editar ${c.apelido}`}
+                        acao={editarContaBancaria}
+                        largura="lg"
+                      >
+                        <CamposConta unidadeId={id} conta={c} />
+                      </ModalCadastro>
+
+                      <ModalCadastro
+                        gatilho="link"
+                        rotulo="Chaves Pix"
+                        titulo={`Chaves Pix · ${c.apelido}`}
+                        descricao="A mesma chave pertence a uma conta só no Banco Central. Remover aqui não a apaga no banco — só deixa o sistema de oferecê-la."
+                        acao={adicionarPix}
+                        rotuloConfirmar="Cadastrar chave"
+                        largura="sm"
+                      >
+                        <input type="hidden" name="unidade" value={id} />
+                        <input type="hidden" name="conta" value={c.id} />
+                        {c.chaves.length > 0 && (
+                          <div className="sni-lista-papeis">
+                            {c.chaves.map((k) => (
+                              <div key={k.id} className="sni-lista-papeis-item">
+                                <span>
+                                  {TIPOS_PIX.find((t) => t.codigo === k.tipo)?.nome ?? k.tipo}
+                                  {" · "}
+                                  <span className="num">{k.chave}</span>
+                                </span>
+                                <button
+                                  type="submit"
+                                  formAction={removerPix}
+                                  name="pix"
+                                  value={k.id}
+                                  className="sni-acao sni-acao-perigo"
+                                  // ⚠️ Sem isto o navegador BARRA o envio: este
+                                  // botão divide o formulário com o campo
+                                  // obrigatório da chave nova, que é do outro.
+                                  formNoValidate
+                                >
+                                  Remover
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="form-grid">
+                          <Campo label="Tipo" obrigatorio>
+                            <Select name="pix_tipo" defaultValue="" required>
+                              <option value="" disabled>
+                                Escolha…
+                              </option>
+                              {TIPOS_PIX.map((t) => (
+                                <option key={t.codigo} value={t.codigo}>
+                                  {t.nome}
+                                </option>
+                              ))}
+                            </Select>
+                          </Campo>
+                          <Campo label="Chave" obrigatorio>
+                            <Input name="pix_chave" required maxLength={80} />
+                          </Campo>
+                        </div>
+                      </ModalCadastro>
+
+                      <form action={alternarContaBancaria}>
+                        <input type="hidden" name="unidade" value={id} />
+                        <input type="hidden" name="id" value={c.id} />
+                        <input type="hidden" name="ativo" value={String(c.ativo)} />
+                        <button type="submit" className="sni-acao">
+                          {c.ativo ? "Desativar" : "Reativar"}
+                        </button>
+                      </form>
+                    </span>
+                  </Celula>
+                </Linha>
+              ))}
+            </Tabela>
+          )}
+        </>
       )}
 
       {aba === "dados" && (
