@@ -436,3 +436,120 @@ export async function contagemDaPorta(
   `;
   return linha ?? { entraram: 0, esperados: 0 };
 }
+
+// ─── Relatórios ──────────────────────────────────────────────────────────────
+
+/**
+ * ⚠️ ARRECADAÇÃO É `valor_original - desconto`, e não `valor_original`.
+ *
+ * Hoje todo desconto é zero: a venda balcão não aplica cupom, e a carga trouxe
+ * zero. Somar só o valor original daria o mesmo número AGORA e passaria a
+ * mentir no dia em que o primeiro cupom for usado — sem ninguém perceber,
+ * porque o número continua saindo. O esquema separa as duas colunas
+ * justamente porque elas vão divergir.
+ *
+ * ⚠️ E cortesia NÃO arrecada, qualquer que seja o valor de tabela do ingresso.
+ * A carga trouxe cortesias do sistema antigo com valor preenchido; contá-las
+ * faria a Sede ver dinheiro que nunca entrou no caixa.
+ */
+// Escrita por extenso em cada consulta, e não montada como fragmento cru de
+// SQL: um pedaço de comando solto numa consulta de DINHEIRO é o lugar onde
+// alguém interpola entrada de usuário um dia. Quem impede a divergência entre
+// as três cópias é o teste `arrecadacao-desconta`, que reprova soma sem o
+// desconto e soma que conte cortesia.
+
+export type ResumoDoEvento = {
+  pagos: number;
+  pendentes: number;
+  cancelados: number;
+  cortesias: number;
+  entraram: number;
+  arrecadado_centavos: number;
+};
+
+export async function resumoDoEvento(eventoId: number): Promise<ResumoDoEvento> {
+  const sql = conexao();
+  const [linha] = await sql<ResumoDoEvento[]>`
+    select
+      count(*) filter (where i.status = 'pago')                    ::int as pagos,
+      count(*) filter (where i.status = 'pendente')                ::int as pendentes,
+      count(*) filter (where i.status = 'cancelado')               ::int as cancelados,
+      count(*) filter (where i.tipo_venda = 'cortesia'
+                         and i.status <> 'cancelado')              ::int as cortesias,
+      count(*) filter (where i.checkin_em is not null)             ::int as entraram,
+      sum(
+        case when i.status = 'pago' and i.tipo_venda <> 'cortesia'
+             then i.valor_original_centavos - i.desconto_centavos else 0 end
+      )::int as arrecadado_centavos
+    from eventos.inscricoes i
+    where i.evento_id = ${eventoId}
+  `;
+  return (
+    linha ?? {
+      pagos: 0, pendentes: 0, cancelados: 0, cortesias: 0,
+      entraram: 0, arrecadado_centavos: 0,
+    }
+  );
+}
+
+export type LinhaPorTipo = {
+  nome: string;
+  pagos: number;
+  pendentes: number;
+  entraram: number;
+  arrecadado_centavos: number;
+};
+
+/**
+ * ⚠️ `right join` no tipo: um ingresso que não vendeu NENHUM precisa aparecer
+ * com zero. Some da lista, ele vira "não existe" para quem lê — e a pergunta
+ * que o relatório tem de responder é justamente qual ingresso não está saindo.
+ */
+export async function porTipoDeIngresso(eventoId: number): Promise<LinhaPorTipo[]> {
+  const sql = conexao();
+  return sql<LinhaPorTipo[]>`
+    select
+      t.nome,
+      count(i.id) filter (where i.status = 'pago')        ::int as pagos,
+      count(i.id) filter (where i.status = 'pendente')    ::int as pendentes,
+      count(i.id) filter (where i.checkin_em is not null) ::int as entraram,
+      sum(
+        case when i.status = 'pago' and i.tipo_venda <> 'cortesia'
+             then i.valor_original_centavos - i.desconto_centavos else 0 end
+      )::int as arrecadado_centavos
+    from eventos.ingresso_tipos t
+    left join eventos.inscricoes i on i.ingresso_tipo_id = t.id
+    where t.evento_id = ${eventoId}
+    group by t.id, t.nome
+    order by t.papel desc, t.nome
+  `;
+}
+
+export type LinhaPorPagamento = {
+  forma: string | null;
+  tipo_venda: string;
+  quantas: number;
+  arrecadado_centavos: number;
+};
+
+/**
+ * Como o dinheiro entrou. Só o que está PAGO — pendente não entrou em caixa
+ * nenhum, e listá-lo aqui faria a soma das formas não bater com o arrecadado.
+ */
+export async function porFormaDePagamento(eventoId: number): Promise<LinhaPorPagamento[]> {
+  const sql = conexao();
+  return sql<LinhaPorPagamento[]>`
+    select
+      i.forma_pagamento as forma,
+      i.tipo_venda,
+      count(*)::int as quantas,
+      sum(
+        case when i.status = 'pago' and i.tipo_venda <> 'cortesia'
+             then i.valor_original_centavos - i.desconto_centavos else 0 end
+      )::int as arrecadado_centavos
+    from eventos.inscricoes i
+    where i.evento_id = ${eventoId} and i.status = 'pago'
+    group by i.forma_pagamento, i.tipo_venda
+    order by count(*) desc
+  `;
+}
