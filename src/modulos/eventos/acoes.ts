@@ -11,7 +11,8 @@ import { centavosDe } from "@/lib/dominio/dinheiro";
 import {
   conferirVenda, FORMAS_BALCAO, tipoDeVenda, totalCobrado, type FormaBalcao,
 } from "@/lib/dominio/venda";
-import type { TipoParaVendaDoBanco } from "./consultas";
+import { podeEntrar } from "@/lib/dominio/checkin";
+import type { InscricaoNaPorta, TipoParaVendaDoBanco } from "./consultas";
 
 /**
  * Escritas do módulo `eventos`.
@@ -591,4 +592,123 @@ export async function venderNoBalcao(formData: FormData) {
   );
   volta.delete("pessoa");
   redirect(`${ROTA_VENDA}?${volta}`);
+}
+
+// ─── Check-in ────────────────────────────────────────────────────────────────
+
+const ROTA_CHECKIN = "/eventos/checkin";
+
+/**
+ * Registra a entrada de UMA inscrição.
+ *
+ * ⚠️ A regra de quem pode entrar é conferida AQUI, no servidor, mesmo que a
+ * tela já tenha escondido o botão. A porta é operada com pressa, e um recarregar
+ * de página com o botão antigo na tela não pode virar entrada de ingresso
+ * cancelado.
+ *
+ * ⚠️ `where checkin_em is null` na própria gravação: dois toques no mesmo botão,
+ * ou dois operadores na mesma inscrição, não podem sobrescrever a hora da
+ * primeira entrada. O segundo comando não acha linha e não muda nada — e é o
+ * banco que garante isso, não a conferência que aconteceu um instante antes.
+ */
+export async function registrarCheckin(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.checkin");
+
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  const id = Number(formData.get("id") ?? 0);
+  const busca = String(formData.get("busca") ?? "");
+
+  const volta = new URLSearchParams();
+  if (eventoId) volta.set("evento", String(eventoId));
+  if (busca.trim()) volta.set("busca", busca);
+
+  const recusar = (mensagem: string): never => {
+    volta.set("erro", mensagem);
+    redirect(`${ROTA_CHECKIN}?${volta}`);
+  };
+
+  if (!eventoId || !id) recusar("Inscrição não informada.");
+
+  const sql = conexao();
+  const [inscricao] = await sql<{ status: InscricaoNaPorta["status"]; checkin_em: string | null; nome: string }[]>`
+    select i.status, i.checkin_em, p.nome
+      from eventos.inscricoes i
+      join public.pessoas p on p.id = i.pessoa_id
+     where i.id = ${id} and i.evento_id = ${eventoId}
+  `;
+  if (!inscricao) recusar("Inscrição não encontrada neste evento.");
+
+  const veredito = podeEntrar({
+    status: inscricao.status,
+    checkinEm: inscricao.checkin_em,
+  });
+  if (!veredito.pode) recusar(veredito.motivo);
+
+  const [gravada] = await sql<{ id: number }[]>`
+    update eventos.inscricoes
+       set checkin_em = now(), atualizado_em = now()
+     where id = ${id} and evento_id = ${eventoId} and checkin_em is null
+    returning id
+  `;
+  // Sem linha: outra pessoa registrou a entrada entre a conferência e a
+  // gravação. Não é erro do operador, e a tela precisa dizer isso sem alarme.
+  if (!gravada) recusar("Esta inscrição já teve entrada registrada.");
+
+  await registrar({
+    atorId: eu?.id,
+    acao: "eventos.checkin",
+    entidade: "eventos.inscricoes",
+    entidadeId: String(id),
+    detalhe: { evento_id: eventoId },
+  });
+
+  revalidatePath(ROTA_CHECKIN);
+  volta.set("ok", `Entrada registrada: ${inscricao.nome}.`);
+  redirect(`${ROTA_CHECKIN}?${volta}`);
+}
+
+/**
+ * Desfaz uma entrada registrada por engano.
+ *
+ * ⚠️ Existe porque o engano acontece na porta, com fila: dois nomes parecidos,
+ * e a entrada vai na inscrição errada. Sem desfazer, a pessoa certa fica
+ * impedida de entrar e a errada consta presente — e o conserto viraria SQL à
+ * mão em produção, que este repositório não admite.
+ *
+ * A auditoria registra quem desfez: é uma correção legítima, não algo a
+ * esconder.
+ */
+export async function desfazerCheckin(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.checkin");
+
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  const id = Number(formData.get("id") ?? 0);
+  const busca = String(formData.get("busca") ?? "");
+
+  const volta = new URLSearchParams();
+  if (eventoId) volta.set("evento", String(eventoId));
+  if (busca.trim()) volta.set("busca", busca);
+
+  if (!eventoId || !id) {
+    volta.set("erro", "Inscrição não informada.");
+    redirect(`${ROTA_CHECKIN}?${volta}`);
+  }
+
+  const sql = conexao();
+  await sql`
+    update eventos.inscricoes
+       set checkin_em = null, atualizado_em = now()
+     where id = ${id} and evento_id = ${eventoId}
+  `;
+  await registrar({
+    atorId: eu?.id,
+    acao: "eventos.checkin.desfeito",
+    entidade: "eventos.inscricoes",
+    entidadeId: String(id),
+    detalhe: { evento_id: eventoId },
+  });
+
+  revalidatePath(ROTA_CHECKIN);
+  volta.set("ok", "Entrada desfeita.");
+  redirect(`${ROTA_CHECKIN}?${volta}`);
 }
