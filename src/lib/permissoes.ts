@@ -40,6 +40,12 @@ export type Capacidade =
   | "configuracao.gerir"
   | "lgpd.decidir"         // decidir sobre pedidos de exclusão
   | "auditoria.ver"
+  // Dar posse e encerrar mandato em colegiado — CDOR, DAC, Diretoria de AL.
+  // ⚠️ Fica só com a Sede, e não por zelo: o banco já restringe a escrita de
+  // `mandatos` a `app.e_sede()`. Dar posse é ato da Sede Central inclusive nos
+  // cargos eleitos — a eleição acontece na Regional, o registro é nacional.
+  // Espalhá-la para outro papel faria a tela oferecer o que a policy nega.
+  | "mandato.conceder"
   // ── Ciclo de Estudos ──
   | "ciclo.tipos.gerir"              // tipos de turma, equivalências
   | "ciclo.programa.gerir"           // tema do ano, apostila nacional
@@ -69,7 +75,7 @@ export type Capacidade =
 
 const PLATAFORMA: readonly Capacidade[] = [
   "estrutura.gerir", "pessoa.gerir", "papel.conceder", "acesso.gerir",
-  "configuracao.gerir", "lgpd.decidir", "auditoria.ver",
+  "configuracao.gerir", "lgpd.decidir", "auditoria.ver", "mandato.conceder",
 ];
 
 const CICLO: readonly Capacidade[] = [

@@ -11,6 +11,7 @@ import {
 import { somenteDigitosCep } from "@/lib/dominio/endereco-formato";
 import { cnpjValido, somenteDigitos } from "@/lib/dominio/cnpj";
 import { criarClienteServidor } from "@/lib/supabase/server";
+import { TENTATIVAS } from "@/lib/dominio/identificador";
 
 const ROTA = "/admin/estrutura";
 
@@ -385,4 +386,100 @@ export async function removerPix(formData: FormData) {
 
   revalidatePath(volta);
   redirect(`${volta}&ok=${encodeURIComponent("Chave Pix removida.")}`);
+}
+
+// ─── Mandatos: dar posse e encerrar ─────────────────────────────────────────
+//
+// ⚠️ `mandato.conceder` fica só com a Sede porque o BANCO já decide assim: a
+// policy de escrita de `mandatos` exige `app.e_sede()`. Dar posse é ato da
+// Sede Central inclusive nos cargos eleitos — a eleição acontece na Regional,
+// o registro é nacional. A matriz existe para a tela não oferecer o que a
+// policy vai negar.
+//
+// ⚠️ NENHUMA regra de composição é reimplementada aqui. Vagas, âmbito e função
+// doutrinária mínima NA DATA DA POSSE são conferidos pelo gatilho
+// `trg_mandato_valido`, que já responde em frases sobre a consequência. Repetir
+// a regra no servidor criaria duas verdades, e a segunda envelheceria.
+
+export async function darPosse(formData: FormData) {
+  await exigirCapacidade("mandato.conceder");
+
+  const unidade = String(formData.get("unidade") ?? "");
+  const cargo = String(formData.get("cargo") ?? "");
+  if (!unidade || !cargo) falhar("Cargo não informado.");
+
+  const volta = rotaDaUnidade(unidade, "cdor");
+  const identificador = String(formData.get("pessoa") ?? "").trim();
+  const dataInicio = String(formData.get("data_inicio") ?? "").trim();
+  const condicao = formData.get("condicao") === "ouvinte" ? "ouvinte" : "efetivo";
+  if (!identificador) falhar("Informe o CPF, o passaporte ou o login de quem toma posse.", volta);
+  if (!dataInicio) falhar("Informe a data da posse.", volta);
+
+  const supabase = await criarClienteServidor();
+
+  // A mesma tabela de tentativas da tela de entrada: CPF, depois passaporte,
+  // depois login. Um encadeado de `if` faria o último ramo engolir os outros.
+  let pessoaId: string | null = null;
+  for (const t of TENTATIVAS) {
+    if (!t.serve(identificador)) continue;
+    const { data } = await supabase
+      .from("pessoas")
+      .select("id")
+      .eq(t.coluna, t.valor(identificador))
+      .maybeSingle();
+    if (data?.id) {
+      pessoaId = data.id as string;
+      break;
+    }
+  }
+  if (!pessoaId) {
+    falhar(
+      "Não encontrei essa pessoa no cadastro. Quem toma posse precisa estar cadastrada antes — é o cadastro que guarda a função doutrinária que o cargo exige.",
+      volta
+    );
+  }
+
+  const { error } = await supabase.from("mandatos").insert({
+    pessoa_id: pessoaId,
+    cargo,
+    unidade_id: unidade,
+    condicao,
+    data_inicio: dataInicio,
+  });
+  // A mensagem do gatilho já fala em consequência ("Encerre o mandato anterior
+  // antes de dar posse ao próximo") — passá-la adiante é melhor que traduzi-la
+  // de novo e arriscar dizer outra coisa.
+  if (error) falhar(error.message, volta);
+
+  revalidatePath(volta);
+  redirect(`${volta}&ok=${encodeURIComponent("Posse registrada.")}`);
+}
+
+/**
+ * Encerrar é pôr data, NUNCA apagar a linha.
+ *
+ * Apagar levaria junto a resposta de quem assinou a ata daquele ano — e o
+ * mandato encerrado é justamente o que explica o histórico.
+ */
+export async function encerrarMandato(formData: FormData) {
+  await exigirCapacidade("mandato.conceder");
+
+  const unidade = String(formData.get("unidade") ?? "");
+  const id = String(formData.get("id") ?? "");
+  if (!unidade || !id) falhar("Mandato não informado.");
+
+  const volta = rotaDaUnidade(unidade, "cdor");
+  const dataFim = String(formData.get("data_fim") ?? "").trim();
+  const motivo = String(formData.get("motivo_fim") ?? "").trim() || null;
+  if (!dataFim) falhar("Informe a data do encerramento.", volta);
+
+  const supabase = await criarClienteServidor();
+  const { error } = await supabase
+    .from("mandatos")
+    .update({ data_fim: dataFim, motivo_fim: motivo })
+    .eq("id", id);
+  if (error) falhar(error.message, volta);
+
+  revalidatePath(volta);
+  redirect(`${volta}&ok=${encodeURIComponent("Mandato encerrado.")}`);
 }

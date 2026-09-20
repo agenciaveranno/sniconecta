@@ -28,7 +28,11 @@ describe("matriz de capacidades", () => {
   // trabalhar. Os números vêm da matriz do sistema do Ciclo, que a Sede já usa.
   it("cada papel mantém o alcance que tinha", () => {
     const esperado: Record<TipoPapel, number> = {
-      sede: 31,
+      // 32 desde `mandato.conceder` (setembro/2026): dar posse em colegiado é
+      // ato da Sede, e o banco já restringia a escrita de `mandatos` a
+      // `app.e_sede()`. Número que sobe aqui é decisão; número que sobe sozinho
+      // é vazamento.
+      sede: 32,
       coordenador: 12,
       orientador: 4,
       presidente_uap: 3,
@@ -85,9 +89,14 @@ describe("minimização entre módulos", () => {
   });
 
   it("capacidade de módulo leva prefixo; a de plataforma não leva nenhum", () => {
+    // ⚠️ Escrita à mão de propósito. Importar `PLATAFORMA` de `permissoes.ts`
+    // faria a asserção concordar consigo mesma: capacidade nova entraria nas
+    // duas listas ao mesmo tempo e o teste nunca acusaria nada. Aqui, cada
+    // capacidade de plataforma precisa ser declarada uma segunda vez, por
+    // quem a criou.
     const plataforma = new Set<Capacidade>([
       "estrutura.gerir", "pessoa.gerir", "papel.conceder", "acesso.gerir",
-      "configuracao.gerir", "lgpd.decidir", "auditoria.ver",
+      "configuracao.gerir", "lgpd.decidir", "auditoria.ver", "mandato.conceder",
     ]);
     for (const c of new Set(Object.values(MATRIZ).flat())) {
       const temPrefixo = modulos.some((m) => c.startsWith(`${m}.`));

@@ -15,11 +15,13 @@ import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import { contasCieloVisiveis } from "@/lib/credenciais";
 import { contasDaUnidade, descreverConta, TIPOS_CONTA, TIPOS_PIX } from "@/lib/contas";
+import { composicaoDoColegiado, dataBR } from "@/lib/colegiados";
 import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
 import CamposUnidade from "../CamposUnidade";
 import {
-  adicionarPix, alternarContaBancaria, criarContaBancaria, editarContaBancaria,
-  editarUnidade, removerPix, salvarPagamentoUnidade,
+  adicionarPix, alternarContaBancaria, criarContaBancaria, darPosse,
+  editarContaBancaria, editarUnidade, encerrarMandato, removerPix,
+  salvarPagamentoUnidade,
 } from "../actions";
 
 /**
@@ -93,6 +95,18 @@ export default async function UnidadePage({
   const superiores = todas.filter((u) => permitidos.includes(u.tipo));
 
   const mostraPagamento = podeVerCielo && Boolean(tipo?.aceita_conta_cielo);
+
+  // ⚠️ CDOR é colegiado de ÂMBITO REGIONAL (catálogo `colegiados`): Núcleo e
+  // Associação Local não têm um. Mostrar a aba neles seria prometer um
+  // conselho que a instituição não prevê — e o gatilho do banco recusaria a
+  // posse com uma mensagem sobre âmbito, depois de a pessoa preencher tudo.
+  const mostraCdor = unidade.tipo === "regional";
+  const podeDarPosse = Boolean(eu?.pode("mandato.conceder"));
+
+  // Lido só nesta aba: o CDOR não interessa a quem veio trocar o telefone, e
+  // são duas idas ao banco.
+  const cdor =
+    aba === "cdor" && mostraCdor ? await composicaoDoColegiado(supabase, "cdor", id) : null;
   const base = `/admin/estrutura/${id}`;
   const voltar = LISTA[unidade.tipo] ?? { href: "/admin/estrutura", texto: "Árvore da instituição" };
 
@@ -131,12 +145,16 @@ export default async function UnidadePage({
                 },
               ]
             : []),
-          {
-            chave: "cdor",
-            rotulo: "CDOR",
-            href: `${base}?aba=cdor`,
-            icone: <IconUsersGroup size={17} className="ti" />,
-          },
+          ...(mostraCdor
+            ? [
+                {
+                  chave: "cdor",
+                  rotulo: "CDOR",
+                  href: `${base}?aba=cdor`,
+                  icone: <IconUsersGroup size={17} className="ti" />,
+                },
+              ]
+            : []),
         ]}
       />
 
@@ -149,12 +167,121 @@ export default async function UnidadePage({
         </Vazio>
       )}
 
-      {aba === "cdor" && (
-        <Vazio icone={<IconUsersGroup size={28} className="ti" />} titulo="O CDOR vem na próxima etapa">
-          Os membros do Conselho serão pessoas do próprio sistema, com mandato
-          — e mandato já tem tabela e regra (decisão 0016). Esta aba vai
-          mostrá-los e permitir compor o Conselho desta unidade.
-        </Vazio>
+      {aba === "cdor" && mostraCdor && cdor && (
+        <>
+          <p className="hint" style={{ marginBottom: 16 }}>
+            Conselho Doutrinário Organizacional Regional. Gestão de três anos,
+            começando em setembro. O Supervisor preside e só vota para
+            desempatar. Cargo sem ninguém em exercício é vaga aberta, não erro.
+          </p>
+
+          <Tabela cabecalho={["Cargo", "Em exercício", "Desde", "Condição", ""]}>
+            {cdor.cargos.map((c) => {
+              const abertos = cdor.abertos.filter((m) => m.cargo === c.codigo);
+              return (
+                <Linha key={c.codigo}>
+                  <Celula forte>
+                    {c.nome}
+                    {c.vota !== "sempre" && (
+                      <span className="hint" style={{ marginTop: 2 }}>
+                        {c.vota === "nunca" ? "Não vota" : "Vota só para desempatar"}
+                      </span>
+                    )}
+                  </Celula>
+                  <Celula>
+                    {abertos.length === 0
+                      ? "Vago"
+                      : abertos.map((m) => cdor.nomes.get(m.pessoa_id) ?? "—").join(", ")}
+                  </Celula>
+                  <Celula dado>
+                    {abertos.length === 0 ? "—" : abertos.map((m) => dataBR(m.data_inicio)).join(", ")}
+                  </Celula>
+                  <Celula>
+                    {abertos.length === 0
+                      ? "—"
+                      : abertos.map((m) => (m.condicao === "ouvinte" ? "Ouvinte" : "Efetivo")).join(", ")}
+                  </Celula>
+                  <Celula alinhar="right">
+                    {podeDarPosse && (
+                      <span style={{ display: "inline-flex", gap: 4, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                        {abertos.length === 0 ? (
+                          <ModalCadastro
+                            gatilho="link"
+                            rotulo="Dar posse"
+                            titulo={`Dar posse · ${c.nome}`}
+                            descricao="Quem toma posse precisa estar cadastrada — é o cadastro que guarda a função doutrinária que o cargo exige."
+                            acao={darPosse}
+                            rotuloConfirmar="Dar posse"
+                          >
+                            <input type="hidden" name="unidade" value={id} />
+                            <input type="hidden" name="cargo" value={c.codigo} />
+                            <Campo
+                              label="CPF, passaporte ou login"
+                              obrigatorio
+                              dica="A mesma identificação da tela de entrada."
+                            >
+                              <Input name="pessoa" required maxLength={60} />
+                            </Campo>
+                            <div className="form-grid">
+                              <Campo label="Data da posse" obrigatorio>
+                                <Input name="data_inicio" type="date" required />
+                              </Campo>
+                              <Campo label="Condição">
+                                <Select name="condicao" defaultValue="efetivo">
+                                  <option value="efetivo">Efetivo (vota)</option>
+                                  <option value="ouvinte">Ouvinte</option>
+                                </Select>
+                              </Campo>
+                            </div>
+                          </ModalCadastro>
+                        ) : (
+                          abertos.map((m) => (
+                            <ModalCadastro
+                              key={m.id}
+                              gatilho="link"
+                              rotulo="Encerrar"
+                              titulo={`Encerrar mandato · ${cdor.nomes.get(m.pessoa_id) ?? c.nome}`}
+                              descricao="Encerrar é pôr data, nunca apagar: o mandato encerrado é o que explica quem assinou a ata daquele ano."
+                              acao={encerrarMandato}
+                              rotuloConfirmar="Encerrar"
+                            >
+                              <input type="hidden" name="unidade" value={id} />
+                              <input type="hidden" name="id" value={m.id} />
+                              <Campo label="Data do encerramento" obrigatorio>
+                                <Input name="data_fim" type="date" required />
+                              </Campo>
+                              <Campo label="Motivo">
+                                <Input name="motivo_fim" maxLength={200} />
+                              </Campo>
+                            </ModalCadastro>
+                          ))
+                        )}
+                      </span>
+                    )}
+                  </Celula>
+                </Linha>
+              );
+            })}
+          </Tabela>
+
+          {cdor.encerrados.length > 0 && (
+            <>
+              <TituloSecao>Mandatos encerrados</TituloSecao>
+              <Tabela cabecalho={["Cargo", "Quem ocupou", "Período", "Motivo"]}>
+                {cdor.encerrados.map((m) => (
+                  <Linha key={m.id}>
+                    <Celula>{cdor.nomeCargo.get(m.cargo) ?? m.cargo}</Celula>
+                    <Celula forte>{cdor.nomes.get(m.pessoa_id) ?? "—"}</Celula>
+                    <Celula dado>
+                      {dataBR(m.data_inicio)} — {dataBR(m.data_fim)}
+                    </Celula>
+                    <Celula>{m.motivo_fim ?? "—"}</Celula>
+                  </Linha>
+                ))}
+              </Tabela>
+            </>
+          )}
+        </>
       )}
 
       {aba === "pagamento" && mostraPagamento && (
