@@ -1,16 +1,19 @@
 import Link from "next/link";
 import { IconSearch, IconUsers } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
+import { ModalCadastro } from "@/componentes/Modal";
 import {
   Badge, Botao, Campo, Celula, Input, Linha, Metrica, Num, Recado, Tabela,
-  TituloPagina, TituloSecao, Vazio,
+  Textarea, TituloPagina, TituloSecao, Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
+import { podeTrocarTitular } from "@/lib/dominio/titular";
 import { dataBR } from "@/lib/dominio/data";
 import { formatarCentavos } from "@/lib/dominio/dinheiro";
 import {
   inscricoesDaPessoa, pessoaDoBalcao, procurarParticipante,
 } from "@/modulos/eventos/consultas";
+import { trocarTitular } from "@/modulos/eventos/acoes";
 
 export const metadata = { title: "Pessoas" };
 
@@ -43,7 +46,12 @@ export default async function PessoasPage({
 }: {
   searchParams: Promise<{ busca?: string; pessoa?: string; erro?: string; ok?: string }>;
 }) {
-  await exigirCapacidadeNaPagina("eventos.inscricoes.ver");
+  const eu = await exigirCapacidadeNaPagina("eventos.inscricoes.ver");
+  // ⚠️ Ver e MEXER são capacidades diferentes. Quem atende o telefone consulta;
+  // passar ingresso de uma pessoa para outra é outra conversa, e a tela não
+  // oferece o botão a quem não pode — nem o servidor aceita, que é onde a
+  // regra vale de verdade.
+  const podeGerir = Boolean(eu?.pode("eventos.inscricoes.gerir"));
   const { busca, pessoa: pessoaParam, erro, ok } = await searchParams;
 
   const [pessoa, achadas] = await Promise.all([
@@ -140,7 +148,7 @@ export default async function PessoasPage({
               nenhum.
             </Vazio>
           ) : (
-            <Tabela cabecalho={["Evento", "Ingresso", "Pagou", "Situação", "Entrada"]}>
+            <Tabela cabecalho={["Evento", "Ingresso", "Pagou", "Situação", "Entrada", ""]}>
               {inscricoes.map((i) => (
                 <Linha key={i.id}>
                   <Celula forte>
@@ -195,9 +203,59 @@ export default async function PessoasPage({
                         <span className="hint">{i.cancelamento_motivo}</span>
                       </>
                     )}
+                    {/* ⚠️ Quem era titular antes não some. Sem isto, a pessoa
+                        que comprou desaparece do evento em que pagou. */}
+                    {i.titular_anterior && (
+                      <>
+                        <br />
+                        <span className="hint">
+                          recebido de {i.titular_anterior}
+                          {i.titular_troca_motivo && ` — ${i.titular_troca_motivo}`}
+                        </span>
+                      </>
+                    )}
                   </Celula>
                   <Celula dado>
                     {i.checkin_legivel ?? <span className="hint">—</span>}
+                  </Celula>
+                  <Celula alinhar="right">
+                    {podeGerir &&
+                      podeTrocarTitular(
+                        {
+                          status: i.status,
+                          checkinEm: i.checkin_em,
+                          pessoaId: pessoa.id,
+                          ingressoTipoId: null,
+                          unicoPorCpf: Boolean(i.unico_por_cpf),
+                        },
+                        { id: "", jaTemDestesTipos: [] }
+                      ).pode && (
+                        <ModalCadastro
+                          gatilho="link"
+                          rotulo="Passar adiante"
+                          titulo={`Passar ${i.ingresso ?? "o ingresso"} para outra pessoa`}
+                          descricao={`${i.evento}. O valor pago não se mexe — ninguém devolve nem cobra de novo.`}
+                          acao={trocarTitular}
+                          rotuloConfirmar="Passar ingresso"
+                        >
+                          <input type="hidden" name="id" value={i.id} />
+                          <input type="hidden" name="voltar_para" value={pessoa.id} />
+                          <Campo
+                            label="CPF ou passaporte de quem recebe"
+                            obrigatorio
+                            dica="A pessoa precisa já estar no cadastro."
+                          >
+                            <Input name="novo_titular" required maxLength={20} placeholder="000.000.000-00" />
+                          </Campo>
+                          <Campo
+                            label="Motivo"
+                            obrigatorio
+                            dica="Fica no histórico dos dois — de quem passou e de quem recebeu."
+                          >
+                            <Textarea name="motivo" rows={2} required maxLength={300} />
+                          </Campo>
+                        </ModalCadastro>
+                      )}
                   </Celula>
                 </Linha>
               ))}

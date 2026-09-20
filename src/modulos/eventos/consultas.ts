@@ -729,6 +729,12 @@ export type InscricaoNaFicha = {
   checkin_legivel: string | null;
   estorno_status: "pendente" | "feito" | "recusado" | null;
   cancelamento_motivo: string | null;
+  /** Quem era titular antes, quando houve troca — o histórico não some. */
+  titular_anterior: string | null;
+  titular_troca_motivo: string | null;
+  /** Para a regra de troca: o tipo é um por pessoa? */
+  unico_por_cpf: boolean | null;
+  checkin_em: string | null;
 };
 
 /**
@@ -749,11 +755,14 @@ export async function inscricoesDaPessoa(pessoaId: string): Promise<InscricaoNaF
       c.codigo as cupom,
       to_char(i.data_compra at time zone ${FUSO}, 'DD/MM/YYYY HH24:MI') as comprou_legivel,
       to_char(i.checkin_em  at time zone ${FUSO}, 'DD/MM/YYYY HH24:MI') as checkin_legivel,
-      i.estorno_status, i.cancelamento_motivo
+      i.estorno_status, i.cancelamento_motivo,
+      ant.nome as titular_anterior, i.titular_troca_motivo,
+      t.unico_por_cpf, i.checkin_em
     from eventos.inscricoes i
     join eventos.eventos e on e.id = i.evento_id
     left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
     left join eventos.cupons c on c.id = i.cupom_id
+    left join public.pessoas ant on ant.id = i.titular_anterior_id
     where i.pessoa_id = ${pessoaId}
     order by e.data_inicial desc, i.id
   `;

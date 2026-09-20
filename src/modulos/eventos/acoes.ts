@@ -14,6 +14,9 @@ import {
 import { conferirCupom, normalizarCodigo, type Cupom } from "@/lib/dominio/cupom";
 import { podeEntrar } from "@/lib/dominio/checkin";
 import {
+  podeTrocarTitular, type InscricaoParaTrocar,
+} from "@/lib/dominio/titular";
+import {
   podeCancelar, valorAEstornar, type InscricaoParaCancelar,
 } from "@/lib/dominio/estorno";
 import type { InscricaoNaPorta, TipoParaVendaDoBanco } from "./consultas";
@@ -1108,4 +1111,122 @@ export async function alternarCupomAtivo(formData: FormData) {
       ativo ? "Cupom desativado." : "Cupom reativado."
     )}`
   );
+}
+
+// ─── Troca de titular ────────────────────────────────────────────────────────
+
+/**
+ * Passa o ingresso para outra pessoa, sem cancelar e vender de novo.
+ *
+ * ⚠️ O caminho do cancelamento jogaria o valor na fila de estorno e cobraria
+ * outra vez: o dinheiro sairia e voltaria ao caixa sem nada ter mudado, e a
+ * tesouraria trabalharia uma devolução que ninguém pediu. Por isso a troca é
+ * operação própria, e não um atalho para "cancela e revende".
+ *
+ * ⚠️ Quem era titular fica GRAVADO em `titular_anterior_id`. Sem isso, a
+ * pessoa que comprou some do histórico — e quem pagou some do evento em que
+ * pagou.
+ */
+export async function trocarTitular(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.inscricoes.gerir");
+
+  const id = Number(formData.get("id") ?? 0);
+  // ⚠️ Recebe o DOCUMENTO, não um id. Quem opera tem o CPF na mão; uma busca
+  // aninhada dentro do modal obrigaria a sair dele, procurar e voltar — e o
+  // modal não sobrevive a isso.
+  const documento = String(formData.get("novo_titular") ?? "").trim();
+  const motivo = String(formData.get("motivo") ?? "").trim();
+  const voltarPara = String(formData.get("voltar_para") ?? "").trim();
+
+  const volta = (chave: string, mensagem: string): never => {
+    const p = new URLSearchParams();
+    if (voltarPara) p.set("pessoa", voltarPara);
+    p.set(chave, mensagem);
+    redirect(`/eventos/pessoas?${p}`);
+  };
+
+  if (!id) volta("erro", "Inscrição não informada.");
+  if (!documento) volta("erro", "Informe o CPF ou passaporte de quem vai receber o ingresso.");
+  if (!motivo) volta("erro", "Diga o motivo da troca — ele fica no histórico dos dois.");
+
+  const sql = conexao();
+  const [linha] = await sql<{
+    status: InscricaoParaTrocar["status"];
+    checkin_em: string | null;
+    pessoa_id: string;
+    evento_id: number;
+    ingresso_tipo_id: number | null;
+    unico_por_cpf: boolean | null;
+    nome_atual: string;
+  }[]>`
+    select i.status, i.checkin_em, i.pessoa_id, i.evento_id, i.ingresso_tipo_id,
+           t.unico_por_cpf, p.nome as nome_atual
+      from eventos.inscricoes i
+      join public.pessoas p on p.id = i.pessoa_id
+      left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
+     where i.id = ${id}
+  `;
+  if (!linha) volta("erro", "Inscrição não encontrada.");
+
+  const digitos = documento.replace(/\D/g, "");
+  const [novaPessoa] = await sql<{ id: string; nome: string }[]>`
+    select id, nome from public.pessoas
+     where (${digitos} <> '' and cpf = ${digitos})
+        or passaporte = ${documento.toUpperCase()}
+     limit 2
+  `;
+  if (!novaPessoa) {
+    volta(
+      "erro",
+      `Ninguém com o documento ${documento} está no cadastro. Cadastre a pessoa antes de passar o ingresso.`
+    );
+  }
+  const novoId = novaPessoa.id;
+
+  const jaTem = await sql<{ ingresso_tipo_id: number }[]>`
+    select distinct ingresso_tipo_id
+      from eventos.inscricoes
+     where evento_id = ${linha.evento_id} and pessoa_id = ${novoId}
+       and ingresso_tipo_id is not null and status in ('pendente', 'pago')
+  `;
+
+  const veredito = podeTrocarTitular(
+    {
+      status: linha.status,
+      checkinEm: linha.checkin_em,
+      pessoaId: linha.pessoa_id,
+      ingressoTipoId: linha.ingresso_tipo_id,
+      unicoPorCpf: Boolean(linha.unico_por_cpf),
+    },
+    { id: novoId, jaTemDestesTipos: jaTem.map((l) => l.ingresso_tipo_id) }
+  );
+  if (!veredito.pode) volta("erro", veredito.motivo);
+
+  // ⚠️ `where pessoa_id = <o de antes>` na própria gravação: se outra pessoa
+  // trocou o titular entre a conferência e este comando, o segundo não acha
+  // linha — em vez de sobrescrever a troca dela e registrar um titular
+  // anterior que nunca foi titular.
+  const [gravada] = await sql<{ id: number }[]>`
+    update eventos.inscricoes
+       set pessoa_id = ${novoId},
+           titular_anterior_id = ${linha.pessoa_id},
+           titular_trocado_em = now(),
+           titular_trocado_por = ${eu?.id ?? null},
+           titular_troca_motivo = ${motivo},
+           atualizado_em = now()
+     where id = ${id} and pessoa_id = ${linha.pessoa_id}
+    returning id
+  `;
+  if (!gravada) volta("erro", "O titular foi trocado por outra pessoa enquanto esta tela estava aberta.");
+
+  await registrar({
+    atorId: eu?.id,
+    acao: "eventos.inscricao.titular_trocado",
+    entidade: "eventos.inscricoes",
+    entidadeId: String(id),
+    detalhe: { de: linha.pessoa_id, para: novoId, motivo },
+  });
+
+  revalidatePath("/eventos/pessoas");
+  volta("ok", `Ingresso passou de ${linha.nome_atual} para ${novaPessoa.nome}.`);
 }
