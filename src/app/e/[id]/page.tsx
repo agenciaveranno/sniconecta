@@ -23,6 +23,9 @@ import {
  * ⚠️ A COMPRA AINDA NÃO ACONTECE AQUI, e a página diz isso em vez de oferecer
  * um botão que não leva a lugar nenhum. Promessa quebrada em silêncio é o que
  * este módulo passou a sessão inteira desfazendo.
+ *
+ * O desenho do checkout, e o que falta decidir antes de construí-lo, estão em
+ * `docs/decisoes/0022-o-checkout-publico.md`.
  */
 
 export async function generateMetadata({
