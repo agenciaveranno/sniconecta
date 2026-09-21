@@ -1,10 +1,12 @@
 import { IconMail } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import {
-  Alerta, Botao, Campo, Card, Input, Recado, Select, TituloPagina, TituloSecao,
+  Alerta, Badge, Botao, Campo, Card, Input, Num, Recado, Select, TituloPagina,
+  TituloSecao,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { lerCredencial } from "@/lib/credenciais";
+import { estadoDoBanco, MIGRACOES_ESPERADAS } from "@/lib/migracoes";
 import { salvarSmtp } from "./actions";
 
 export const metadata = { title: "Configurações" };
@@ -17,7 +19,10 @@ export default async function ConfiguracoesPage({
   const { erro, ok } = await searchParams;
   await exigirCapacidadeNaPagina("configuracao.gerir");
 
-  const smtp = await lerCredencial("smtp", { instituicao: true });
+  const [smtp, banco] = await Promise.all([
+    lerCredencial("smtp", { instituicao: true }),
+    estadoDoBanco(),
+  ]);
   const p = smtp?.publico;
 
   return (
@@ -31,6 +36,60 @@ export default async function ConfiguracoesPage({
         erro={erro}
         ok={ok && "Servidor de envio guardado. As próximas mensagens da fila saem por ele."}
       />
+
+      {/* ── A terceira esteira ──
+          ⚠️ `docs/publicacao.md` já mandava conferir o deploy porque CI verde
+          não prova que o código está no ar. Faltava a MIGRAÇÃO: o job que a
+          aplica está preso ao ambiente `Production`, e ambiente com aprovação
+          exigida devolve `action_required` — o merge acontece, a Vercel
+          publica, e o esquema fica para trás sem ninguém ver. Nada quebra:
+          a tela abre, a venda funciona, e só uma coluna nasce sem o default
+          que deveria ter. O defeito aparece dias depois, na porta do evento. */}
+      <TituloSecao>Estado do banco</TituloSecao>
+
+      <Card>
+        {!banco.lido ? (
+          // ⚠️ Falha de leitura NÃO é "está tudo certo". Dizer o motivo é o
+          // que impede esta tela de virar a segunda fonte de falsa calma.
+          <Alerta tipo="warning">
+            <strong>Não consegui perguntar ao banco em que versão ele está.</strong>
+            <p className="hint" style={{ marginTop: 8 }}>{banco.motivo}</p>
+          </Alerta>
+        ) : banco.faltando.length === 0 ? (
+          <p>
+            <Badge tom="success">Em dia</Badge>{" "}
+            <span className="hint">
+              As <Num>{MIGRACOES_ESPERADAS.length}</Num> migrações que este
+              código espera estão aplicadas.
+            </span>
+          </p>
+        ) : (
+          <Alerta tipo="danger">
+            <strong>
+              O banco está atrás do código: faltam {banco.faltando.length}{" "}
+              migração(ões).
+            </strong>
+            <p style={{ marginTop: 8 }}>
+              A aplicação já está publicada com código que espera estas
+              mudanças de esquema. Enquanto elas não entram, telas novas podem
+              abrir normalmente e gravar dado incompleto — que é pior do que
+              quebrar, porque ninguém percebe.
+            </p>
+            <ul>
+              {banco.faltando.map((v) => (
+                <li key={v} className="num">{v}</li>
+              ))}
+            </ul>
+            <p className="hint" style={{ marginTop: 8 }}>
+              O conserto é aprovar a execução: GitHub → Actions → “Migrações do
+              banco” → a execução parada em <em>Review pending deployments</em>{" "}
+              → aprovar o ambiente <strong>Production</strong>. O job aplica
+              todas as pendentes de uma vez. Receita completa em{" "}
+              <code>docs/publicacao.md</code>.
+            </p>
+          </Alerta>
+        )}
+      </Card>
 
       <TituloSecao>Envio de e-mail</TituloSecao>
 
