@@ -484,3 +484,109 @@ dialog.sni-modal::backdrop {
   display: flex; justify-content: flex-end; gap: 10px;
   padding-top: 24px; margin-top: 8px; border-top: 1px solid var(--line);
 }
+
+/* ── Comprovante do ingresso ───────────────────────────────────────────────
+   O papel que a pessoa leva para a porta. Fora do painel: barra lateral e
+   barra superior existem para navegar, e ninguém navega num papel.
+
+   ⚠️ Tudo aqui é NOSSO e leva o prefixo. O design system não tem componente de
+   impressão, e criar `.folha` solto colidiria com a primeira classe que a
+   próxima versão dele trouxer com esse nome. */
+
+.sni-comprovante {
+  min-height: 100vh;
+  background: var(--sni-gray-50);
+  padding: 24px 16px 48px;
+}
+
+.sni-comprovante-barra {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; max-width: 720px; margin: 0 auto 16px;
+}
+
+.sni-comprovante-folha {
+  max-width: 720px; margin: 0 auto;
+  background: var(--srf-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 32px;
+  /* A faixa da cor do evento no alto da folha: é o que faz dois eventos da
+     mesma casa terem comprovantes distinguíveis a um metro de distância. */
+  border-top: 6px solid var(--comprovante-primaria, var(--navy-700));
+}
+
+.sni-comprovante-topo { margin-bottom: 24px; }
+.sni-comprovante-entidade { font-size: 13px; color: var(--txt-3); margin: 0 0 4px; }
+.sni-comprovante-evento {
+  font-family: var(--font-serif);
+  text-transform: uppercase; font-weight: 800; letter-spacing: 0;
+  font-size: 24px; line-height: 1.2; margin: 0;
+  color: var(--comprovante-primaria, var(--navy-700));
+}
+
+.sni-comprovante-boas-vindas { font-size: 15px; margin: 0 0 20px; }
+
+.sni-comprovante-corpo {
+  display: grid; grid-template-columns: 1fr auto; gap: 32px; align-items: start;
+}
+@media (max-width: 640px) {
+  .sni-comprovante-corpo { grid-template-columns: 1fr; }
+  .sni-comprovante-folha { padding: 20px; }
+}
+
+.sni-comprovante-dados { margin: 0; display: grid; gap: 14px 0; }
+.sni-comprovante-dados dt {
+  font-size: 13px; color: var(--txt-3); margin-bottom: 2px;
+}
+.sni-comprovante-dados dd { margin: 0 0 6px; font-size: 15px; }
+
+.sni-comprovante-codigo { text-align: center; }
+.sni-comprovante-codigo-texto {
+  font-size: 14px; letter-spacing: .04em; margin: 8px 0 0; color: var(--txt-2);
+}
+.sni-comprovante-sem-codigo {
+  max-width: 200px; font-size: 13px; color: var(--txt-3); margin: 0;
+}
+
+.sni-comprovante-instrucoes { margin-top: 28px; }
+.sni-comprovante-instrucoes h2 {
+  font-size: 15px; font-weight: 700; margin: 0 0 6px;
+  color: var(--comprovante-secundaria, var(--txt-2));
+}
+.sni-comprovante-instrucoes p { margin: 0; font-size: 15px; white-space: pre-line; }
+
+.sni-comprovante-rodape {
+  margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line);
+  font-size: 13px; color: var(--txt-3);
+}
+.sni-comprovante-rodape p { margin: 0; }
+
+/* ⚠️ A faixa de inválido só existe no PAPEL. Na tela quem avisa é o `Alerta`,
+   que tem a cor e o papel de alerta do design system; impresso, ele some entre
+   os outros blocos — e o comprovante cancelado fica com a mesma cara do
+   válido na mão de quem chega na porta. */
+.sni-comprovante-invalido { display: none; }
+
+@media print {
+  /* Nada de menu, botão ou fundo cinza no papel. */
+  .sni-sem-impressao { display: none !important; }
+
+  .sni-comprovante { background: #fff; padding: 0; min-height: 0; }
+  .sni-comprovante-folha {
+    max-width: none; border: 0; border-radius: 0; padding: 0;
+    border-top: 6px solid var(--comprovante-primaria, #132460);
+    padding-top: 16px;
+  }
+
+  .sni-comprovante-invalido {
+    display: block;
+    border: 2px solid #991B1B; color: #991B1B;
+    font-weight: 700; text-align: center;
+    padding: 8px 12px; margin: 0 0 20px;
+  }
+
+  /* ⚠️ A cor de fundo dos blocos não sai na impressão sem isto: o navegador
+     descarta fundos por padrão para economizar tinta, e a faixa da cor do
+     evento — que é o que distingue um comprovante do outro — sumiria. */
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
