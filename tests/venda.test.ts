@@ -135,3 +135,35 @@ describe("cortesia não é forma de pagamento de valor zero", () => {
     expect(totalCobrado("dinheiro", 30000)).toBe(30000);
   });
 });
+
+describe("o mesmo ingresso pedido duas vezes vira uma linha só", () => {
+  it("soma as quantidades antes de olhar o estoque", () => {
+    // ⚠️ É o caso do combo: o carrinho chega com o jantar avulso E com o
+    // jantar de dentro do pacote. Conferidas separadas, duas linhas de 1
+    // passam as duas por "resta 1" — e o salão recebe duas reservas para a
+    // mesma cadeira.
+    const r = conferirVenda(
+      [tipo({ id: 1, disponivel: 1, papel: "principal" })],
+      [{ tipoId: 1, quantidade: 1 }, { tipoId: 1, quantidade: 1 }]
+    );
+    expect(r.erros[0]).toContain("só 1 disponível");
+  });
+
+  it("soma antes de olhar 'um por pessoa'", () => {
+    const r = conferirVenda(
+      [tipo({ id: 1, papel: "principal", unico_por_cpf: true, disponivel: null })],
+      [{ tipoId: 1, quantidade: 1 }, { tipoId: 1, quantidade: 1 }]
+    );
+    expect(r.erros[0]).toContain("não dá para levar 2");
+  });
+
+  it("e o total de tabela conta as duas", () => {
+    const r = conferirVenda(
+      [tipo({ id: 1, papel: "principal", valor_centavos: 5000, disponivel: null })],
+      [{ tipoId: 1, quantidade: 1 }, { tipoId: 1, quantidade: 2 }]
+    );
+    expect(r.erros).toEqual([]);
+    expect(r.totalCentavos).toBe(15000);
+    expect(r.itens).toHaveLength(1);
+  });
+});

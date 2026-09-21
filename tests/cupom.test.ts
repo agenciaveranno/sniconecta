@@ -11,6 +11,7 @@ function cupom(over: Partial<Cupom> = {}): Cupom {
     tipo: "percentual",
     valor: 10,
     ingresso_tipo_id: null,
+    combo_id: null,
     max_usos_total: null,
     max_usos_por_cpf: null,
     vigencia_inicio: null,
@@ -121,5 +122,21 @@ describe("como o cupom se lê e se digita", () => {
     // ⚠️ O índice único do banco usa `lower(codigo)`. Sem normalizar, o mesmo
     // cupom recusaria por causa de um Caps Lock.
     expect(normalizarCodigo("  verao10 ")).toBe("VERAO10");
+  });
+});
+
+describe("cupom de combo é recusado, e não tratado como cupom geral", () => {
+  it("cupom preso a um combo não desconta nada do carrinho", () => {
+    // ⚠️ Antes disto, `combo_id` nem era lido: o cupom do pacote descia pelo
+    // caminho do cupom geral e descontava O CARRINHO INTEIRO — o desconto do
+    // combo saía nos ingressos avulsos de quem soubesse somar no mesmo pedido.
+    const r = conferirCupom(cupom({ combo_id: 7 }), CARRINHO, ctx);
+    expect(r.vale).toBe(false);
+    expect(r).toMatchObject({ motivo: expect.stringContaining("combo") });
+  });
+
+  it("cupom sem combo continua valendo", () => {
+    expect(conferirCupom(cupom({ combo_id: null }), CARRINHO, ctx))
+      .toEqual({ vale: true, descontoCentavos: 1500 });
   });
 });

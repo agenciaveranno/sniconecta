@@ -12,6 +12,7 @@ import {
   conferirVenda, FORMAS_BALCAO, tipoDeVenda, totalCobrado, type FormaBalcao,
 } from "@/lib/dominio/venda";
 import { conferirCupom, normalizarCodigo, type Cupom } from "@/lib/dominio/cupom";
+import { conferirCombos } from "@/lib/dominio/combo";
 import { prepararBusca } from "@/lib/dominio/busca-pessoa";
 import { podeEntrar } from "@/lib/dominio/checkin";
 import {
@@ -20,7 +21,8 @@ import {
 import {
   podeCancelar, valorAEstornar, type InscricaoParaCancelar,
 } from "@/lib/dominio/estorno";
-import type { InscricaoNaPorta, TipoParaVendaDoBanco } from "./consultas";
+import { lerCombosParaVenda, lerTiposParaVenda } from "./consultas";
+import type { InscricaoNaPorta } from "./consultas";
 
 /**
  * Escritas do módulo `eventos`.
@@ -472,29 +474,71 @@ export async function venderNoBalcao(formData: FormData) {
   }
   const forma = formaBruta as FormaBalcao;
 
-  // Os itens chegam como `qtd_<id>`: um campo por tipo de ingresso da tela.
+  // Os ingressos avulsos chegam como `qtd_<id>` e os combos como
+  // `combo_<id>`: um campo por linha da tela, em ambos os casos.
   const itens: { tipoId: number; quantidade: number }[] = [];
+  const pedidosDeCombo: { comboId: number; quantidade: number }[] = [];
   for (const [chave, valor] of formData.entries()) {
-    if (!chave.startsWith("qtd_")) continue;
-    const tipoId = Number(chave.slice(4));
     const quantidade = Number(String(valor).trim() || 0);
-    if (Number.isInteger(tipoId) && tipoId > 0 && Number.isFinite(quantidade)) {
-      itens.push({ tipoId, quantidade: Math.trunc(quantidade) });
+    if (!Number.isFinite(quantidade)) continue;
+    if (chave.startsWith("qtd_")) {
+      const tipoId = Number(chave.slice(4));
+      if (Number.isInteger(tipoId) && tipoId > 0) {
+        itens.push({ tipoId, quantidade: Math.trunc(quantidade) });
+      }
+    } else if (chave.startsWith("combo_")) {
+      const comboId = Number(chave.slice(6));
+      if (Number.isInteger(comboId) && comboId > 0) {
+        pedidosDeCombo.push({ comboId, quantidade: Math.trunc(quantidade) });
+      }
     }
   }
 
   const sql = conexao();
   let quantasLinhas = 0;
+  let quantosCombos = 0;
   let total = 0;
 
   try {
     await sql.begin(async (tx) => {
-      const pedidos = itens.filter((i) => i.quantidade > 0).map((i) => i.tipoId);
-      if (pedidos.length === 0) throw new RecusaDeVenda("Escolha pelo menos um ingresso.");
+      const avulsos = itens.filter((i) => i.quantidade > 0);
+      const combosPedidos = pedidosDeCombo.filter((p) => p.quantidade > 0);
+      if (avulsos.length === 0 && combosPedidos.length === 0) {
+        throw new RecusaDeVenda("Escolha pelo menos um ingresso.");
+      }
 
-      // ⚠️ TRAVA primeiro, conta depois. `for update` sem `order by` entre duas
-      // vendas com os mesmos dois tipos em ordem trocada daria impasse; o
-      // `order by id` faz as duas pedirem as travas na mesma ordem.
+      // ⚠️ TRAVA primeiro, conta depois — e SEMPRE combo antes de ingresso.
+      // São duas tabelas: uma venda que travasse ingresso e depois combo,
+      // cruzando com outra na ordem inversa, pararia as duas até o banco
+      // matar uma por impasse. A ordem entre tabelas é tão obrigatória quanto
+      // o `order by id` dentro de cada uma.
+      if (combosPedidos.length > 0) {
+        await tx`
+          select id from eventos.combos
+           where evento_id = ${eventoId} and id = any(${combosPedidos.map((p) => p.comboId)})
+           order by id
+             for update
+        `;
+      }
+
+      const combos =
+        combosPedidos.length > 0
+          ? await lerCombosParaVenda(tx, eventoId, pessoaId)
+          : [];
+
+      const conferidoCombo = conferirCombos(combos, combosPedidos, { agora: new Date() });
+      if (conferidoCombo.erros.length > 0) throw new RecusaDeVenda(conferidoCombo.erros[0]);
+
+      // ⚠️ Os tipos a travar incluem os que os combos ENTREGAM, não só os
+      // pedidos avulsos. Travar só os avulsos deixaria o estoque do jantar
+      // dentro do combo sem trava nenhuma — e duas vendas simultâneas do mesmo
+      // combo passariam as duas pelo último lugar.
+      const pedidos = [
+        ...new Set([
+          ...avulsos.map((i) => i.tipoId),
+          ...conferidoCombo.itensExpandidos.map((i) => i.tipoId),
+        ]),
+      ];
       await tx`
         select id from eventos.ingresso_tipos
          where evento_id = ${eventoId} and id = any(${pedidos})
@@ -502,18 +546,7 @@ export async function venderNoBalcao(formData: FormData) {
            for update
       `;
 
-      const tipos = await tx<TipoParaVendaDoBanco[]>`
-        select
-          t.id, t.nome, t.papel, t.ativo, t.valor_centavos,
-          t.unico_por_cpf, t.exige_principal,
-          case when t.quantidade is null then null
-               else greatest(t.quantidade - count(i.id) filter (where i.status <> 'cancelado'), 0)::int
-          end as disponivel
-        from eventos.ingresso_tipos t
-        left join eventos.inscricoes i on i.ingresso_tipo_id = t.id
-        where t.evento_id = ${eventoId}
-        group by t.id
-      `;
+      const tipos = await lerTiposParaVenda(tx, eventoId);
 
       const jaTem = await tx<{ ingresso_tipo_id: number }[]>`
         select distinct ingresso_tipo_id
@@ -522,14 +555,24 @@ export async function venderNoBalcao(formData: FormData) {
            and ingresso_tipo_id is not null and status in ('pendente', 'pago')
       `;
 
+      // ⚠️ O carrinho inteiro vai junto: avulsos MAIS o que os combos
+      // entregam. `conferirVenda` soma o mesmo tipo vindo dos dois lados antes
+      // de olhar estoque e "um por pessoa" — conferidos separados, o jantar
+      // avulso e o jantar de dentro do combo caberiam os dois no último lugar.
       const conferido = conferirVenda(
         tipos,
-        itens,
+        [...avulsos, ...conferidoCombo.itensExpandidos],
         jaTem.map((l) => l.ingresso_tipo_id)
       );
       // Só o primeiro motivo vai para a URL: a frase inteira cabe, e uma lista
       // concatenada vira um parágrafo ilegível no alto da tela.
       if (conferido.erros.length > 0) throw new RecusaDeVenda(conferido.erros[0]);
+
+      const porTipo = new Map(tipos.map((t) => [t.id, t]));
+      const descontoDeCombo = conferidoCombo.escolhidos.reduce(
+        (soma, e) => soma + e.descontoCentavos,
+        0
+      );
 
       // ⚠️ O cupom é conferido DENTRO da transação, como o estoque: os limites
       // de uso são disputados do mesmo jeito. Duas vendas simultâneas com o
@@ -541,14 +584,28 @@ export async function venderNoBalcao(formData: FormData) {
       let cupomAlcanca: number | null = null;
 
       if (codigoCupom) {
+        // ⚠️ `combo_id` VAI NO SELECT. A coluna existe desde a carga e não era
+        // lida: sem ela, `conferirCupom` recebia o campo indefinido e tratava
+        // cupom de combo como cupom geral — descontando o carrinho inteiro.
         const [cupom] = await tx<Cupom[]>`
-          select id, codigo, tipo, valor, ingresso_tipo_id, max_usos_total,
+          select id, codigo, tipo, valor, ingresso_tipo_id, combo_id, max_usos_total,
                  max_usos_por_cpf, vigencia_inicio, vigencia_fim, ativo
             from eventos.cupons
            where evento_id = ${eventoId} and lower(codigo) = lower(${codigoCupom})
              for update
         `;
         if (!cupom) throw new RecusaDeVenda(`Não existe o cupom ${codigoCupom} neste evento.`);
+
+        // ⚠️ O cupom não incide sobre combo — o pacote já tem preço próprio, e
+        // descontar de novo em cima dele desconta duas vezes. Quem levou SÓ
+        // combo precisa ouvir isso com todas as letras: a mensagem genérica
+        // ("não vale para nenhum dos ingressos escolhidos") mandaria o operador
+        // conferir o cupom, que não tem nada de errado.
+        if (avulsos.length === 0) {
+          throw new RecusaDeVenda(
+            "O cupom não vale sobre combo, que já é preço fechado. Tire o cupom ou acrescente um ingresso avulso."
+          );
+        }
 
         const [usos] = await tx<{ total: number; desta: number }[]>`
           select
@@ -557,12 +614,13 @@ export async function venderNoBalcao(formData: FormData) {
           from eventos.inscricoes where cupom_id = ${cupom.id}
         `;
 
+        // Só os AVULSOS vão para a conta do cupom, pela mesma razão.
         const veredito = conferirCupom(
           cupom,
-          conferido.itens.map((i) => ({
-            tipoId: i.tipo.id,
+          avulsos.map((i) => ({
+            tipoId: i.tipoId,
             quantidade: i.quantidade,
-            valorCentavos: i.tipo.valor_centavos,
+            valorCentavos: porTipo.get(i.tipoId)?.valor_centavos ?? 0,
           })),
           { agora: new Date(), usosTotais: usos?.total ?? 0, usosDestaPessoa: usos?.desta ?? 0 }
         );
@@ -573,7 +631,13 @@ export async function venderNoBalcao(formData: FormData) {
         descontoTotal = veredito.descontoCentavos;
       }
 
-      total = totalCobrado(forma, conferido.totalCentavos - descontoTotal);
+      // ⚠️ O desconto do COMBO entra na conta junto com o do cupom. Ele é a
+      // diferença entre a soma de tabela e o preço do pacote: sem subtraí-lo,
+      // o balcão cobraria o avulso e o combo não teria serventia nenhuma.
+      total = totalCobrado(
+        forma,
+        conferido.totalCentavos - descontoDeCombo - descontoTotal
+      );
       const venda = tipoDeVenda(forma);
       // ⚠️ Balcão grava PAGO: o dinheiro já está na mão de quem vendeu. Deixar
       // pendente faria o check-in recusar quem acabou de pagar na frente do
@@ -587,28 +651,68 @@ export async function venderNoBalcao(formData: FormData) {
       const grupo = randomUUID();
 
       // UMA linha por ingresso: cada uma tem o seu QR, entra sozinha no
-      // check-in e se estorna sem mexer nas outras.
-      const cruas = conferido.itens.flatMap(({ tipo, quantidade }) =>
-        Array.from({ length: quantidade }, () => ({
-          valor: venda === "cortesia" ? 0 : tipo.valor_centavos,
-          tipoId: tipo.id,
-        }))
-      );
+      // check-in e se estorna sem mexer nas outras. As de combo carregam
+      // `combo_id` — é por ele que o relatório sabe que saíram de um pacote, e
+      // que a conta de pacotes vendidos fecha.
+      const valorDe = (tipoId: number) =>
+        venda === "cortesia" ? 0 : porTipo.get(tipoId)?.valor_centavos ?? 0;
 
-      // ⚠️ O desconto é REPARTIDO entre as linhas que o cupom alcança, e a
-      // soma das partes fecha com o total exato. Gravá-lo inteiro na primeira
-      // linha faria o estorno de UM ingresso devolver o desconto do pedido
-      // todo — e cancelar as outras devolveria mais do que entrou.
-      const alcanca = (tipoId: number) =>
-        !cupomAlcanca || cupomAlcanca === tipoId;
-      const pesos = cruas.map((l) => (alcanca(l.tipoId) ? l.valor : 0));
-      const descontos = ratear(descontoTotal, pesos);
+      const cruas: { tipoId: number; valor: number; comboId: number | null }[] = [
+        ...avulsos.flatMap((i) =>
+          Array.from({ length: i.quantidade }, () => ({
+            tipoId: i.tipoId,
+            valor: valorDe(i.tipoId),
+            comboId: null,
+          }))
+        ),
+        ...conferidoCombo.escolhidos.flatMap((e) =>
+          e.itens.flatMap((i) =>
+            Array.from({ length: i.quantidade }, () => ({
+              tipoId: i.tipoId,
+              valor: valorDe(i.tipoId),
+              comboId: e.combo.id,
+            }))
+          )
+        ),
+      ];
+
+      // ⚠️ Cada desconto é REPARTIDO entre as linhas que ELE alcança, e a soma
+      // das partes fecha com o total exato. Gravá-lo inteiro na primeira linha
+      // faria o estorno de UM ingresso devolver o desconto do pedido todo — e
+      // cancelar as outras devolveria mais do que entrou.
+      //
+      // ⚠️ E são repartições SEPARADAS, uma por origem: o desconto do cupom só
+      // nas linhas avulsas que ele alcança, o de cada combo só nas linhas
+      // daquele combo. Um rateio único misturaria os dois e faria o estorno de
+      // um ingresso avulso devolver parte do desconto do pacote de outra
+      // pessoa da mesma compra.
+      const descontos = cruas.map(() => 0);
+      const somar = (partes: number[]) => {
+        partes.forEach((parte, idx) => {
+          descontos[idx] += parte;
+        });
+      };
+
+      const alcancaCupom = (l: (typeof cruas)[number]) =>
+        l.comboId === null && (!cupomAlcanca || cupomAlcanca === l.tipoId);
+      somar(ratear(descontoTotal, cruas.map((l) => (alcancaCupom(l) ? l.valor : 0))));
+
+      for (const escolhido of conferidoCombo.escolhidos) {
+        somar(
+          ratear(
+            // Cortesia não desconta de nada: o valor de tabela já entrou zerado.
+            venda === "cortesia" ? 0 : escolhido.descontoCentavos,
+            cruas.map((l) => (l.comboId === escolhido.combo.id ? l.valor : 0))
+          )
+        );
+      }
 
       const linhas = cruas.map((l, idx) => ({
         compra_grupo_id: grupo,
         pessoa_id: pessoaId,
         evento_id: eventoId,
         ingresso_tipo_id: l.tipoId,
+        combo_id: l.comboId,
         comprador_id: pessoaId,
         cupom_id: cupomId,
         tipo_venda: venda,
@@ -621,11 +725,13 @@ export async function venderNoBalcao(formData: FormData) {
         data_compra: new Date().toISOString(),
       }));
       quantasLinhas = linhas.length;
+      quantosCombos = conferidoCombo.escolhidos.reduce((s, e) => s + e.quantidade, 0);
 
       await tx`
         insert into eventos.inscricoes ${tx(
           linhas,
-          "compra_grupo_id", "pessoa_id", "evento_id", "ingresso_tipo_id", "comprador_id",
+          "compra_grupo_id", "pessoa_id", "evento_id", "ingresso_tipo_id", "combo_id",
+          "comprador_id",
           "cupom_id", "tipo_venda", "status", "forma_pagamento",
           "valor_original_centavos", "desconto_centavos", "cortesia_motivo",
           "observacao", "data_compra"
@@ -651,14 +757,24 @@ export async function venderNoBalcao(formData: FormData) {
     acao: "eventos.venda.balcao",
     entidade: "eventos.inscricoes",
     entidadeId: String(eventoId),
-    detalhe: { pessoa_id: pessoaId, ingressos: quantasLinhas, total_centavos: total, forma },
+    detalhe: {
+      pessoa_id: pessoaId,
+      ingressos: quantasLinhas,
+      combos: quantosCombos,
+      total_centavos: total,
+      forma,
+    },
   });
 
   revalidatePath(ROTA_VENDA);
   revalidatePath("/eventos");
+  // ⚠️ A confirmação conta INGRESSOS, e diz separado quantos combos saíram.
+  // Só "5 ingressos" depois de vender um combo de três faria o operador achar
+  // que cobrou errado, e conferir a venda que estava certa.
+  const comCombo = quantosCombos > 0 ? ` (${quantosCombos} combo(s))` : "";
   volta.set(
     "ok",
-    `${quantasLinhas} ingresso(s) vendido(s)${total > 0 ? ` — ${(total / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : " como cortesia"}.`
+    `${quantasLinhas} ingresso(s) vendido(s)${comCombo}${total > 0 ? ` — ${(total / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}` : " como cortesia"}.`
   );
   volta.delete("pessoa");
   redirect(`${ROTA_VENDA}?${volta}`);
