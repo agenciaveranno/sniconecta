@@ -75,6 +75,20 @@ dos segredos do repositório no GitHub, não da Vercel. ⚠️ Repositório que 
 de dono leva os segredos junto, mas confira — migração que roda sem eles falha
 depois de já ter mexido no banco.
 
+⚠️ **E ela NÃO aplica sozinha.** O job declara `environment: Production`, e
+esse ambiente exige aprovação: a execução nasce parada, com a conclusão
+`action_required`, sem consumir um minuto sequer. Quem lê "Migrações do banco —
+concluído" na lista do Actions vê uma execução que **não fez nada**. É preciso
+abrir a execução, clicar em *Review pending deployments*, marcar `Production` e
+aprovar — e aí ela aplica todas as pendentes de uma vez, na ordem das versões.
+
+Esse é o elo que cai **calado**, do lado do banco, como a Vercel é o que cai
+calado do lado da aplicação: o merge acontece, o site publica, e o esquema fica
+para trás. Nada quebra — a tela nova abre, a venda funciona, e só uma coluna
+nasce sem o default que deveria ter. O defeito aparece dias depois, longe da
+causa. Por isso existe o painel **Configurações → Estado do banco**, que
+pergunta ao próprio banco quais versões ele tem e lista as que faltam.
+
 **3. Aplicação (Vercel).** Publica sozinha a cada push na `main` — enquanto o
 repositório estiver na conta que a Vercel enxerga. É o elo que cai calado.
 
@@ -85,6 +99,11 @@ não só o CI.
 
 ## Conferir se a ligação está viva (dois minutos)
 
+0. **A migração aplicou?** Só quando o commit mexeu em
+   `supabase/migrations/`. Abra **Configurações → Estado do banco** no próprio
+   sistema: ou ele diz "em dia", ou lista o que falta. Na dúvida, GitHub →
+   Actions → "Migrações do banco": execução com a conclusão `action_required`
+   está **parada esperando aprovação**, não concluída.
 1. **O push virou deploy?** Vercel → projeto → *Deployments*: tem que existir
    um deploy de produção com o SHA do commit que acabou de entrar na `main`.
 2. **O PR recebeu status da Vercel?** Um PR com a ligação viva ganha o status
