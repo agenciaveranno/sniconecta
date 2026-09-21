@@ -91,3 +91,55 @@ describe("o que não vai para o papel", () => {
     expect(print).toContain("print-color-adjust: exact");
   });
 });
+
+describe("a lista de blocos existe uma vez só", () => {
+  const ACAO = readFileSync("src/modulos/eventos/acoes.ts", "utf8");
+  const ABA = readFileSync("src/app/eventos/admin/[id]/page.tsx", "utf8");
+  const DOMINIO = readFileSync("src/lib/dominio/comprovante.ts", "utf8");
+
+  it("as três pontas importam do domínio, e nenhuma escreve a própria", () => {
+    // ⚠️ A lista é a mesma para a tela que marca as caixas, a ação que grava e
+    // o papel que imprime. Escrita em três lugares, a primeira chave
+    // acrescentada num deles vira uma caixa que marca e não aparece.
+    expect(DOMINIO).toContain("BLOCOS_DO_COMPROVANTE");
+    for (const [onde, fonte] of [["ação", ACAO], ["aba", ABA]] as const) {
+      expect(fonte, `${onde} não importa do domínio`)
+        .toContain('from "@/lib/dominio/comprovante"');
+      expect(fonte, `${onde} declara a própria lista`)
+        .not.toContain("const BLOCOS_DO_COMPROVANTE");
+    }
+  });
+
+  it("ausente é MOSTRAR, nas duas pontas", () => {
+    // ⚠️ Tratar ausência como "esconder" faria o comprovante emagrecer sozinho
+    // no dia em que a lista crescesse.
+    expect(DOMINIO).toContain("!== false");
+    expect(PAGINA).toContain("mostraBloco(");
+    expect(ABA).toContain("!== false");
+  });
+
+  it("a ação grava as cinco chaves, e não só as que chegaram", () => {
+    // ⚠️ Caixa desmarcada NÃO CHEGA no formulário — o navegador não a envia.
+    // Montar o objeto só com o que chegou faria desmarcar virar "ausente", e o
+    // bloco voltaria a aparecer na leitura seguinte.
+    expect(ACAO).toContain("BLOCOS_DO_COMPROVANTE.map");
+    expect(ACAO).toContain("!== null");
+  });
+});
+
+describe("a cor da marca é conferida nas duas pontas", () => {
+  it("na gravação e na leitura, e nas DUAS cores", () => {
+    // ⚠️ O valor entra numa propriedade CSS. Conferir só ao gravar deixa
+    // passar o que chegar por outro caminho — carga, correção à mão no banco,
+    // tela nova.
+    //
+    // ⚠️ E cada cor é afirmada por NOME. Um `toContain("corDeMarca(")` solto
+    // passava com uma das duas conferidas e a outra crua: sobrava chamada no
+    // arquivo, e o teste se dava por satisfeito. Foi o que a mutação mostrou.
+    const ACAO = readFileSync("src/modulos/eventos/acoes.ts", "utf8");
+    expect(ACAO).toMatch(/const primaria = corDeMarca\(/);
+    expect(ACAO).toMatch(/const secundaria = corDeMarca\(/);
+    expect(PAGINA).toContain("corDeMarca(c.voucher_cor_primaria)");
+    expect(PAGINA).toContain("corDeMarca(c.voucher_cor_secundaria)");
+  });
+});
