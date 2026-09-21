@@ -44,6 +44,7 @@ export const MIGRACOES_ESPERADAS: readonly string[] = [
   "20260907190000", // papel_com_recorte_de_organizacao
   "20260907200000", // visao_respeita_o_rls
   "20260921030000", // qr_do_ingresso
+  "20260921040000", // fotos_da_unidade
 ];
 
 export type EstadoDoBanco =
