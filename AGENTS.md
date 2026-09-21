@@ -148,7 +148,7 @@ as duas, e vale rodá-las à mão ao mexer em SQL:
 ```
 sudo ./scripts/testar-rls.sh          # RLS e superfície de GRANT
 URL=$(sudo ./scripts/banco-de-teste.sh | tail -1)
-DATABASE_URL="$URL" npx vitest run tests/integracao
+DATABASE_URL="$URL" npx vitest run tests/integracao --no-file-parallelism
 sudo ./scripts/banco-de-teste.sh --parar
 ```
 

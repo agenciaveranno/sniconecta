@@ -39,7 +39,9 @@ jobs:
       - name: Consultas contra um Postgres de verdade
         run: |
           URL=$(sudo -E ./scripts/banco-de-teste.sh | tail -1)
-          DATABASE_URL="$URL" npx vitest run tests/integracao
+          # ⚠️ `--no-file-parallelism`: os arquivos compartilham UM banco, e
+          # em paralelo um conta as linhas que o outro acabou de criar.
+          DATABASE_URL="$URL" npx vitest run tests/integracao --no-file-parallelism
           sudo -E ./scripts/banco-de-teste.sh --parar
       # O build precisa das variáveis públicas para montar o cliente Supabase.
       # Valores de mentira bastam: nada é chamado durante o build.
