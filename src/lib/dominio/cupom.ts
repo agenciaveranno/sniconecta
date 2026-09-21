@@ -17,6 +17,8 @@ export type Cupom = {
   valor: number;
   /** Quando preenchido, o cupom só vale para ESTE tipo de ingresso. */
   ingresso_tipo_id: number | null;
+  /** Quando preenchido, o cupom é de UM combo — e só dele. */
+  combo_id: number | null;
   max_usos_total: number | null;
   max_usos_por_cpf: number | null;
   /** ISO, ou nulo para "sem começo"/"sem fim". */
@@ -70,10 +72,28 @@ export function conferirCupom(
     };
   }
 
+  // ⚠️ CUPOM DE COMBO É RECUSADO, e não tratado como cupom geral. `combo_id`
+  // existe desde a carga e não era lido aqui: um cupom preso a um combo descia
+  // por este caminho sem nenhum alcance definido e descontava O CARRINHO
+  // INTEIRO — o desconto do pacote saía nos ingressos avulsos de quem soubesse
+  // somar no mesmo pedido. Recusar é a única resposta honesta enquanto a conta
+  // do desconto sobre um preço que JÁ é promocional não estiver escrita: o
+  // combo tem preço próprio, e descontar de novo sobre ele desconta duas vezes.
+  if (cupom.combo_id !== null) {
+    return {
+      vale: false,
+      motivo: `O cupom ${cupom.codigo} vale só para um combo, e desconto sobre combo ainda não está disponível.`,
+    };
+  }
+
   // ⚠️ A BASE do desconto é só o que o cupom alcança. Um cupom preso a um tipo
   // de ingresso que desse 50% sobre o carrinho inteiro descontaria também o
   // jantar e o transporte — e o cupom da "meia entrada" pagaria o jantar de
   // quem soubesse somar no mesmo pedido.
+  //
+  // ⚠️ E `itens` aqui são SÓ os avulsos: quem chama não passa o que veio
+  // dentro de combo. O combo já tem preço promocional próprio, e somar os dois
+  // descontos daria um desconto maior que a diferença entre os dois preços.
   const alcancados = cupom.ingresso_tipo_id
     ? itens.filter((i) => i.tipoId === cupom.ingresso_tipo_id)
     : itens;

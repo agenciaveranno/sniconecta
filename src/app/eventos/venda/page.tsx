@@ -11,8 +11,8 @@ import { formatarCentavos } from "@/lib/dominio/dinheiro";
 import { porQueNaoVende } from "@/lib/dominio/ingressos";
 import { FORMAS_BALCAO, ROTULO_FORMA } from "@/lib/dominio/venda";
 import {
-  eventosParaVenda, pessoaDoBalcao, procurarPessoaNoBalcao, tiposParaVenda,
-  tiposQueAPessoaJaTem,
+  combosParaVenda, eventosParaVenda, pessoaDoBalcao, procurarPessoaNoBalcao,
+  tiposParaVenda, tiposQueAPessoaJaTem,
 } from "@/modulos/eventos/consultas";
 import { venderNoBalcao } from "@/modulos/eventos/acoes";
 
@@ -54,15 +54,25 @@ export default async function VendaPage({
     ? porQueNaoVende({ temPromotor: evento.tem_promotor, ativo: true }, tipos)
     : [];
 
-  const [achados, jaTem] = await Promise.all([
+  const [achados, jaTem, combos] = await Promise.all([
     evento && busca?.trim() && !pessoa
       ? procurarPessoaNoBalcao(busca)
       : Promise.resolve([]),
     evento && pessoa ? tiposQueAPessoaJaTem(evento.id, pessoa.id) : Promise.resolve([]),
+    // ⚠️ Os combos só são lidos quando já se sabe QUEM compra: metade do que a
+    // consulta responde ("quantos esta pessoa já levou") não existe antes
+    // disso, e carregá-los no passo do evento seria uma ida ao banco a mais em
+    // toda abertura do balcão.
+    evento && pessoa ? combosParaVenda(evento.id, pessoa.id) : Promise.resolve([]),
   ]);
 
   const base = "/eventos/venda";
   const vendaveis = tipos.filter((t) => t.ativo);
+
+  // ⚠️ A tela esconde o combo inativo e o que não entrega nada; a CONFERÊNCIA
+  // do servidor continua recusando os dois pelo nome. Esconder aqui é para não
+  // oferecer o que não se vende — não é a regra, que mora em `conferirCombos`.
+  const combosVendaveis = combos.filter((c) => c.ativo && c.itens.length > 0);
 
   return (
     <Painel titulo="Venda balcão">
@@ -233,13 +243,97 @@ export default async function VendaPage({
                     })}
                   </Tabela>
 
+                  {combosVendaveis.length > 0 && (
+                    <>
+                      <TituloSecao>Combos</TituloSecao>
+                      <Tabela cabecalho={["Combo", "Entrega", "Preço", "Avulso", "Disponível", "Quantidade"]}>
+                        {combosVendaveis.map((c) => {
+                          const restam =
+                            c.quantidade === null
+                              ? null
+                              : Math.max(c.quantidade - c.vendidos, 0);
+                          const podeLevar =
+                            c.limitePorPessoa === null
+                              ? null
+                              : Math.max(c.limitePorPessoa - c.levadosPorEsta, 0);
+                          // ⚠️ Combo cadastrado por mais do que os ingressos
+                          // custam separados é erro de centavos, e o servidor
+                          // recusa. A tela diz isso ANTES, porque o operador
+                          // não tem como adivinhar por que o combo some.
+                          const caro = c.avulsoCentavos < c.valorCentavos;
+                          const teto = Math.min(
+                            restam ?? 99,
+                            podeLevar ?? 99,
+                            caro ? 0 : 99
+                          );
+                          return (
+                            <Linha key={c.id}>
+                              <Celula forte>
+                                {c.nome}
+                                {caro && (
+                                  <>
+                                    {" "}
+                                    <Badge tom="danger">preço acima do avulso</Badge>
+                                  </>
+                                )}
+                              </Celula>
+                              <Celula>
+                                {c.itens.map((i) => `${i.quantidade}× ${i.nome}`).join(", ")}
+                              </Celula>
+                              <Celula dado>{formatarCentavos(c.valorCentavos)}</Celula>
+                              <Celula dado>
+                                <span className="hint">{formatarCentavos(c.avulsoCentavos)}</span>
+                              </Celula>
+                              <Celula dado>
+                                {restam === null ? (
+                                  <span className="hint">Sem limite</span>
+                                ) : (
+                                  <Num>{restam}</Num>
+                                )}
+                                {podeLevar !== null && (
+                                  <span className="hint"> · {podeLevar} para esta pessoa</span>
+                                )}
+                              </Celula>
+                              <Celula>
+                                {teto === 0 ? (
+                                  // Diz POR QUE está fora, em vez de um campo
+                                  // morto sem explicação.
+                                  <span className="hint">
+                                    {caro
+                                      ? "Corrija o preço"
+                                      : restam === 0
+                                        ? "Esgotado"
+                                        : "Limite desta pessoa"}
+                                  </span>
+                                ) : (
+                                  <Input
+                                    name={`combo_${c.id}`}
+                                    type="number"
+                                    min={0}
+                                    max={teto}
+                                    defaultValue={0}
+                                    style={{ width: 90 }}
+                                  />
+                                )}
+                              </Celula>
+                            </Linha>
+                          );
+                        })}
+                      </Tabela>
+                    </>
+                  )}
+
                   {/* ⚠️ O cupom é conferido no SERVIDOR, dentro da mesma
                       transação do estoque: os limites de uso são disputados do
                       mesmo jeito, e duas vendas simultâneas com o último uso
                       leriam as duas "resta 1" se a conta ficasse na tela. */}
                   <Campo
                     label="Cupom"
-                    dica="Opcional. Não distingue maiúscula de minúscula."
+                    dica={
+                      combosVendaveis.length > 0
+                        ? "Opcional. Não distingue maiúscula de minúscula. Não incide sobre combo, que já é preço fechado."
+                        : "Opcional. Não distingue maiúscula de minúscula."
+                    }
                   >
                     <Input name="cupom" maxLength={40} placeholder="VERAO10" />
                   </Campo>

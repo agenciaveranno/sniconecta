@@ -481,6 +481,10 @@ export default async function EventoPage({
                     )}
                   </Celula>
                   <Celula dado>
+                    {/* ⚠️ PACOTES, não linhas de inscrição. Um combo de três
+                        ingressos vendido duas vezes deixa seis linhas no banco:
+                        contá-las diria "6 de 2" e faria desativar um combo que
+                        ainda tem lugar. Quem divide é `combosVendidos`. */}
                     <Num>{c.vendidos}</Num>
                     {c.quantidade !== null && <span className="hint"> de {c.quantidade}</span>}
                   </Celula>
@@ -513,14 +517,14 @@ export default async function EventoPage({
             </Tabela>
           )}
 
-          {/* ⚠️ A tela diz o que ela NÃO faz. Combo cadastrado que o balcão não
-              vende é promessa quebrada em silêncio — melhor a tela avisar do
-              que o operador descobrir com a fila na frente. */}
+          {/* ⚠️ O cupom NÃO incide sobre combo, e quem cadastra os dois na
+              mesma tela precisa saber disso aqui — não no balcão, com a fila na
+              frente. O pacote já tem preço próprio; descontar de novo em cima
+              dele desconta duas vezes. */}
           <Alerta tipo="info">
-            A venda de combo ainda não está no balcão: por enquanto ele se
-            cadastra aqui e aparece no relatório, mas quem vende monta os
-            ingressos avulsos. A venda entra numa etapa própria, porque mexe no
-            estoque de vários ingressos de uma vez.
+            O combo já sai com preço fechado, e por isso cupom não incide sobre
+            ele: no balcão, o desconto do cupom vale só para os ingressos
+            avulsos da mesma compra.
           </Alerta>
         </>
       )}

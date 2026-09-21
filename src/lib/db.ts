@@ -71,6 +71,16 @@ function criar() {
  */
 let instancia: ReturnType<typeof postgres> | undefined;
 
+/**
+ * Quem executa SQL: a conexão ou uma transação aberta com `begin`.
+ *
+ * ⚠️ Existe para que uma consulta seja ESCRITA UMA VEZ e sirva aos dois. A
+ * mesma leitura feita na tela e dentro da transação da venda, copiada, diverge
+ * na primeira correção — e o jeito que isso aparece é o balcão recusando o que
+ * a tela ofereceu, ou pior, vendendo o que ela não mostrava.
+ */
+export type Executor = postgres.ISql;
+
 export function conexao(): ReturnType<typeof postgres> {
   const guardada = globalParaDb.sql ?? instancia;
   if (guardada) return guardada;

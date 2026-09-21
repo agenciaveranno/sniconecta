@@ -49,7 +49,18 @@ export function conferirVenda(
   const porId = new Map(tipos.map((t) => [t.id, t]));
 
   // Quantidade zero ou negativa não é erro: é item que não foi escolhido.
-  const escolhidos = itens.filter((i) => i.quantidade > 0);
+  // ⚠️ E o MESMO tipo pedido duas vezes vira UMA linha somada. O carrinho
+  // chega com o que foi pedido avulso e com o que os combos entregam, e o
+  // jantar pode estar nos dois. Conferidas separadas, duas linhas de 1 passam
+  // as duas por "resta 1" e por "um por pessoa" — e o salão recebe duas
+  // reservas para a mesma cadeira.
+  const somados = new Map<number, number>();
+  for (const item of itens) {
+    if (item.quantidade > 0) {
+      somados.set(item.tipoId, (somados.get(item.tipoId) ?? 0) + item.quantidade);
+    }
+  }
+  const escolhidos = [...somados].map(([tipoId, quantidade]) => ({ tipoId, quantidade }));
 
   const casados: { tipo: TipoParaVenda; quantidade: number }[] = [];
   for (const item of escolhidos) {

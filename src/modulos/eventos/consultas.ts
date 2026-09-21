@@ -1,6 +1,7 @@
 import "server-only";
-import { conexao } from "@/lib/db";
+import { conexao, type Executor } from "@/lib/db";
 import { prepararBusca } from "@/lib/dominio/busca-pessoa";
+import { combosVendidos, type ComboParaVenda } from "@/lib/dominio/combo";
 
 /**
  * Leituras do módulo `eventos`.
@@ -259,7 +260,22 @@ export async function eventoDaPagina(id: number): Promise<EventoDaPagina | null>
  * cancelamentos recusar venda com o salão vazio.
  */
 export async function tiposParaVenda(eventoId: number): Promise<TipoParaVendaDoBanco[]> {
-  const sql = conexao();
+  return lerTiposParaVenda(conexao(), eventoId);
+}
+
+/**
+ * Os mesmos tipos, lidos por quem já está dentro da transação da venda — com
+ * as linhas do estoque travadas por um `for update` feito antes.
+ *
+ * ⚠️ Uma consulta só, e não uma cópia aqui e outra lá. A cópia que existia
+ * dentro de `venderNoBalcao` era literalmente este SQL colado: qualquer
+ * correção de disponibilidade feita num lado passaria a valer na tela e não na
+ * gravação, e o balcão ofereceria o que ele mesmo recusa ao confirmar.
+ */
+export async function lerTiposParaVenda(
+  sql: Executor,
+  eventoId: number
+): Promise<TipoParaVendaDoBanco[]> {
   return sql<TipoParaVendaDoBanco[]>`
     select
       t.id, t.nome, t.papel, t.ativo, t.valor_centavos,
@@ -888,6 +904,7 @@ export type ComboDoEvento = {
   itens: { ingresso_tipo_id: number; nome: string; quantidade: number; valor_centavos: number }[];
   /** Soma dos itens pelo preço de tabela — para a tela mostrar o desconto real. */
   avulso_centavos: number;
+  /** PACOTES vendidos, não linhas de inscrição. Ver `combosVendidos`. */
   vendidos: number;
 };
 
@@ -901,14 +918,16 @@ export type ComboDoEvento = {
  */
 export async function combosDoEvento(eventoId: number): Promise<ComboDoEvento[]> {
   const sql = conexao();
-  const combos = await sql<Omit<ComboDoEvento, "itens" | "avulso_centavos">[]>`
+  const combos = await sql<
+    (Omit<ComboDoEvento, "itens" | "avulso_centavos" | "vendidos"> & { linhas: number })[]
+  >`
     select
       c.id, c.nome, c.descricao, c.valor_centavos, c.quantidade,
       c.limite_por_cpf, c.max_parcelas,
       to_char(c.venda_inicio at time zone ${FUSO}, 'YYYY-MM-DD"T"HH24:MI') as venda_inicio,
       to_char(c.venda_fim    at time zone ${FUSO}, 'YYYY-MM-DD"T"HH24:MI') as venda_fim,
       c.ativo,
-      count(i.id) filter (where i.status <> 'cancelado')::int as vendidos
+      count(i.id) filter (where i.status <> 'cancelado')::int as linhas
     from eventos.combos c
     left join eventos.inscricoes i on i.combo_id = c.id
     where c.evento_id = ${eventoId}
@@ -930,12 +949,138 @@ export async function combosDoEvento(eventoId: number): Promise<ComboDoEvento[]>
      order by t.papel desc, t.nome
   `;
 
-  return combos.map((c) => {
+  return combos.map(({ linhas, ...c }) => {
     const meus = itens.filter((i) => i.combo_id === c.id);
     return {
       ...c,
       itens: meus.map(({ combo_id: _, ...resto }) => resto),
       avulso_centavos: meus.reduce((s, i) => s + i.valor_centavos * i.quantidade, 0),
+      // ⚠️ O banco conta LINHAS de inscrição; a coluna da tela e o limite
+      // `quantidade` falam de PACOTES. Um combo de três ingressos vendido duas
+      // vezes deixa seis linhas: sem dividir pelo tamanho do pacote, a tela
+      // diria "6 de 2" e o operador desativaria um combo que ainda tem lugar.
+      vendidos: combosVendidos(
+        linhas,
+        meus.reduce((s, i) => s + i.quantidade, 0)
+      ),
     };
   });
 }
+
+/**
+ * Os combos que o balcão pode oferecer, já com quanto sobrou e quanto esta
+ * pessoa já levou.
+ *
+ * ⚠️ NÃO filtra por `ativo`. O combo desativado entre a abertura da tela e o
+ * "Registrar venda" precisa chegar à conferência para ser recusado POR ESTAR
+ * DESATIVADO. Filtrado aqui, ele sumiria da lista e a recusa sairia como "não
+ * pertence a este evento" — uma frase que manda o operador procurar o combo no
+ * evento errado. Quem esconde o inativo é a tela.
+ *
+ * ⚠️ `venda_inicio` e `venda_fim` saem CRUS, e não formatados no fuso como na
+ * tela de gestão: quem compara com o relógio é o servidor, e um texto local
+ * sem fuso vira `Date` na hora de Greenwich — três horas de diferença, que é
+ * exatamente o tamanho de uma janela de venda que abre de manhã.
+ */
+export async function combosParaVenda(
+  eventoId: number,
+  pessoaId: string
+): Promise<ComboNoBalcao[]> {
+  return lerCombosParaVenda(conexao(), eventoId, pessoaId);
+}
+
+/**
+ * A mesma leitura, feita por quem já está dentro de uma transação.
+ *
+ * ⚠️ A venda precisa reler os combos com as linhas TRAVADAS, e a tela precisa
+ * lê-los sem travar nada. É a MESMA consulta: escrita duas vezes, a correção
+ * de uma deixaria a outra oferecendo o que não se pode vender. Foi assim que
+ * `tiposParaVenda` acabou com uma cópia dentro de `venderNoBalcao`.
+ */
+export async function lerCombosParaVenda(
+  sql: Executor,
+  eventoId: number,
+  pessoaId: string
+): Promise<ComboNoBalcao[]> {
+  const combos = await sql<LinhaDeComboNoBalcao[]>`
+    select
+      c.id, c.nome, c.descricao, c.ativo, c.valor_centavos, c.quantidade,
+      c.limite_por_cpf, c.venda_inicio, c.venda_fim,
+      count(i.id) filter (where i.status <> 'cancelado')::int as linhas,
+      count(i.id) filter (
+        where i.status <> 'cancelado' and i.pessoa_id = ${pessoaId}
+      )::int as linhas_desta
+    from eventos.combos c
+    left join eventos.inscricoes i on i.combo_id = c.id
+    where c.evento_id = ${eventoId}
+    group by c.id
+    order by c.ativo desc, c.nome
+  `;
+  if (combos.length === 0) return [];
+
+  const itens = await sql<{
+    combo_id: number; ingresso_tipo_id: number; nome: string;
+    quantidade: number; valor_centavos: number;
+  }[]>`
+    select ci.combo_id, ci.ingresso_tipo_id, t.nome, ci.quantidade, t.valor_centavos
+      from eventos.combo_itens ci
+      join eventos.ingresso_tipos t on t.id = ci.ingresso_tipo_id
+     where ci.combo_id = any(${combos.map((c) => c.id)})
+     order by t.papel desc, t.nome
+  `;
+
+  return combos.map((c) => {
+    const meus = itens.filter((i) => i.combo_id === c.id);
+    const porUnidade = meus.reduce((s, i) => s + i.quantidade, 0);
+    return {
+      id: c.id,
+      nome: c.nome,
+      descricao: c.descricao,
+      ativo: c.ativo,
+      valorCentavos: c.valor_centavos,
+      quantidade: c.quantidade,
+      limitePorPessoa: c.limite_por_cpf,
+      vendaInicio: c.venda_inicio,
+      vendaFim: c.venda_fim,
+      vendidos: combosVendidos(c.linhas, porUnidade),
+      levadosPorEsta: combosVendidos(c.linhas_desta, porUnidade),
+      itens: meus.map((i) => ({
+        tipoId: i.ingresso_tipo_id,
+        nome: i.nome,
+        quantidade: i.quantidade,
+        valorCentavos: i.valor_centavos,
+      })),
+      avulsoCentavos: meus.reduce((s, i) => s + i.valor_centavos * i.quantidade, 0),
+    };
+  });
+}
+
+type LinhaDeComboNoBalcao = {
+  id: number;
+  nome: string;
+  descricao: string | null;
+  ativo: boolean;
+  valor_centavos: number;
+  quantidade: number | null;
+  limite_por_cpf: number | null;
+  venda_inicio: Date | null;
+  venda_fim: Date | null;
+  linhas: number;
+  linhas_desta: number;
+};
+
+/**
+ * O combo como o balcão o mostra: a regra pura mais o que a tela precisa ler.
+ *
+ * ⚠️ `Omit` e não interseção nos itens. Interseccionar deixaria `itens` como
+ * `ItemDoCombo[] & (ItemDoCombo & { nome })[]`, e o compilador resolve a
+ * leitura pelo primeiro ramo — `i.nome` deixaria de existir para quem lê,
+ * embora o valor esteja lá.
+ */
+export type ComboNoBalcao = Omit<ComboParaVenda, "itens"> & {
+  descricao: string | null;
+  /** Quanto os mesmos ingressos custariam separados, uma unidade. */
+  avulsoCentavos: number;
+  itens: (ComboParaVenda["itens"][number] & { nome: string })[];
+};
+
