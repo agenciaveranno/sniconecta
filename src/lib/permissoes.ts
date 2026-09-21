@@ -70,8 +70,14 @@ export type Capacidade =
   | "eventos.inscricoes.ver"   // painel, relatórios, ficha do participante
   | "eventos.inscricoes.gerir" // transferir, trocar titular, cancelar
   | "eventos.estornos.gerir"
-  | "eventos.comissao.gerir"
-  | "eventos.configurar";      // Cielo, e-mail, WhatsApp, marca
+  | "eventos.comissao.gerir";
+// ⚠️ NÃO existe `eventos.configurar`. Ela existiu aqui apontando para uma tela
+// que nunca nasceu, e não tinha o que guardar: a conta Cielo é do PROMOTOR e
+// mora no cadastro da entidade (decisão 0010); SMTP, WhatsApp e LGPD são
+// comuns e moram em `/admin/configuracoes`, sob `configuracao.gerir`; a marca
+// do voucher é de CADA evento e vai junto com ele, sob `eventos.gerir`.
+// Capacidade que não libera ação nenhuma é pior que ausência: alguém a
+// concede achando que deu acesso a algo.
 
 const PLATAFORMA: readonly Capacidade[] = [
   "estrutura.gerir", "pessoa.gerir", "papel.conceder", "acesso.gerir",
@@ -90,7 +96,6 @@ const CICLO: readonly Capacidade[] = [
 const EVENTOS: readonly Capacidade[] = [
   "eventos.gerir", "eventos.vender", "eventos.checkin", "eventos.inscricoes.ver",
   "eventos.inscricoes.gerir", "eventos.estornos.gerir", "eventos.comissao.gerir",
-  "eventos.configurar",
 ];
 
 /**

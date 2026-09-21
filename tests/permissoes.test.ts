@@ -32,13 +32,19 @@ describe("matriz de capacidades", () => {
       // ato da Sede, e o banco já restringia a escrita de `mandatos` a
       // `app.e_sede()`. Número que sobe aqui é decisão; número que sobe sozinho
       // é vazamento.
-      sede: 32,
+      //
+      // 31 desde a saída de `eventos.configurar` (setembro/2026): ela apontava
+      // para uma tela que nunca nasceu e não tinha o que guardar — a conta
+      // Cielo é do promotor, SMTP e LGPD são comuns, a marca do voucher é de
+      // cada evento. Capacidade que não libera ação nenhuma é pior que
+      // ausência: alguém a concede achando que deu acesso a algo.
+      sede: 31,
       coordenador: 12,
       orientador: 4,
       presidente_uap: 3,
       professor: 2,
       aluno: 1,
-      eventos_admin: 9,
+      eventos_admin: 8,   // 9 até a saída de `eventos.configurar`
       eventos_operador: 3,
     };
     for (const [tipo, n] of Object.entries(esperado)) {
@@ -63,12 +69,16 @@ describe("matriz de capacidades", () => {
     expect(capacidadesDe("presidente_uap")).not.toContain("ciclo.desconto.autorizar");
   });
 
-  it("operador de eventos vende e faz check-in, mas não configura nem estorna", () => {
+  it("operador de eventos vende e faz check-in, mas não estorna nem cadastra", () => {
     const op = capacidadesDe("eventos_operador");
     expect(op).toContain("eventos.vender");
     expect(op).toContain("eventos.checkin");
-    expect(op).not.toContain("eventos.configurar");
+    // ⚠️ Devolver dinheiro e mexer no catálogo do evento são do administrador.
+    // Antes esta linha citava `eventos.configurar`, que deixou de existir — e
+    // uma asserção sobre um nome que não existe mais passa sempre, vigiando
+    // nada. Estas duas vigiam o que de fato separa operador de administrador.
     expect(op).not.toContain("eventos.estornos.gerir");
+    expect(op).not.toContain("eventos.gerir");
   });
 });
 

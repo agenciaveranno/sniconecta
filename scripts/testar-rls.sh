@@ -731,6 +731,35 @@ else
   falhas=$((falhas+1))
 fi
 
+# ⚠️ O código do ingresso nasce do BANCO, por default. Se o default sumir numa
+# migração futura, nada quebra: a inscrição é gravada com `qr_code` nulo, a
+# venda dá certo, e o defeito só aparece na porta — com a pessoa segurando um
+# ingresso que não se lê. Aqui isso reprova antes do merge.
+# `with ... returning` e não `insert ... returning` solto: com o insert cru o
+# psql imprime também o rótulo do comando ("INSERT 0 1"), que entraria na
+# variável junto com o valor.
+qr_evento=$(conta "with n as (insert into eventos.eventos (nome, data_inicial, data_final)
+  values ('Teste do QR', now(), now()) returning id) select id from n;")
+qr_pessoa=$(conta "select id from public.pessoas limit 1;")
+qr_valor=$(conta "with n as (insert into eventos.inscricoes (pessoa_id, evento_id)
+  values ('$qr_pessoa', $qr_evento) returning qr_code) select qr_code from n;")
+if echo "$qr_valor" | grep -Eq '^SNI-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$'; then
+  echo "  ✅ inscrição nova nasce com código de ingresso ($qr_valor)"
+else
+  echo "  ❌ inscrição nasceu sem código legível: '$qr_valor'"
+  falhas=$((falhas+1))
+fi
+
+qr_repetidos=$(conta "select count(*) from (
+    select qr_code from eventos.inscricoes where qr_code is not null
+     group by qr_code having count(*) > 1) d;")
+if [ "$qr_repetidos" = "0" ]; then
+  echo "  ✅ nenhum código de ingresso repetido"
+else
+  echo "  ❌ $qr_repetidos código(s) de ingresso repetidos"
+  falhas=$((falhas+1))
+fi
+
 echo
 if [ "$falhas" -eq 0 ]; then
   echo "✅ RLS íntegro — herança correta na árvore, sem vazamento entre unidades."

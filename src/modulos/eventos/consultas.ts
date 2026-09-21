@@ -396,16 +396,26 @@ export type InscricaoNaPorta = {
   checkin_em: string | null;
   /** Já formatado no fuso de Brasília, para a tela não refazer a conta. */
   checkin_legivel: string | null;
+  /** O código do ingresso, para a porta conferir com o papel na mão. */
+  qr_code: string | null;
 };
 
 /**
- * As inscrições de um evento para quem está na porta, achadas por documento ou
- * nome.
+ * As inscrições de um evento para quem está na porta, achadas por documento,
+ * nome, CÓDIGO DO INGRESSO ou número do convite.
  *
  * ⚠️ Traz TODAS as situações, inclusive cancelada e pendente. Filtrar só as
  * pagas faria a porta dizer "não encontrei" para quem tem inscrição pendente —
  * e a pessoa iria embora achando que nunca se inscreveu, quando o certo é
  * mandá-la ao balcão pagar.
+ *
+ * ⚠️ O código entra na MESMA busca, e não num campo separado. O leitor de QR
+ * do balcão é um teclado: ele digita o código no campo que estiver com o foco
+ * e aperta enter. Um campo próprio para QR obrigaria o operador a clicar nele
+ * antes de cada leitura — com a fila andando, é o clique que não acontece.
+ *
+ * ⚠️ E em CAIXA ALTA dos dois lados. O código que a carga trouxe do sistema
+ * antigo vem em caixa qualquer, e quem digita à mão não distingue.
  */
 export async function inscricoesNaPorta(
   eventoId: number,
@@ -424,7 +434,8 @@ export async function inscricoesNaPorta(
       i.status,
       i.tipo_venda,
       i.checkin_em,
-      to_char(i.checkin_em at time zone ${FUSO}, 'DD/MM/YYYY HH24:MI') as checkin_legivel
+      to_char(i.checkin_em at time zone ${FUSO}, 'DD/MM/YYYY HH24:MI') as checkin_legivel,
+      i.qr_code
     from eventos.inscricoes i
     join public.pessoas p on p.id = i.pessoa_id
     left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
@@ -433,6 +444,8 @@ export async function inscricoesNaPorta(
         (${busca.digitos} <> '' and p.cpf = ${busca.digitos})
         or p.passaporte = ${busca.documento}
         or p.nome ilike ${busca.comoNome} escape '\\' 
+        or upper(i.qr_code) = ${busca.documento}
+        or upper(i.numero_convite) = ${busca.documento}
       )
     order by p.nome, t.nome
     limit 50
