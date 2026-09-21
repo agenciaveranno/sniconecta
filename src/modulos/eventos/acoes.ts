@@ -1238,3 +1238,159 @@ export async function trocarTitular(formData: FormData) {
   revalidatePath("/eventos/pessoas");
   volta("ok", `Ingresso passou de ${linha.nome_atual} para ${novaPessoa.nome}.`);
 }
+
+// ─── Comissão ────────────────────────────────────────────────────────────────
+
+/**
+ * Quem trabalha no evento.
+ *
+ * ⚠️ `nome` é obrigatório e `pessoa_id` é opcional, e não o contrário. A
+ * origem gravava só o nome, e metade da comissão de um evento antigo é gente
+ * que nunca teve cadastro. Exigir o vínculo faria a tela recusar o que já está
+ * no banco — e a conciliação, que é o trabalho de verdade, nunca começaria.
+ */
+const schemaMembro = z.object({
+  nome: z.string().trim().min(3, "Informe o nome de quem trabalha no evento."),
+  setor: z.string().trim().optional().transform((v) => v || null),
+  funcao: z.string().trim().optional().transform((v) => v || null),
+});
+
+/** Acha a pessoa pelo documento, quando informado. Documento em branco é ok. */
+async function pessoaDoDocumento(
+  sql: ReturnType<typeof conexao>,
+  documento: string
+): Promise<{ id: string } | null | "nao_achou"> {
+  const busca = prepararBusca(documento);
+  if (!busca) return null;
+  const [pessoa] = await sql<{ id: string }[]>`
+    select id from public.pessoas
+     where (${busca.digitos} <> '' and cpf = ${busca.digitos})
+        or passaporte = ${busca.documento}
+     limit 1
+  `;
+  return pessoa ?? "nao_achou";
+}
+
+export async function adicionarMembroComissao(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.comissao.gerir");
+
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  if (!eventoId) falhar("Evento não informado.");
+
+  const dados = schemaMembro.safeParse(Object.fromEntries(formData));
+  if (!dados.success) falharNoEvento(eventoId, dados.error.issues[0].message, "comissao");
+
+  const sql = conexao();
+  const achada = await pessoaDoDocumento(sql, String(formData.get("documento") ?? ""));
+  if (achada === "nao_achou") {
+    falharNoEvento(
+      eventoId,
+      "Ninguém com esse documento está no cadastro. Deixe em branco para registrar só o nome, e vincule depois.",
+      "comissao"
+    );
+  }
+
+  try {
+    const [criado] = await sql<{ id: number }[]>`
+      insert into eventos.comissao_membros (evento_id, pessoa_id, nome, setor, funcao)
+      values (${eventoId}, ${achada?.id ?? null}, ${dados.data.nome},
+              ${dados.data.setor}, ${dados.data.funcao})
+      returning id
+    `;
+    await registrar({
+      atorId: eu?.id,
+      acao: "eventos.comissao.membro_incluido",
+      entidade: "eventos.comissao_membros",
+      entidadeId: String(criado?.id ?? ""),
+      detalhe: { evento_id: eventoId, nome: dados.data.nome, vinculado: Boolean(achada?.id) },
+    });
+  } catch (e) {
+    falharNoEvento(eventoId, e instanceof Error ? e.message : String(e), "comissao");
+  }
+
+  revalidatePath(rotaDoEvento(eventoId, "comissao"));
+  redirect(`${rotaDoEvento(eventoId, "comissao")}&ok=${encodeURIComponent("Pessoa incluída na comissão.")}`);
+}
+
+export async function editarMembroComissao(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.comissao.gerir");
+
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  const id = Number(formData.get("id") ?? 0);
+  if (!eventoId) falhar("Evento não informado.");
+  if (!id) falharNoEvento(eventoId, "Pessoa da comissão não informada.", "comissao");
+
+  const dados = schemaMembro.safeParse(Object.fromEntries(formData));
+  if (!dados.success) falharNoEvento(eventoId, dados.error.issues[0].message, "comissao");
+
+  const sql = conexao();
+  const achada = await pessoaDoDocumento(sql, String(formData.get("documento") ?? ""));
+  if (achada === "nao_achou") {
+    falharNoEvento(
+      eventoId,
+      "Ninguém com esse documento está no cadastro. Deixe em branco para manter só o nome.",
+      "comissao"
+    );
+  }
+
+  // ⚠️ Documento em branco DESVINCULA, e isso é intencional: é como se corrige
+  // um vínculo posto na pessoa errada. Manter o antigo faria a tela mostrar
+  // uma correção que não aconteceu.
+  await sql`
+    update eventos.comissao_membros set
+      nome = ${dados.data.nome},
+      setor = ${dados.data.setor},
+      funcao = ${dados.data.funcao},
+      pessoa_id = ${achada?.id ?? null}
+    where id = ${id} and evento_id = ${eventoId}
+  `;
+  await registrar({
+    atorId: eu?.id,
+    acao: "eventos.comissao.membro_editado",
+    entidade: "eventos.comissao_membros",
+    entidadeId: String(id),
+    detalhe: { evento_id: eventoId, nome: dados.data.nome, vinculado: Boolean(achada?.id) },
+  });
+
+  revalidatePath(rotaDoEvento(eventoId, "comissao"));
+  redirect(`${rotaDoEvento(eventoId, "comissao")}&ok=${encodeURIComponent("Comissão atualizada.")}`);
+}
+
+/**
+ * Tira alguém da comissão.
+ *
+ * ⚠️ APAGA, e aqui isso está certo — ao contrário de evento, ingresso e cupom.
+ * Nada aponta para esta linha: não há inscrição, pagamento nem comprovante
+ * preso a ela. Quem saiu da equipe simplesmente não está na equipe, e uma
+ * linha "desativada" numa lista de quem trabalha no dia seria ruído para quem
+ * confere a escala. A trilha de auditoria guarda quem tirou e quando.
+ */
+export async function removerMembroComissao(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.comissao.gerir");
+
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  const id = Number(formData.get("id") ?? 0);
+  if (!eventoId) falhar("Evento não informado.");
+  if (!id) falharNoEvento(eventoId, "Pessoa da comissão não informada.", "comissao");
+
+  const sql = conexao();
+  const [removido] = await sql<{ nome: string }[]>`
+    delete from eventos.comissao_membros
+     where id = ${id} and evento_id = ${eventoId}
+    returning nome
+  `;
+  if (!removido) falharNoEvento(eventoId, "Essa pessoa já tinha saído da comissão.", "comissao");
+
+  await registrar({
+    atorId: eu?.id,
+    acao: "eventos.comissao.membro_removido",
+    entidade: "eventos.comissao_membros",
+    entidadeId: String(id),
+    detalhe: { evento_id: eventoId, nome: removido.nome },
+  });
+
+  revalidatePath(rotaDoEvento(eventoId, "comissao"));
+  redirect(
+    `${rotaDoEvento(eventoId, "comissao")}&ok=${encodeURIComponent(`${removido.nome} saiu da comissão.`)}`
+  );
+}
