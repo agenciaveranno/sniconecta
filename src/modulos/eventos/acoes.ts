@@ -12,6 +12,7 @@ import {
   conferirVenda, FORMAS_BALCAO, tipoDeVenda, totalCobrado, type FormaBalcao,
 } from "@/lib/dominio/venda";
 import { conferirCupom, normalizarCodigo, type Cupom } from "@/lib/dominio/cupom";
+import { prepararBusca } from "@/lib/dominio/busca-pessoa";
 import { podeEntrar } from "@/lib/dominio/checkin";
 import {
   podeTrocarTitular, type InscricaoParaTrocar,
@@ -1138,7 +1139,10 @@ export async function trocarTitular(formData: FormData) {
   const motivo = String(formData.get("motivo") ?? "").trim();
   const voltarPara = String(formData.get("voltar_para") ?? "").trim();
 
-  const volta = (chave: string, mensagem: string): never => {
+  // ⚠️ O tipo vai na CONST, não só no retorno. Sem a anotação explícita o
+  // TypeScript não usa o `never` para estreitar o fluxo, e tudo depois de um
+  // `volta(...)` continua parecendo alcançável.
+  const volta: (chave: string, mensagem: string) => never = (chave, mensagem) => {
     const p = new URLSearchParams();
     if (voltarPara) p.set("pessoa", voltarPara);
     p.set(chave, mensagem);
@@ -1168,11 +1172,15 @@ export async function trocarTitular(formData: FormData) {
   `;
   if (!linha) volta("erro", "Inscrição não encontrada.");
 
-  const digitos = documento.replace(/\D/g, "");
+  // ⚠️ Mesma preparação das buscas de tela (`prepararBusca`): sem ela, esta
+  // resolução por documento divergiria das outras cinco — e o balcão aceitaria
+  // um documento que a ficha não encontra.
+  const busca = prepararBusca(documento);
+  if (!busca) volta("erro", "Informe o CPF ou passaporte de quem vai receber o ingresso.");
   const [novaPessoa] = await sql<{ id: string; nome: string }[]>`
     select id, nome from public.pessoas
-     where (${digitos} <> '' and cpf = ${digitos})
-        or passaporte = ${documento.toUpperCase()}
+     where (${busca.digitos} <> '' and cpf = ${busca.digitos})
+        or passaporte = ${busca.documento}
      limit 2
   `;
   if (!novaPessoa) {
