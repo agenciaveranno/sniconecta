@@ -12,9 +12,11 @@ import { podeTransferir } from "@/lib/dominio/transferencia";
 import { dataBR } from "@/lib/dominio/data";
 import { formatarCentavos } from "@/lib/dominio/dinheiro";
 import {
-  inscricoesDaPessoa, pessoaDoBalcao, procurarParticipante,
+  inscricoesDaPessoa, perguntasDasInscricoes, pessoaDoBalcao,
+  procurarParticipante,
 } from "@/modulos/eventos/consultas";
-import { trocarTitular } from "@/modulos/eventos/acoes";
+import { salvarRespostas, trocarTitular } from "@/modulos/eventos/acoes";
+import CamposResposta from "./CamposResposta";
 
 export const metadata = { title: "Pessoas" };
 
@@ -61,6 +63,11 @@ export default async function PessoasPage({
   ]);
 
   const inscricoes = pessoa ? await inscricoesDaPessoa(pessoa.id) : [];
+  // ⚠️ UMA consulta para as perguntas de todas as inscrições. Quem já veio a
+  // seis eventos tem seis inscrições, e uma ida ao banco por linha faria a
+  // ficha — a tela mais aberta do módulo — pagar seis viagens para mostrar,
+  // quase sempre, nenhuma pergunta.
+  const perguntas = await perguntasDasInscricoes(inscricoes.map((i) => i.id));
 
   const base = "/eventos/pessoas";
   const pagas = inscricoes.filter((i) => i.status === "pago");
@@ -220,6 +227,31 @@ export default async function PessoasPage({
                     {i.checkin_legivel ?? <span className="hint">—</span>}
                   </Celula>
                   <Celula alinhar="right">
+                    {/* A ficha é o lugar de responder: no balcão, cinco
+                        perguntas por ingresso é o que faz a fila parar. */}
+                    {podeGerir && (perguntas.get(i.id)?.length ?? 0) > 0 && (
+                      <>
+                        <ModalCadastro
+                          gatilho="link"
+                          rotulo={
+                            perguntas.get(i.id)!.some((p) => p.valor !== null)
+                              ? "Respostas"
+                              : "Responder"
+                          }
+                          titulo={`Perguntas de ${i.ingresso ?? "ingresso"}`}
+                          descricao={i.evento}
+                          acao={salvarRespostas}
+                          rotuloConfirmar="Guardar"
+                          largura="lg"
+                        >
+                          <CamposResposta
+                            inscricaoId={i.id}
+                            voltarPara={pessoa.id}
+                            perguntas={perguntas.get(i.id)!}
+                          />
+                        </ModalCadastro>{" "}
+                      </>
+                    )}
                     {/* ⚠️ O comprovante aparece para QUALQUER situação, não
                         só para a paga: quem vem reclamar traz a inscrição
                         cancelada, e o papel é o que a conversa precisa ter na
