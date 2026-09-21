@@ -1,5 +1,6 @@
 import "server-only";
 import { criarClienteServico } from "@/lib/supabase/service";
+import { abrirTransporte } from "./email";
 
 /**
  * Fila de notificações: UMA para a plataforma inteira.
@@ -93,30 +94,108 @@ export interface ResultadoFila {
 }
 
 /**
+ * Quantas por rodada. O cron é diário e a função tem prazo: uma fila grande
+ * entregue de uma vez estoura o limite no meio, e o que ficou pela metade
+ * volta a ser pendente — o que está certo, mas nunca acaba de sair.
+ */
+const POR_RODADA = 50;
+
+/** Cinco tentativas. Ver a nota em `processarFila`. */
+const MAXIMO_TENTATIVAS = 5;
+
+/**
  * Entrega o que está pendente. Chamada só pelo cron.
  *
- * ⚠️ Ainda não envia: o transporte (SMTP e WhatsApp) entra junto com o módulo
- * de comunicação. Até lá, a fila ACUMULA — que é o comportamento certo, e não
- * o mesmo que perder. Quando o transporte chegar, tudo que estiver pendente
- * sai na primeira rodada.
- *
- * O limite de 5 tentativas vive aqui e não no banco: mensagem que falhou cinco
+ * O limite de tentativas vive aqui e não no banco: mensagem que falhou cinco
  * vezes tem problema de destino, não de rede, e continuar tentando só esconde
  * o erro atrás de uma fila que nunca esvazia.
+ *
+ * ⚠️ SMTP não configurado NÃO é falha, e não gasta tentativa. É o estado
+ * normal de um sistema recém-instalado, e a fila ACUMULA — que é o
+ * comportamento certo, e não o mesmo que perder. Gastar as cinco tentativas
+ * enquanto ninguém preencheu o servidor de envio apagaria, em cinco dias,
+ * tudo que estava esperando por ele.
  */
 export async function processarFila(): Promise<ResultadoFila> {
-  const { count } = await criarClienteServico()
+  const supabase = criarClienteServico();
+
+  const { data: pendentes, error } = await supabase
     .from("notificacoes")
-    .select("id", { count: "exact", head: true })
+    .select("id, canal, destino, assunto, corpo, tentativas")
     .eq("status", "pendente")
-    .lt("tentativas", 5);
+    .lt("tentativas", MAXIMO_TENTATIVAS)
+    .order("criado_em", { ascending: true })
+    .limit(POR_RODADA);
+
+  if (error) return { processadas: 0, falhas: 0, motivo: error.message };
+  if (!pendentes || pendentes.length === 0) return { processadas: 0, falhas: 0 };
+
+  const transporte = await abrirTransporte();
+  if (!transporte) {
+    return {
+      processadas: 0,
+      falhas: 0,
+      motivo: `${pendentes.length} mensagem(ns) esperando: o servidor de envio ainda não foi preenchido em Configurações.`,
+    };
+  }
+
+  let processadas = 0;
+  let falhas = 0;
+
+  for (const n of pendentes) {
+    // ⚠️ RESERVA ANTES DE ENVIAR, comparando o número de tentativas que foi
+    // lido. Se outra rodada já pegou esta linha, o `update` não acha nada e
+    // esta passa adiante — sem isto, o cron agendado e o botão "processar
+    // agora" mandariam a mesma mensagem duas vezes. Conversa de WhatsApp é
+    // cobrada, e e-mail repetido é o que faz gente marcar como spam.
+    const { data: reservada } = await supabase
+      .from("notificacoes")
+      .update({ tentativas: n.tentativas + 1 })
+      .eq("id", n.id)
+      .eq("status", "pendente")
+      .eq("tentativas", n.tentativas)
+      .select("id")
+      .maybeSingle();
+    if (!reservada) continue;
+
+    // ⚠️ WhatsApp ainda não tem transporte. A linha fica PENDENTE e sem gastar
+    // tentativa — marcá-la como falha apagaria, em cinco rodadas, mensagens
+    // que só esperam o canal existir.
+    if (n.canal !== "email") {
+      await supabase
+        .from("notificacoes")
+        .update({ tentativas: n.tentativas, ultimo_erro: "Canal ainda sem transporte." })
+        .eq("id", n.id);
+      continue;
+    }
+
+    const r = await transporte.enviar({
+      para: n.destino,
+      assunto: n.assunto ?? "SNI Conecta",
+      corpo: n.corpo,
+    });
+
+    if (r.enviou) {
+      processadas++;
+      await supabase
+        .from("notificacoes")
+        .update({ status: "enviada", enviado_em: new Date().toISOString(), ultimo_erro: null })
+        .eq("id", n.id);
+    } else {
+      falhas++;
+      const acabou = n.tentativas + 1 >= MAXIMO_TENTATIVAS;
+      await supabase
+        .from("notificacoes")
+        // Só vira `falhou` na última: antes disso ela continua pendente, para
+        // a rodada seguinte tentar de novo.
+        .update({ status: acabou ? "falhou" : "pendente", ultimo_erro: r.motivo.slice(0, 500) })
+        .eq("id", n.id);
+    }
+  }
 
   return {
-    processadas: 0,
-    falhas: 0,
-    motivo:
-      count && count > 0
-        ? `${count} mensagem(ns) esperando: o transporte de e-mail ainda não foi ligado.`
-        : undefined,
+    processadas,
+    falhas,
+    motivo: falhas > 0 ? `${falhas} falha(s) — ver \`ultimo_erro\` na fila.` : undefined,
   };
 }
