@@ -846,6 +846,135 @@ export async function inscricaoParaTransferir(
   return linha ?? null;
 }
 
+export type EventoPublico = {
+  id: number;
+  nome: string;
+  data_inicial: string;
+  data_final: string;
+  local: string | null;
+  local_cidade: string | null;
+  local_uf: string | null;
+  /** Se há para quem vender: sem promotor, o dinheiro não tem onde cair. */
+  tem_promotor: boolean;
+};
+
+export type IngressoPublico = {
+  id: number;
+  nome: string;
+  descricao: string | null;
+  valor_centavos: number;
+  papel: "principal" | "adicional";
+  max_parcelas: number;
+  /** Já resolvido pelo banco, no fuso certo: a página não refaz a conta. */
+  abre_em: string | null;
+  fecha_em: string | null;
+  esgotado: boolean;
+};
+
+export type ComboPublico = {
+  id: number;
+  nome: string;
+  descricao: string | null;
+  valor_centavos: number;
+  max_parcelas: number;
+  itens: string[];
+  avulso_centavos: number;
+};
+
+/**
+ * O evento como o mundo o vê.
+ *
+ * ⚠️ ESTA CONSULTA É A SUPERFÍCIE PÚBLICA, e por isso ela escolhe coluna por
+ * coluna em vez de trazer a linha inteira. Um `select *` aqui publicaria o
+ * promotor, a conta que recebe, as observações internas e o que a carga deixou
+ * em `migracao_extras` — e o vazamento não apareceria em teste nenhum, porque
+ * a página só mostra o que usa. O que não é escolhido aqui não sai daqui.
+ *
+ * ⚠️ E só evento ATIVO. Evento desativado devolve nulo como se não existisse:
+ * distinguir "não existe" de "existe e está desligado" conta a quem tem o
+ * endereço que ele existiu.
+ */
+export async function eventoPublico(id: number): Promise<EventoPublico | null> {
+  const sql = conexao();
+  const [linha] = await sql<EventoPublico[]>`
+    select
+      e.id, e.nome, e.data_inicial, e.data_final,
+      l.nome as local, l.cidade as local_cidade, l.uf as local_uf,
+      (e.promotor_organizacao_id is not null
+       or e.promotor_unidade_id is not null
+       or e.promotor_local_id is not null) as tem_promotor
+    from eventos.eventos e
+    left join public.locais l on l.id = e.local_id
+    where e.id = ${id} and e.ativo
+  `;
+  return linha ?? null;
+}
+
+/**
+ * Os ingressos que o site oferece.
+ *
+ * ⚠️ `exibir_venda_publica` é o filtro que a fundação criou para isto. Sem
+ * ele, o ingresso de cortesia da comissão e o preço especial do balcão
+ * apareceriam no site para qualquer um comprar.
+ *
+ * ⚠️ E o que sai é "esgotado", não QUANTOS RESTAM. Contagem de estoque é
+ * informação de operação: publicada, ela conta para concorrente e para
+ * curioso o tamanho e o desempenho do evento, todo dia, sem ninguém ter
+ * decidido publicar isso.
+ */
+export async function ingressosPublicos(eventoId: number): Promise<IngressoPublico[]> {
+  const sql = conexao();
+  return sql<IngressoPublico[]>`
+    select
+      t.id, t.nome, t.descricao, t.valor_centavos, t.papel, t.max_parcelas,
+      to_char(t.venda_inicio at time zone ${FUSO}, 'DD/MM/YYYY HH24:MI') as abre_em,
+      to_char(t.venda_fim    at time zone ${FUSO}, 'DD/MM/YYYY HH24:MI') as fecha_em,
+      (t.quantidade is not null
+       and count(i.id) filter (where i.status <> 'cancelado') >= t.quantidade) as esgotado
+    from eventos.ingresso_tipos t
+    left join eventos.inscricoes i on i.ingresso_tipo_id = t.id
+    where t.evento_id = ${eventoId} and t.ativo and t.exibir_venda_publica
+    group by t.id
+    order by t.papel desc, t.valor_centavos, t.nome
+  `;
+}
+
+/** Os combos ativos, com o que entregam. Mesmo recorte de colunas. */
+export async function combosPublicos(eventoId: number): Promise<ComboPublico[]> {
+  const sql = conexao();
+  const combos = await sql<Omit<ComboPublico, "itens" | "avulso_centavos">[]>`
+    select c.id, c.nome, c.descricao, c.valor_centavos, c.max_parcelas
+      from eventos.combos c
+     where c.evento_id = ${eventoId} and c.ativo
+     order by c.valor_centavos, c.nome
+  `;
+  if (combos.length === 0) return [];
+
+  const itens = await sql<{
+    combo_id: number; nome: string; quantidade: number; valor_centavos: number;
+  }[]>`
+    select ci.combo_id, t.nome, ci.quantidade, t.valor_centavos
+      from eventos.combo_itens ci
+      join eventos.ingresso_tipos t on t.id = ci.ingresso_tipo_id
+     where ci.combo_id = any(${combos.map((c) => c.id)})
+       and t.ativo and t.exibir_venda_publica
+     order by t.papel desc, t.nome
+  `;
+
+  return combos
+    .map((c) => {
+      const meus = itens.filter((i) => i.combo_id === c.id);
+      return {
+        ...c,
+        itens: meus.map((i) => `${i.quantidade}× ${i.nome}`),
+        avulso_centavos: meus.reduce((s, i) => s + i.valor_centavos * i.quantidade, 0),
+      };
+    })
+    // ⚠️ Combo cujos itens não são de venda pública não aparece: ele
+    // anunciaria um pacote que o site não tem como entregar.
+    .filter((c) => c.itens.length > 0);
+}
+
 export type PerguntaDoIngresso = {
   id: number;
   ingresso_tipo_id: number;

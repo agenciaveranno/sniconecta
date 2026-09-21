@@ -590,3 +590,64 @@ dialog.sni-modal::backdrop {
      evento — que é o que distingue um comprovante do outro — sumiria. */
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* ── Página pública do evento ──────────────────────────────────────────────
+   O endereço que vai no cartaz e no Instagram. Sem painel, sem sessão: quem
+   abre não tem conta e não vai criar uma para ver um preço. */
+
+.sni-publico {
+  max-width: 680px; margin: 0 auto; padding: 32px 16px 64px;
+}
+
+.sni-publico-topo { margin-bottom: 32px; }
+.sni-publico-entidade { font-size: 13px; color: var(--txt-3); margin: 0 0 6px; }
+.sni-publico-nome {
+  font-family: var(--font-serif);
+  text-transform: uppercase; font-weight: 800; letter-spacing: 0;
+  font-size: 28px; line-height: 1.15; margin: 0 0 8px;
+  color: var(--navy-700);
+}
+.sni-publico-quando { font-size: 15px; color: var(--txt-2); margin: 0; }
+
+.sni-publico-secao {
+  font-family: var(--font-serif);
+  text-transform: uppercase; font-weight: 800; letter-spacing: 0;
+  font-size: 18px; margin: 24px 0 8px; color: var(--txt-1);
+}
+
+.sni-publico-lista { display: grid; gap: 12px; }
+
+.sni-publico-item {
+  display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start;
+  background: var(--srf-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 16px 20px;
+}
+/* ⚠️ Numa coluna no celular, e o preço vai para BAIXO do nome, não para o
+   lado: a grade de duas colunas espreme o nome do ingresso em duas letras por
+   linha em tela estreita — que é onde a maioria vai abrir este endereço. */
+@media (max-width: 520px) {
+  .sni-publico-item { grid-template-columns: 1fr; }
+  .sni-publico-item-preco { text-align: left; }
+}
+
+.sni-publico-item-nome { font-size: 17px; font-weight: 700; margin: 0; }
+.sni-publico-item-sobre { font-size: 15px; color: var(--txt-2); margin: 4px 0 0; }
+.sni-publico-item-nota { font-size: 13px; color: var(--txt-3); margin: 4px 0 0; }
+
+.sni-publico-item-preco { text-align: right; display: grid; gap: 2px; }
+.sni-publico-item-preco strong { font-size: 20px; }
+.sni-publico-esgotado {
+  font-size: 15px; font-weight: 700; color: var(--txt-3);
+}
+
+.sni-publico-aviso { font-size: 15px; color: var(--txt-2); }
+
+.sni-publico-rodape {
+  margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line);
+  font-size: 14px; color: var(--txt-2);
+}
+.sni-publico-rodape p { margin: 0 0 6px; }
+.sni-publico-rodape-marca { font-size: 13px; color: var(--txt-3); }
+.sni-publico-rodape-hora { font-size: 13px; color: var(--txt-4); }
