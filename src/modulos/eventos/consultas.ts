@@ -845,6 +845,43 @@ export async function inscricaoParaTransferir(
   return linha ?? null;
 }
 
+export type MarcaDoComprovante = {
+  voucher_cor_primaria: string;
+  voucher_cor_secundaria: string;
+  voucher_boas_vindas: string | null;
+  voucher_instrucoes: string | null;
+  voucher_rodape: string | null;
+  voucher_mostrar: Record<string, boolean | undefined>;
+  /** Uma inscrição qualquer do evento, para a tela oferecer a prévia real. */
+  exemplo_id: number | null;
+};
+
+/**
+ * Como o comprovante deste evento se apresenta, e um exemplo para conferir.
+ *
+ * ⚠️ O EXEMPLO é uma inscrição de verdade, não uma prévia inventada. Prévia
+ * montada com dados fictícios mostra a marca e esconde o que realmente
+ * importa: se o nome longo quebra a linha, se o evento sem local deixa um
+ * buraco, se a cortesia esconde o bloco de pagamento. Quem vai conferir o
+ * papel precisa ver o papel.
+ */
+export async function marcaDoComprovante(eventoId: number): Promise<MarcaDoComprovante | null> {
+  const sql = conexao();
+  const [linha] = await sql<MarcaDoComprovante[]>`
+    select
+      e.voucher_cor_primaria, e.voucher_cor_secundaria,
+      e.voucher_boas_vindas, e.voucher_instrucoes, e.voucher_rodape,
+      e.voucher_mostrar,
+      (select i.id from eventos.inscricoes i
+        where i.evento_id = e.id
+        order by (i.status = 'pago') desc, i.id
+        limit 1) as exemplo_id
+    from eventos.eventos e
+    where e.id = ${eventoId}
+  `;
+  return linha ?? null;
+}
+
 export type ComprovanteDaInscricao = {
   id: number;
   qr_code: string | null;

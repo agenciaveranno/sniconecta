@@ -8,6 +8,8 @@ import { exigirCapacidade } from "@/lib/auth";
 import { conexao } from "@/lib/db";
 import { registrar } from "@/lib/auditoria";
 import { centavosDe, ratear } from "@/lib/dominio/dinheiro";
+import { corDeMarca } from "@/lib/dominio/cor";
+import { BLOCOS_DO_COMPROVANTE } from "@/lib/dominio/comprovante";
 import {
   conferirVenda, FORMAS_BALCAO, tipoDeVenda, totalCobrado, type FormaBalcao,
 } from "@/lib/dominio/venda";
@@ -1965,4 +1967,72 @@ export async function transferirEntreEventos(formData: FormData) {
 /** Em reais, para as frases de retorno. */
 function formatarReais(centavos: number): string {
   return (centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+// ─── A marca do comprovante ──────────────────────────────────────────────────
+
+/**
+ * Como o comprovante deste evento se apresenta.
+ *
+ * ⚠️ É DO EVENTO, não da instituição. Dois eventos da mesma casa podem ter
+ * identidade diferente — e as colunas `voucher_*` existem na fundação
+ * justamente por isso. Uma configuração global faria o retiro de jovens sair
+ * com a cara do congresso nacional.
+ */
+export async function salvarMarcaDoComprovante(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.gerir");
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  if (!eventoId) falhar("Evento não informado.");
+
+  const texto = (chave: string, limite: number) => {
+    const v = String(formData.get(chave) ?? "").trim();
+    return v ? v.slice(0, limite) : null;
+  };
+
+  // ⚠️ A cor é CONFERIDA, não gravada como veio. Ela vai parar dentro de uma
+  // declaração CSS: texto de gente em lugar onde certos caracteres mandam em
+  // vez de valer é o mesmo problema do `%` no `ilike`. Campo em branco volta
+  // ao default institucional em vez de virar "sem cor".
+  const primaria = corDeMarca(String(formData.get("cor_primaria") ?? ""));
+  const secundaria = corDeMarca(String(formData.get("cor_secundaria") ?? ""));
+  if (String(formData.get("cor_primaria") ?? "").trim() && !primaria) {
+    falharNoEvento(eventoId, "A cor principal precisa ser hexadecimal, como #132460.", "comprovante");
+  }
+  if (String(formData.get("cor_secundaria") ?? "").trim() && !secundaria) {
+    falharNoEvento(eventoId, "A cor de apoio precisa ser hexadecimal, como #B45309.", "comprovante");
+  }
+
+  // ⚠️ Caixa desmarcada NÃO CHEGA no formulário — o navegador simplesmente não
+  // a envia. Montar o objeto só com o que chegou faria toda caixa desmarcada
+  // virar "ausente" em vez de "não mostrar", e o comprovante voltaria a
+  // imprimir o bloco na próxima leitura. As cinco chaves são escritas sempre.
+  const mostrar = Object.fromEntries(
+    BLOCOS_DO_COMPROVANTE.map(([chave]) => [chave, formData.get(`mostrar_${chave}`) !== null])
+  );
+
+  const sql = conexao();
+  await sql`
+    update eventos.eventos
+       set voucher_cor_primaria   = coalesce(${primaria}, '#132460'),
+           voucher_cor_secundaria = coalesce(${secundaria}, '#B45309'),
+           voucher_boas_vindas    = ${texto("boas_vindas", 300)},
+           voucher_instrucoes     = ${texto("instrucoes", 1200)},
+           voucher_rodape         = ${texto("rodape", 300)},
+           voucher_mostrar        = ${sql.json(mostrar)},
+           atualizado_em = now()
+     where id = ${eventoId}
+  `;
+
+  await registrar({
+    atorId: eu?.id,
+    acao: "eventos.comprovante.marca",
+    entidade: "eventos.eventos",
+    entidadeId: String(eventoId),
+    detalhe: { cor_primaria: primaria, cor_secundaria: secundaria, mostrar },
+  });
+
+  revalidatePath(rotaDoEvento(eventoId, "comprovante"));
+  redirect(
+    `${rotaDoEvento(eventoId, "comprovante")}&ok=${encodeURIComponent("Marca do comprovante guardada.")}`
+  );
 }

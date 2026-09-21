@@ -1,26 +1,29 @@
 import { notFound } from "next/navigation";
 import {
-  IconDiscount2, IconId, IconPackage, IconPlus, IconTicket, IconUsersGroup,
+  IconDiscount2, IconFileInvoice, IconId, IconPackage, IconPlus, IconTicket,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
-  Abas, Alerta, Badge, Botao, BotaoLink, Celula, Etiqueta, Linha, Num, Recado, Tabela,
-  TituloPagina, TituloSecao, Vazio,
+  Abas, Alerta, Badge, Botao, BotaoLink, Campo, Celula, Etiqueta, Input, Linha,
+  Num, Recado, Tabela, Textarea, TituloPagina, TituloSecao, Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { formatarCentavos } from "@/lib/dominio/dinheiro";
 import { porQueNaoVende } from "@/lib/dominio/ingressos";
 import { descreverCupom } from "@/lib/dominio/cupom";
+import { BLOCOS_DO_COMPROVANTE } from "@/lib/dominio/comprovante";
 import {
   catalogoDaComissao, combosDoEvento, comissaoDoEvento, cuponsDoEvento,
+  marcaDoComprovante,
   eventoDaPagina, locaisAtivos, opcoesDePromotor, tiposDeIngresso, tiposParaCupom,
 } from "@/modulos/eventos/consultas";
 import {
   adicionarMembroComissao, alternarComboAtivo, alternarCupomAtivo,
   alternarTipoIngressoAtivo, criarCombo, criarCupom, criarTipoIngresso,
   editarCombo, editarCupom, editarEvento, editarMembroComissao,
-  editarTipoIngresso, removerMembroComissao,
+  editarTipoIngresso, removerMembroComissao, salvarMarcaDoComprovante,
 } from "@/modulos/eventos/acoes";
 import CamposEvento from "../CamposEvento";
 import CamposIngresso from "../CamposIngresso";
@@ -81,6 +84,7 @@ export default async function EventoPage({
 
   // Mesma razão: os combos são duas consultas que só esta aba usa.
   const combos = aba === "combos" ? await combosDoEvento(eventoId) : [];
+  const marca = aba === "comprovante" ? await marcaDoComprovante(eventoId) : null;
 
   if (!evento) notFound();
 
@@ -130,6 +134,12 @@ export default async function EventoPage({
             rotulo: "Combos",
             href: `${base}?aba=combos`,
             icone: <IconPackage size={17} className="ti" />,
+          },
+          {
+            chave: "comprovante",
+            rotulo: "Comprovante",
+            href: `${base}?aba=comprovante`,
+            icone: <IconFileInvoice size={17} className="ti" />,
           },
           {
             chave: "comissao",
@@ -417,6 +427,109 @@ export default async function EventoPage({
             </Tabela>
           )}
         </>
+      )}
+
+      {aba === "comprovante" && marca && (
+        <form action={salvarMarcaDoComprovante} className="sni-form">
+          <input type="hidden" name="evento_id" value={eventoId} />
+
+          <TituloSecao
+            acao={
+              marca.exemplo_id ? (
+                /* ⚠️ A prévia é uma inscrição DE VERDADE, não um exemplo
+                   inventado. Dados fictícios mostram a marca e escondem o que
+                   importa: se o nome longo quebra a linha, se o evento sem
+                   local deixa buraco, se a cortesia esconde o bloco de
+                   pagamento. Quem vai conferir o papel precisa ver o papel. */
+                <BotaoLink
+                  href={`/eventos/comprovante/${marca.exemplo_id}`}
+                  variante="secondary"
+                  tamanho="sm"
+                >
+                  Ver um comprovante
+                </BotaoLink>
+              ) : undefined
+            }
+          >
+            Marca do comprovante
+          </TituloSecao>
+
+          <p className="hint" style={{ maxWidth: "68ch" }}>
+            Vale só para este evento. Dois eventos da mesma casa podem ter
+            identidade diferente — e é por isso que isto não é configuração
+            geral do sistema.
+          </p>
+
+          <div className="form-grid">
+            <Campo label="Cor principal" dica="Hexadecimal, como #132460. É a faixa do alto do papel.">
+              <Input
+                name="cor_primaria"
+                defaultValue={marca.voucher_cor_primaria}
+                maxLength={7}
+                placeholder="#132460"
+              />
+            </Campo>
+            <Campo label="Cor de apoio" dica="Usada nos títulos internos.">
+              <Input
+                name="cor_secundaria"
+                defaultValue={marca.voucher_cor_secundaria}
+                maxLength={7}
+                placeholder="#B45309"
+              />
+            </Campo>
+          </div>
+
+          <Campo label="Boas-vindas" dica="Uma linha no alto, antes dos dados.">
+            <Input
+              name="boas_vindas"
+              defaultValue={marca.voucher_boas_vindas ?? ""}
+              maxLength={300}
+            />
+          </Campo>
+
+          <Campo
+            label="Instruções"
+            dica="O que a pessoa precisa saber antes de chegar: horário de abertura, o que levar, onde estacionar."
+          >
+            <Textarea
+              name="instrucoes"
+              defaultValue={marca.voucher_instrucoes ?? ""}
+              rows={4}
+              maxLength={1200}
+            />
+          </Campo>
+
+          <Campo label="Rodapé" dica="Em branco, o papel usa a frase padrão.">
+            <Input
+              name="rodape"
+              defaultValue={marca.voucher_rodape ?? ""}
+              maxLength={300}
+            />
+          </Campo>
+
+          <fieldset className="sni-grupo-campos">
+            <legend className="sni-grupo-campos-legenda">O que sai no papel</legend>
+            <p className="hint sni-grupo-campos-apoio">
+              Desmarcar esconde o bloco inteiro. O código do ingresso é o que a
+              porta lê — esconder só faz sentido em evento sem controle de
+              entrada.
+            </p>
+            {BLOCOS_DO_COMPROVANTE.map(([chave, rotulo]) => (
+              <label key={chave} className="sni-check">
+                <input
+                  type="checkbox"
+                  name={`mostrar_${chave}`}
+                  defaultChecked={marca.voucher_mostrar?.[chave] !== false}
+                />
+                <span>{rotulo}</span>
+              </label>
+            ))}
+          </fieldset>
+
+          <div className="sni-form-rodape">
+            <Botao type="submit">Guardar</Botao>
+          </div>
+        </form>
       )}
 
       {aba === "combos" && (

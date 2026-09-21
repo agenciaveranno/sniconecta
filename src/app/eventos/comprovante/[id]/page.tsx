@@ -6,6 +6,8 @@ import { Alerta, Entidade, Num } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { dataBR } from "@/lib/dominio/data";
 import { formatarCentavos } from "@/lib/dominio/dinheiro";
+import { mostraBloco } from "@/lib/dominio/comprovante";
+import { corDeMarca } from "@/lib/dominio/cor";
 import { valorAEstornar } from "@/lib/dominio/estorno";
 import { ROTULO_FORMA, type FormaBalcao } from "@/lib/dominio/venda";
 import { comprovanteDaInscricao } from "@/modulos/eventos/consultas";
@@ -39,8 +41,11 @@ export default async function ComprovantePage({
   const c = await comprovanteDaInscricao(Number(id));
   if (!c) notFound();
 
-  const mostrar = c.voucher_mostrar ?? {};
-  const ver = (chave: keyof typeof mostrar) => mostrar[chave] !== false;
+  // ⚠️ A mesma regra que a tela de marca usa para marcar as caixas: ausente é
+  // MOSTRAR. Escrita aqui também, a primeira chave nova viraria uma caixa que
+  // marca e não aparece.
+  const ver = (bloco: Parameters<typeof mostraBloco>[1]) =>
+    mostraBloco(c.voucher_mostrar, bloco);
 
   const pago = valorAEstornar({
     status: c.status,
@@ -77,8 +82,16 @@ export default async function ComprovantePage({
           // A marca é do EVENTO: as colunas `voucher_*` existem na fundação
           // com default institucional, para que um evento nunca personalizado
           // imprima com a cor da casa em vez de sem cor nenhuma.
-          ["--comprovante-primaria" as string]: c.voucher_cor_primaria,
-          ["--comprovante-secundaria" as string]: c.voucher_cor_secundaria,
+          //
+          // ⚠️ CONFERIDA TAMBÉM NA LEITURA, e não só na gravação. O valor entra
+          // numa propriedade CSS: se um dia chegar aqui por outro caminho —
+          // carga, correção à mão no banco, tela nova — um texto qualquer
+          // viraria declaração de estilo. Conferir nas duas pontas custa uma
+          // chamada de função. Em branco, cai no token institucional.
+          ["--comprovante-primaria" as string]:
+            corDeMarca(c.voucher_cor_primaria) ?? undefined,
+          ["--comprovante-secundaria" as string]:
+            corDeMarca(c.voucher_cor_secundaria) ?? undefined,
         }}
       >
         <header className="sni-comprovante-topo">
