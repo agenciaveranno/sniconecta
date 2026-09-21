@@ -8,6 +8,7 @@ import {
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { podeTrocarTitular } from "@/lib/dominio/titular";
+import { podeTransferir } from "@/lib/dominio/transferencia";
 import { dataBR } from "@/lib/dominio/data";
 import { formatarCentavos } from "@/lib/dominio/dinheiro";
 import {
@@ -219,6 +220,28 @@ export default async function PessoasPage({
                     {i.checkin_legivel ?? <span className="hint">—</span>}
                   </Celula>
                   <Celula alinhar="right">
+                    {/* ⚠️ Transferir é LINK, não modal: o ingresso de destino
+                        depende do evento de destino, e um modal estático não
+                        recarrega a lista quando o evento muda. A tela própria
+                        faz isso em três passos de URL. */}
+                    {podeGerir &&
+                      podeTransferir({
+                        status: i.status,
+                        tipoVenda: i.tipo_venda,
+                        valorOriginalCentavos: i.valor_original_centavos,
+                        descontoCentavos: i.desconto_centavos,
+                        checkinEm: i.checkin_em,
+                        eventoId: i.evento_id,
+                      }).pode && (
+                        <>
+                          <Link
+                            href={`/eventos/transferir?inscricao=${i.id}`}
+                            className="sni-acao"
+                          >
+                            Outro evento
+                          </Link>{" "}
+                        </>
+                      )}
                     {podeGerir &&
                       podeTrocarTitular(
                         {

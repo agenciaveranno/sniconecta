@@ -48,6 +48,7 @@ export const MODULOS: Modulo[] = [
       { href: "/eventos/venda", rotulo: "Venda balcão", icone: "IconShoppingCart", capacidade: "eventos.vender", pronto: true },
       { href: "/eventos/checkin", rotulo: "Check-in", icone: "IconCircleCheck", capacidade: "eventos.checkin", pronto: true },
       { href: "/eventos/relatorios", rotulo: "Relatórios", icone: "IconChartBar", capacidade: "eventos.inscricoes.ver", pronto: true },
+      { href: "/eventos/transferir", rotulo: "Transferências", icone: "IconArrowsExchange", capacidade: "eventos.inscricoes.gerir", pronto: true },
       { href: "/eventos/estornos", rotulo: "Estornos", icone: "IconReceiptRefund", capacidade: "eventos.estornos.gerir", pronto: true },
       { href: "/eventos/admin", rotulo: "Eventos e convites", icone: "IconCalendarEvent", capacidade: "eventos.gerir", pronto: true },
       // ⚠️ Não há "Configurações" aqui, e não é esquecimento: ver a nota em

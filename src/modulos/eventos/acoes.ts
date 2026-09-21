@@ -21,7 +21,11 @@ import {
 import {
   podeCancelar, valorAEstornar, type InscricaoParaCancelar,
 } from "@/lib/dominio/estorno";
+import {
+  acertarTransferencia, podeTransferir, type InscricaoParaTransferir,
+} from "@/lib/dominio/transferencia";
 import { lerCombosParaVenda, lerTiposParaVenda } from "./consultas";
+import type { InscricaoParaTransferirNoBanco } from "./consultas";
 import type { InscricaoNaPorta } from "./consultas";
 
 /**
@@ -975,6 +979,16 @@ export async function cancelarInscricao(formData: FormData) {
            cancelado_por = ${eu?.id ?? null},
            cancelamento_motivo = ${motivo},
            estorno_status = ${devolver > 0 ? "pendente" : null},
+           -- ⚠️ O valor vai REGISTRADO, não deixado para a fila recalcular.
+           -- Recalcular vale enquanto a devolução for "tudo o que a pessoa
+           -- pagou"; a transferência para um ingresso mais barato devolve só a
+           -- sobra, e a fila precisa saber a diferença. Mescla em vez de
+           -- trocar: a carga trouxe estornos antigos com forma e comprovante.
+           estorno = case when ${devolver} > 0
+                          then coalesce(estorno, '{}'::jsonb)
+                               || jsonb_build_object('valor_centavos', ${devolver}::int,
+                                                     'origem', 'cancelamento')
+                          else estorno end,
            atualizado_em = now()
      where id = ${id} and status <> 'cancelado'
     returning id
@@ -1700,4 +1714,255 @@ export async function alternarComboAtivo(formData: FormData) {
       ativo ? "Combo desativado." : "Combo reativado."
     )}`
   );
+}
+
+// ─── Transferência entre eventos ─────────────────────────────────────────────
+
+const ROTA_TRANSFERIR = "/eventos/transferir";
+
+/**
+ * Passa a inscrição para outro evento.
+ *
+ * ⚠️ A inscrição velha NÃO É APAGADA nem reaproveitada: ela fica com status
+ * `transferido` e aponta para a nova. O comprovante antigo circulou, e alguém
+ * vai chegar na porta com ele — a porta precisa poder dizer "esta foi
+ * transferida, vale a nova" em vez de "não encontrei". O esquema já previa
+ * isso desde a fundação, com o comentário escrito na coluna.
+ *
+ * ⚠️ O DINHEIRO NÃO É DECIDIDO AQUI. Quanto se cobra da diferença é escolha de
+ * quem está no balcão com a pessoa na frente; o que esta ação garante é a
+ * invariante: `valor_original − desconto` da linha nova é exatamente o que
+ * entrou no caixa por ela. Ver `dominio/transferencia.ts`.
+ */
+export async function transferirEntreEventos(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.inscricoes.gerir");
+
+  const id = Number(formData.get("id") ?? 0);
+  const novoEventoId = Number(formData.get("novo_evento_id") ?? 0);
+  const novoTipoId = Number(formData.get("novo_tipo_id") ?? 0);
+  const motivo = String(formData.get("motivo") ?? "").trim();
+  const forma = String(formData.get("forma") ?? "").trim();
+  // ⚠️ Campo VAZIO e "0" são coisas diferentes aqui, e a diferença é dinheiro.
+  // Vazio é "não decidi"; zero é "decidi não cobrar". Tratar vazio como zero
+  // faria a casa absorver a diferença por omissão — o operador confirma a tela
+  // sem reparar no campo, e a arrecadação some sem ninguém ter escolhido isso.
+  const cobradoBruto = String(formData.get("cobrado") ?? "").trim();
+  const cobrado = cobradoBruto === "" ? null : centavosDe(cobradoBruto);
+
+  const volta: (chave: string, mensagem: string) => never = (chave, mensagem) => {
+    const p = new URLSearchParams();
+    if (id) p.set("inscricao", String(id));
+    if (novoEventoId) p.set("evento", String(novoEventoId));
+    p.set(chave, mensagem);
+    redirect(`${ROTA_TRANSFERIR}?${p}`);
+  };
+
+  if (!id) volta("erro", "Inscrição não informada.");
+  if (!novoEventoId) volta("erro", "Escolha o evento de destino.");
+  if (!novoTipoId) volta("erro", "Escolha o ingresso de destino.");
+  if (!motivo) volta("erro", "Diga o motivo da transferência — ele fica no histórico da pessoa.");
+  if (cobradoBruto !== "" && cobrado === null) {
+    volta("erro", "Não entendi o valor cobrado. Use só números, como 25,00.");
+  }
+
+  const sql = conexao();
+  let resumo = "";
+
+  try {
+    await sql.begin(async (tx) => {
+      // ⚠️ Trava a inscrição ANTES de ler. Dois operadores na mesma inscrição
+      // criariam duas linhas novas, cada uma "a" transferência da outra — e a
+      // pessoa apareceria duas vezes no evento de destino.
+      const [travada] = await tx<{ id: number; status: string }[]>`
+        select id, status from eventos.inscricoes where id = ${id} for update
+      `;
+      if (!travada) throw new RecusaDeVenda("Inscrição não encontrada.");
+
+      const [linha] = await tx<InscricaoParaTransferirNoBanco[]>`
+        select
+          i.id, i.pessoa_id, p.nome as pessoa_nome,
+          coalesce(p.cpf, p.passaporte) as documento,
+          i.evento_id, e.nome as evento,
+          t.nome as ingresso, i.ingresso_tipo_id,
+          i.status, i.tipo_venda, i.forma_pagamento,
+          i.valor_original_centavos, i.desconto_centavos,
+          i.checkin_em, i.qr_code
+        from eventos.inscricoes i
+        join eventos.eventos e on e.id = i.evento_id
+        join public.pessoas p on p.id = i.pessoa_id
+        left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
+        where i.id = ${id}
+      `;
+      if (!linha) throw new RecusaDeVenda("Inscrição não encontrada.");
+
+      const atual: InscricaoParaTransferir = {
+        status: linha.status,
+        tipoVenda: linha.tipo_venda,
+        valorOriginalCentavos: linha.valor_original_centavos,
+        descontoCentavos: linha.desconto_centavos,
+        checkinEm: linha.checkin_em,
+        eventoId: linha.evento_id,
+      };
+
+      const veredito = podeTransferir(atual);
+      if (!veredito.pode) throw new RecusaDeVenda(veredito.motivo);
+
+      if (novoEventoId === linha.evento_id && novoTipoId === linha.ingresso_tipo_id) {
+        throw new RecusaDeVenda(
+          "O destino é o mesmo ingresso do mesmo evento — não há transferência a fazer."
+        );
+      }
+
+      // ⚠️ Trava o estoque do ingresso de DESTINO, como a venda balcão faz.
+      // Transferir consome uma vaga igual a vender: sem a trava, a última vaga
+      // sai duas vezes quando uma transferência cruza com uma venda.
+      await tx`
+        select id from eventos.ingresso_tipos
+         where evento_id = ${novoEventoId} and id = ${novoTipoId}
+           for update
+      `;
+
+      const tipos = await lerTiposParaVenda(tx, novoEventoId);
+      const destino = tipos.find((t) => t.id === novoTipoId);
+      if (!destino) {
+        throw new RecusaDeVenda("O ingresso de destino não pertence ao evento escolhido.");
+      }
+
+      const jaTem = await tx<{ ingresso_tipo_id: number; papel: string }[]>`
+        select distinct i.ingresso_tipo_id, t.papel
+          from eventos.inscricoes i
+          join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
+         where i.evento_id = ${novoEventoId} and i.pessoa_id = ${linha.pessoa_id}
+           and i.status in ('pendente', 'pago')
+      `;
+
+      // ⚠️ As MESMAS regras da venda, porque o destino é uma vaga como outra
+      // qualquer: estoque, "um por pessoa" e "adicional não anda sozinho".
+      // Transferir sem conferi-las seria a porta dos fundos do balcão.
+      const conferido = conferirVenda(
+        tipos,
+        [{ tipoId: novoTipoId, quantidade: 1 }],
+        jaTem.map((l) => l.ingresso_tipo_id)
+      );
+      if (conferido.erros.length > 0) {
+        // "Escolha pelo menos um ingresso" não cabe aqui: o ingresso foi
+        // escolhido, e a frase mandaria o operador procurar um botão que não
+        // existe nesta tela.
+        const real = conferido.erros.find((e) => !e.startsWith("Escolha"));
+        throw new RecusaDeVenda(real ?? conferido.erros[0]);
+      }
+      if (
+        destino.exige_principal &&
+        !jaTem.some((l) => l.papel === "principal")
+      ) {
+        throw new RecusaDeVenda(
+          `"${destino.nome}" só acompanha um ingresso principal, e esta pessoa não tem nenhum no evento de destino. Transfira o principal primeiro.`
+        );
+      }
+
+      // ⚠️ Diferença a pagar exige decisão EXPLÍCITA sobre ela. Sem isto, o
+      // campo em branco viraria "a casa paga" em silêncio.
+      const diferenca = destino.valor_centavos - valorAEstornar(atual);
+      if (diferenca > 0 && cobrado === null && atual.status === "pago") {
+        throw new RecusaDeVenda(
+          `Falta ${formatarReais(diferenca)} para este ingresso. Escreva quanto está sendo cobrado agora — ou 0, se a diferença não vai ser cobrada.`
+        );
+      }
+
+      const acerto = acertarTransferencia({
+        inscricao: atual,
+        novoValorCentavos: destino.valor_centavos,
+        cobradoAgoraCentavos: cobrado ?? 0,
+      });
+      if (acerto.erros.length > 0) throw new RecusaDeVenda(acerto.erros[0]);
+
+      // ⚠️ `qr_code` NÃO é copiado: a linha nova nasce com código próprio, pelo
+      // default do banco (decisão 0021). Copiar faria dois ingressos com o
+      // mesmo código — e a porta, achando os dois, não saberia qual vale.
+      const [nova] = await tx<{ id: number }[]>`
+        insert into eventos.inscricoes (
+          pessoa_id, evento_id, ingresso_tipo_id, comprador_id, compra_grupo_id,
+          tipo_venda, status, forma_pagamento,
+          valor_original_centavos, desconto_centavos,
+          transferido_de_id, data_compra, observacao
+        ) values (
+          ${linha.pessoa_id}, ${novoEventoId}, ${novoTipoId}, ${linha.pessoa_id},
+          ${randomUUID()},
+          ${linha.tipo_venda}, ${linha.status},
+          ${acerto.descontoCentavos < acerto.diferencaCentavos && forma ? forma : linha.forma_pagamento},
+          ${acerto.valorOriginalCentavos}, ${acerto.descontoCentavos},
+          ${id}, now(),
+          ${`Transferida de "${linha.evento}" (inscrição ${id}). ${motivo}`}
+        )
+        returning id
+      `;
+
+      // ⚠️ `where status = <o de antes>` na própria gravação: se alguém
+      // cancelou ou transferiu esta inscrição entre a conferência e agora, o
+      // comando não acha linha — em vez de sobrescrever o que a outra pessoa
+      // fez e deixar duas inscrições novas vivas.
+      const [velha] = await tx<{ id: number }[]>`
+        update eventos.inscricoes
+           set status = 'transferido',
+               transferido_para_id = ${nova.id},
+               transferido_em = now(),
+               transferido_por = ${eu?.id ?? null},
+               estorno_status = ${acerto.estornoCentavos > 0 ? "pendente" : null},
+               estorno = case when ${acerto.estornoCentavos} > 0
+                              then coalesce(estorno, '{}'::jsonb)
+                                   || jsonb_build_object(
+                                        'valor_centavos', ${acerto.estornoCentavos}::int,
+                                        'origem', 'transferencia')
+                              else estorno end,
+               atualizado_em = now()
+         where id = ${id} and status = ${linha.status}
+        returning id
+      `;
+      if (!velha) {
+        throw new RecusaDeVenda(
+          "A inscrição mudou de situação enquanto esta tela estava aberta. Abra de novo e confira."
+        );
+      }
+
+      resumo =
+        acerto.estornoCentavos > 0
+          ? `${linha.pessoa_nome} passou para "${destino.nome}". Estorno de ${formatarReais(acerto.estornoCentavos)} aberto na fila.`
+          : acerto.descontoCentavos > 0
+            ? `${linha.pessoa_nome} passou para "${destino.nome}". ${formatarReais(acerto.descontoCentavos)} de diferença não cobrados.`
+            : `${linha.pessoa_nome} passou para "${destino.nome}".`;
+
+      await registrar({
+        atorId: eu?.id,
+        acao: "eventos.inscricao.transferida",
+        entidade: "eventos.inscricoes",
+        entidadeId: String(id),
+        detalhe: {
+          de_evento: linha.evento_id,
+          para_evento: novoEventoId,
+          nova_inscricao: nova.id,
+          pago_centavos: acerto.pagoCentavos,
+          cobrado_centavos: Math.max(acerto.diferencaCentavos - acerto.descontoCentavos, 0),
+          estorno_centavos: acerto.estornoCentavos,
+          motivo,
+        },
+      });
+    });
+  } catch (e) {
+    const mensagem =
+      e instanceof RecusaDeVenda
+        ? e.message
+        : traduzirIngresso(e instanceof Error ? e.message : String(e));
+    volta("erro", mensagem);
+  }
+
+  revalidatePath(ROTA_TRANSFERIR);
+  revalidatePath("/eventos/pessoas");
+  revalidatePath(ROTA_ESTORNOS);
+  revalidatePath("/eventos");
+  redirect(`${ROTA_TRANSFERIR}?${new URLSearchParams({ ok: resumo })}`);
+}
+
+/** Em reais, para as frases de retorno. */
+function formatarReais(centavos: number): string {
+  return (centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }

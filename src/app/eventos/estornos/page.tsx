@@ -7,7 +7,7 @@ import {
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { formatarCentavos } from "@/lib/dominio/dinheiro";
-import { podeCancelar, valorAEstornar } from "@/lib/dominio/estorno";
+import { podeCancelar, valorAEstornar, valorNaFila } from "@/lib/dominio/estorno";
 import { FORMAS_BALCAO, ROTULO_FORMA } from "@/lib/dominio/venda";
 import { estornosPendentes, inscricoesParaCancelar } from "@/modulos/eventos/consultas";
 import { cancelarInscricao, resolverEstorno } from "@/modulos/eventos/acoes";
@@ -57,12 +57,15 @@ export default async function EstornosPage({
       ) : (
         <Tabela cabecalho={["Pessoa", "Evento", "Ingresso", "A devolver", "Cancelada em", ""]}>
           {fila.map((e) => {
-            const devolver = valorAEstornar({
-              status: "pago",
+            // ⚠️ O valor REGISTRADO quando o estorno abriu, não um recálculo.
+            // Recalcular vale enquanto a devolução for "tudo o que a pessoa
+            // pagou"; a transferência para um ingresso mais barato devolve só
+            // a sobra, e o recálculo ofereceria à tesouraria o ingresso todo.
+            const devolver = valorNaFila({
               tipoVenda: e.tipo_venda,
               valorOriginalCentavos: e.valor_original_centavos,
               descontoCentavos: e.desconto_centavos,
-              checkinEm: null,
+              estorno: e.estorno,
             });
             return (
               <Linha key={e.id}>

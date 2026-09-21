@@ -71,6 +71,32 @@ export function valorAEstornar(i: InscricaoParaCancelar): number {
   return Math.max(i.valorOriginalCentavos - i.descontoCentavos, 0);
 }
 
+/**
+ * Quanto a fila da tesouraria deve devolver por esta linha.
+ *
+ * ⚠️ PREFERE O VALOR REGISTRADO no momento em que o estorno foi aberto, e só
+ * recalcula quando não há registro. Recalcular sempre funciona enquanto a
+ * devolução for "tudo o que a pessoa pagou" — e passa a mentir na primeira que
+ * não for. A transferência entre eventos abre exatamente esse caso: quando o
+ * ingresso de destino custa menos, o que se deve é a SOBRA, não o valor
+ * inteiro. Sem o registro, a fila ofereceria à tesouraria a devolução do
+ * ingresso todo de alguém que continua indo a um evento.
+ *
+ * O fallback existe para as linhas que a carga trouxe e para as que foram
+ * abertas antes deste registro existir.
+ */
+export function valorNaFila(
+  i: Omit<InscricaoParaCancelar, "status" | "checkinEm"> & {
+    estorno: { valor_centavos?: number | null } | null;
+  }
+): number {
+  const registrado = i.estorno?.valor_centavos;
+  if (typeof registrado === "number" && Number.isFinite(registrado) && registrado >= 0) {
+    return Math.trunc(registrado);
+  }
+  return valorAEstornar({ ...i, status: "pago", checkinEm: null });
+}
+
 /** Cancelar abre estorno só quando há o que devolver. */
 export function abreEstorno(i: InscricaoParaCancelar): boolean {
   return valorAEstornar(i) > 0;

@@ -798,6 +798,53 @@ export async function inscricoesDaPessoa(pessoaId: string): Promise<InscricaoNaF
   `;
 }
 
+export type InscricaoParaTransferirNoBanco = {
+  id: number;
+  pessoa_id: string;
+  pessoa_nome: string;
+  documento: string | null;
+  evento_id: number;
+  evento: string;
+  ingresso: string | null;
+  ingresso_tipo_id: number | null;
+  status: "pendente" | "pago" | "cancelado" | "expirado" | "transferido";
+  tipo_venda: string;
+  forma_pagamento: string | null;
+  valor_original_centavos: number;
+  desconto_centavos: number;
+  checkin_em: string | null;
+  qr_code: string | null;
+};
+
+/**
+ * Uma inscrição só, com tudo que a transferência precisa decidir.
+ *
+ * ⚠️ Lê o ingresso por `left join`: inscrição da carga pode estar sem tipo, e
+ * um `join` fechado a faria sumir da tela — com a pessoa na frente do balcão
+ * segurando um ingresso que o sistema diz não existir.
+ */
+export async function inscricaoParaTransferir(
+  id: number
+): Promise<InscricaoParaTransferirNoBanco | null> {
+  const sql = conexao();
+  const [linha] = await sql<InscricaoParaTransferirNoBanco[]>`
+    select
+      i.id, i.pessoa_id, p.nome as pessoa_nome,
+      coalesce(p.cpf, p.passaporte) as documento,
+      i.evento_id, e.nome as evento,
+      t.nome as ingresso, i.ingresso_tipo_id,
+      i.status, i.tipo_venda, i.forma_pagamento,
+      i.valor_original_centavos, i.desconto_centavos,
+      i.checkin_em, i.qr_code
+    from eventos.inscricoes i
+    join eventos.eventos e on e.id = i.evento_id
+    join public.pessoas p on p.id = i.pessoa_id
+    left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
+    where i.id = ${id}
+  `;
+  return linha ?? null;
+}
+
 export type PessoaComInscricoes = PessoaDoBalcao & { inscricoes: number };
 
 /**
