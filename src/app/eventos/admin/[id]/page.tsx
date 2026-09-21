@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { IconDiscount2, IconId, IconPlus, IconTicket } from "@tabler/icons-react";
+import { IconDiscount2, IconId, IconPlus, IconTicket, IconUsersGroup } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
@@ -11,16 +11,18 @@ import { formatarCentavos } from "@/lib/dominio/dinheiro";
 import { porQueNaoVende } from "@/lib/dominio/ingressos";
 import { descreverCupom } from "@/lib/dominio/cupom";
 import {
-  cuponsDoEvento, eventoDaPagina, locaisAtivos, opcoesDePromotor,
-  tiposDeIngresso, tiposParaCupom,
+  catalogoDaComissao, comissaoDoEvento, cuponsDoEvento, eventoDaPagina,
+  locaisAtivos, opcoesDePromotor, tiposDeIngresso, tiposParaCupom,
 } from "@/modulos/eventos/consultas";
 import {
-  alternarCupomAtivo, alternarTipoIngressoAtivo, criarCupom, criarTipoIngresso,
-  editarCupom, editarEvento, editarTipoIngresso,
+  adicionarMembroComissao, alternarCupomAtivo, alternarTipoIngressoAtivo,
+  criarCupom, criarTipoIngresso, editarCupom, editarEvento,
+  editarMembroComissao, editarTipoIngresso, removerMembroComissao,
 } from "@/modulos/eventos/acoes";
 import CamposEvento from "../CamposEvento";
 import CamposIngresso from "../CamposIngresso";
 import CamposCupom from "../CamposCupom";
+import CamposMembro from "../CamposMembro";
 
 /**
  * O evento por dentro (decisão 0020).
@@ -66,6 +68,13 @@ export default async function EventoPage({
     tiposParaCupom(eventoId),
   ]);
 
+  // ⚠️ Lidas só nesta aba: a comissão não interessa a quem veio mexer no preço
+  // do ingresso, e são duas idas a mais ao banco em toda abertura da página.
+  const [comissao, catalogo] =
+    aba === "comissao"
+      ? await Promise.all([comissaoDoEvento(eventoId), catalogoDaComissao()])
+      : [[], { setores: [], funcoes: [] }];
+
   if (!evento) notFound();
 
   const base = `/eventos/admin/${eventoId}`;
@@ -108,6 +117,12 @@ export default async function EventoPage({
             href: `${base}?aba=cupons`,
             contagem: cupons.length,
             icone: <IconDiscount2 size={17} className="ti" />,
+          },
+          {
+            chave: "comissao",
+            rotulo: "Comissão",
+            href: `${base}?aba=comissao`,
+            icone: <IconUsersGroup size={17} className="ti" />,
           },
         ]}
       />
@@ -296,6 +311,90 @@ export default async function EventoPage({
                         <input type="hidden" name="ativo" value={String(c.ativo)} />
                         <button type="submit" className="sni-acao">
                           {c.ativo ? "Desativar" : "Reativar"}
+                        </button>
+                      </form>
+                    </span>
+                  </Celula>
+                </Linha>
+              ))}
+            </Tabela>
+          )}
+        </>
+      )}
+
+      {aba === "comissao" && (
+        <>
+          <TituloSecao
+            acao={
+              <ModalCadastro
+                rotulo="Incluir na comissão"
+                icone={<IconPlus size={18} className="ti" />}
+                titulo="Incluir na comissão"
+                acao={adicionarMembroComissao}
+                rotuloConfirmar="Incluir"
+              >
+                <CamposMembro eventoId={eventoId} catalogo={catalogo} />
+              </ModalCadastro>
+            }
+          >
+            Quem trabalha neste evento
+          </TituloSecao>
+
+          {comissao.length === 0 ? (
+            <Vazio icone={<IconUsersGroup size={34} className="ti" />} titulo="Comissão vazia">
+              Ninguém registrado para trabalhar neste evento. O nome basta — o
+              vínculo com o cadastro pode vir depois.
+            </Vazio>
+          ) : (
+            <Tabela cabecalho={["Pessoa", "Setor", "Função", "Cadastro", ""]}>
+              {comissao.map((m) => (
+                <Linha key={m.id}>
+                  <Celula forte>{m.nome}</Celula>
+                  <Celula>
+                    {m.setor ?? <span className="hint">—</span>}
+                    {/* ⚠️ Diz o que ainda NÃO casa com o catálogo. A origem
+                        gravava texto solto, e o esquema deixou setor e função
+                        como texto justamente porque conciliar é trabalho de
+                        tela. Sem esta marca, a tela fingiria que está tudo
+                        conciliado e o trabalho nunca apareceria. */}
+                    {m.setor && !m.setor_conhecido && (
+                      <>
+                        {" "}
+                        <Badge tom="warning">fora do catálogo</Badge>
+                      </>
+                    )}
+                  </Celula>
+                  <Celula>
+                    {m.funcao ?? <span className="hint">—</span>}
+                    {m.funcao && !m.funcao_conhecida && (
+                      <>
+                        {" "}
+                        <Badge tom="warning">fora do catálogo</Badge>
+                      </>
+                    )}
+                  </Celula>
+                  <Celula dado>
+                    {m.pessoa_nome ? (
+                      <span className="num">{m.documento ?? "vinculado"}</span>
+                    ) : (
+                      <Badge tom="gray">só o nome</Badge>
+                    )}
+                  </Celula>
+                  <Celula alinhar="right">
+                    <span style={{ display: "inline-flex", gap: 4, justifyContent: "flex-end" }}>
+                      <ModalCadastro
+                        gatilho="link"
+                        rotulo="Editar"
+                        titulo={`Editar ${m.nome}`}
+                        acao={editarMembroComissao}
+                      >
+                        <CamposMembro eventoId={eventoId} membro={m} catalogo={catalogo} />
+                      </ModalCadastro>
+                      <form action={removerMembroComissao}>
+                        <input type="hidden" name="evento_id" value={eventoId} />
+                        <input type="hidden" name="id" value={m.id} />
+                        <button type="submit" className="sni-acao">
+                          Tirar
                         </button>
                       </form>
                     </span>

@@ -796,3 +796,77 @@ export async function procurarParticipante(termo: string): Promise<PessoaComInsc
     limit 30
   `;
 }
+
+// ─── Comissão ────────────────────────────────────────────────────────────────
+
+export type MembroDaComissao = {
+  id: number;
+  nome: string;
+  setor: string | null;
+  funcao: string | null;
+  pessoa_id: string | null;
+  pessoa_nome: string | null;
+  documento: string | null;
+  /** O setor gravado casa com algum do catálogo? */
+  setor_conhecido: boolean;
+  funcao_conhecida: boolean;
+};
+
+/**
+ * Quem trabalha num evento.
+ *
+ * ⚠️ `setor` e `funcao` são TEXTO, não referência ao catálogo — o esquema os
+ * deixou assim porque a origem gravava texto solto, e conciliar é trabalho de
+ * tela. Esta consulta diz quais textos JÁ casam com o catálogo, para a tela
+ * mostrar o que falta conciliar em vez de fingir que está tudo certo.
+ */
+export async function comissaoDoEvento(eventoId: number): Promise<MembroDaComissao[]> {
+  const sql = conexao();
+  return sql<MembroDaComissao[]>`
+    select
+      m.id, m.nome, m.setor, m.funcao, m.pessoa_id,
+      p.nome as pessoa_nome,
+      coalesce(p.cpf, p.passaporte) as documento,
+      (m.setor is not null and exists (
+        select 1 from eventos.comissao_setores_padrao s
+         where lower(s.nome) = lower(m.setor) and s.ativo
+      )) as setor_conhecido,
+      (m.funcao is not null and exists (
+        select 1 from eventos.comissao_funcoes_padrao f
+         where lower(f.nome) = lower(m.funcao) and f.ativo
+      )) as funcao_conhecida
+    from eventos.comissao_membros m
+    left join public.pessoas p on p.id = m.pessoa_id
+    where m.evento_id = ${eventoId}
+    order by m.setor nulls last, m.funcao nulls last, m.nome
+  `;
+}
+
+export type CatalogoDaComissao = {
+  setores: { id: number; nome: string }[];
+  funcoes: { id: number; nome: string; setor: string | null }[];
+};
+
+/**
+ * O catálogo institucional de setores e funções.
+ *
+ * ⚠️ É comum a TODOS os eventos — não se edita por dentro de um. Uma tela de
+ * evento que deixasse renomear um setor mudaria o setor de todos os outros
+ * sem avisar quem estava editando.
+ */
+export async function catalogoDaComissao(): Promise<CatalogoDaComissao> {
+  const sql = conexao();
+  const [setores, funcoes] = await Promise.all([
+    sql<{ id: number; nome: string }[]>`
+      select id, nome from eventos.comissao_setores_padrao
+       where ativo order by ordem, nome
+    `,
+    sql<{ id: number; nome: string; setor: string | null }[]>`
+      select f.id, f.nome, s.nome as setor
+        from eventos.comissao_funcoes_padrao f
+        left join eventos.comissao_setores_padrao s on s.id = f.setor_id
+       where f.ativo order by f.ordem, f.nome
+    `,
+  ]);
+  return { setores, funcoes };
+}
