@@ -25,6 +25,22 @@ jobs:
       # 0007), que é o que substitui o isolamento de um schema.
       - name: RLS e superfície de GRANT
         run: sudo -E ./scripts/testar-rls.sh
+
+      # ⚠️ As consultas do módulo `eventos` falam Postgres DIRETO, sem cliente
+      # tipado: `join` trocado, `group by` incompleto e coluna ambígua não
+      # quebram typecheck, teste unitário nem build. Quebram quando alguém ABRE
+      # A TELA — em produção, porque até aqui não havia banco no CI para
+      # exercitá-las. Este passo sobe um, semeia um evento com os casos que
+      # mordem (a cortesia com preço, a linha sem tipo de ingresso, o combo
+      # fora da venda pública) e roda as quarenta consultas contra ele.
+      #
+      # ⚠️ `DATABASE_URL` só existe neste passo. Vazando para os outros, o
+      # `npm test` de cima passaria a depender de um banco que ele não sobe.
+      - name: Consultas contra um Postgres de verdade
+        run: |
+          URL=$(sudo -E ./scripts/banco-de-teste.sh | tail -1)
+          DATABASE_URL="$URL" npx vitest run tests/integracao
+          sudo -E ./scripts/banco-de-teste.sh --parar
       # O build precisa das variáveis públicas para montar o cliente Supabase.
       # Valores de mentira bastam: nada é chamado durante o build.
       - run: npm run build
