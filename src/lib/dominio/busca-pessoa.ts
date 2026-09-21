@@ -11,7 +11,10 @@
 export type BuscaDePessoa = {
   /** Só dígitos, para casar com `pessoas.cpf`, que guarda assim. */
   digitos: string;
-  /** Caixa alta sem espaço, para casar com `pessoas.passaporte`. */
+  /**
+   * Caixa alta, para casar com `pessoas.passaporte` — e também com o código
+   * do ingresso e o número do convite, que a porta procura no mesmo campo.
+   */
   documento: string;
   /** Padrão de `ilike`, com os curingas já neutralizados. */
   comoNome: string;

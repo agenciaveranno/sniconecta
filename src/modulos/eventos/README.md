@@ -15,7 +15,8 @@ que será portado, na ordem.
 | `/relatorios/**` | `/eventos/relatorios/**` | `eventos.inscricoes.ver` |
 | `/admin/estornos` | `/eventos/estornos` | `eventos.estornos.gerir` |
 | `/admin/eventos/**`, `locais`, `promotores`, `orientadores`, `comissao` | `/eventos/admin/**` | `eventos.gerir` / `eventos.comissao.gerir` |
-| `/admin/cielo-contas`, `/admin/configuracoes` | `/eventos/configuracoes` | `eventos.configurar` |
+| `/admin/cielo-contas` | cadastro do promotor (decisão 0010) | `estrutura.gerir` |
+| `/admin/configuracoes` | `/admin/configuracoes` (comum) | `configuracao.gerir` |
 | `/admin/usuarios`, `/admin/perfis` | `/admin/pessoas` (comum) | `pessoa.gerir`, `papel.conceder` |
 | `/admin/regionais`, `/admin/organizacoes` | comum (`regionais`, `organizacoes`) | `pessoa.gerir` |
 | `/e/[id]`, `/comprar/**`, `/descadastro`, `/r/campo/[token]` | mesmas rotas, públicas | — |

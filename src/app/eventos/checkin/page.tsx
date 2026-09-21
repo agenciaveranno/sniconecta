@@ -18,12 +18,11 @@ export const metadata = { title: "Check-in" };
 /**
  * A porta do evento.
  *
- * ⚠️ Acha por pessoa, não por QR. A coluna `qr_code` existe e está vazia para
- * tudo que a plataforma vendeu — o formato ainda não foi decidido, e os
- * ingressos que vieram da carga trazem o QR do sistema antigo. Inventar um
- * formato aqui obrigaria a porta a aceitar dois para sempre. Buscar por
- * documento já atende quem chega, e a leitura de QR entra como fatia própria
- * quando o formato estiver definido.
+ * ⚠️ UM CAMPO SÓ, e não um para documento e outro para o código. O leitor de
+ * QR é um teclado: ele digita o que leu no campo que estiver com o foco e
+ * aperta enter. Dois campos obrigariam o operador a clicar no certo antes de
+ * cada leitura — com a fila andando, é o clique que não acontece, e o código
+ * acaba digitado no campo de nome.
  *
  * ⚠️ A tela mostra TODAS as situações, não só as pagas. Filtrar faria a porta
  * dizer "não encontrei" para quem tem inscrição pendente — e a pessoa iria
@@ -92,12 +91,15 @@ export default async function CheckinPage({
               voltar ao mesmo resultado depois de registrar uma entrada. */}
           <form method="get" action={base} className="sni-form">
             <input type="hidden" name="evento" value={evento.id} />
-            <Campo label="Quem está na porta" dica="CPF, passaporte ou nome.">
+            <Campo
+              label="Quem está na porta"
+              dica="Leia o código do ingresso, ou digite CPF, passaporte, nome ou número do convite."
+            >
               <Input
                 name="busca"
                 defaultValue={busca ?? ""}
                 autoFocus
-                placeholder="000.000.000-00, AB123456 ou Maria"
+                placeholder="SNI-A1B2-C3D4-E5F6-7890, 000.000.000-00 ou Maria"
               />
             </Campo>
             <div className="sni-form-rodape">
@@ -110,9 +112,9 @@ export default async function CheckinPage({
           {busca?.trim() &&
             (achadas.length === 0 ? (
               <Vazio icone={<IconSearch size={34} className="ti" />} titulo="Nenhuma inscrição">
-                Ninguém com esse documento ou nome tem inscrição neste evento.
-                Confira o documento — ou encaminhe ao balcão, se a pessoa ainda
-                vai comprar.
+                Nada casou com esse código, documento ou nome neste evento.
+                Confira se o ingresso é deste evento — ou encaminhe ao balcão,
+                se a pessoa ainda vai comprar.
               </Vazio>
             ) : (
               <Tabela cabecalho={["Pessoa", "Ingresso", "Situação", ""]}>
@@ -134,6 +136,18 @@ export default async function CheckinPage({
                           <>
                             {" "}
                             <Badge tom="gray">Cortesia</Badge>
+                          </>
+                        )}
+                        {/* ⚠️ O código aparece para o operador CONFERIR com o
+                            papel na mão quando a câmera falha e ele digitou o
+                            documento. Sem ele na tela, não há como saber se o
+                            ingresso que a pessoa traz é o que está aberto
+                            aqui — e duas inscrições da mesma pessoa no mesmo
+                            evento são o caso comum, não o raro. */}
+                        {i.qr_code && (
+                          <>
+                            <br />
+                            <span className="hint num">{i.qr_code}</span>
                           </>
                         )}
                       </Celula>

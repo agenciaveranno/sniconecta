@@ -50,7 +50,9 @@ export const MODULOS: Modulo[] = [
       { href: "/eventos/relatorios", rotulo: "Relatórios", icone: "IconChartBar", capacidade: "eventos.inscricoes.ver", pronto: true },
       { href: "/eventos/estornos", rotulo: "Estornos", icone: "IconReceiptRefund", capacidade: "eventos.estornos.gerir", pronto: true },
       { href: "/eventos/admin", rotulo: "Eventos e convites", icone: "IconCalendarEvent", capacidade: "eventos.gerir", pronto: true },
-      { href: "/eventos/configuracoes", rotulo: "Configurações", icone: "IconSettings", capacidade: "eventos.configurar" },
+      // ⚠️ Não há "Configurações" aqui, e não é esquecimento: ver a nota em
+      // `permissoes.ts`. O que essa tela guardaria já mora em três lugares
+      // melhores — o promotor, `/admin/configuracoes` e o próprio evento.
     ],
   },
   {
