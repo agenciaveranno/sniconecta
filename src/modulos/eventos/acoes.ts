@@ -1394,3 +1394,194 @@ export async function removerMembroComissao(formData: FormData) {
     `${rotaDoEvento(eventoId, "comissao")}&ok=${encodeURIComponent(`${removido.nome} saiu da comissão.`)}`
   );
 }
+
+// ─── Combos ──────────────────────────────────────────────────────────────────
+
+function traduzirCombo(mensagem: string): string {
+  if (mensagem.includes("combo_itens_combo_id_ingresso_tipo_id_key")) {
+    return "O mesmo ingresso aparece duas vezes no combo. Some as quantidades numa linha só.";
+  }
+  if (mensagem.includes("valor_centavos")) {
+    return "O preço do combo não pode ser negativo.";
+  }
+  if (mensagem.includes("quantidade")) {
+    return "As quantidades não podem ser negativas.";
+  }
+  return mensagem;
+}
+
+const schemaCombo = z.object({
+  nome: z.string().trim().min(3, "Dê um nome ao combo."),
+  descricao: z.string().trim().optional().transform((v) => v || null),
+});
+
+/**
+ * Os itens chegam como `item_<tipoId>` — um campo por tipo de ingresso do
+ * evento, como no carrinho do balcão. Zero significa "não entra no combo".
+ */
+function itensDoCombo(formData: FormData): { tipoId: number; quantidade: number }[] {
+  const itens: { tipoId: number; quantidade: number }[] = [];
+  for (const [chave, valor] of formData.entries()) {
+    if (!chave.startsWith("item_")) continue;
+    const tipoId = Number(chave.slice(5));
+    const quantidade = Math.trunc(Number(String(valor).trim() || 0));
+    if (Number.isInteger(tipoId) && tipoId > 0 && quantidade > 0) {
+      itens.push({ tipoId, quantidade });
+    }
+  }
+  return itens;
+}
+
+function camposDoCombo(formData: FormData) {
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  if (!eventoId) falhar("Evento não informado.");
+
+  const dados = schemaCombo.safeParse(Object.fromEntries(formData));
+  if (!dados.success) falharNoEvento(eventoId, dados.error.issues[0].message, "combos");
+
+  const itens = itensDoCombo(formData);
+  // ⚠️ Combo sem item é um preço que não entrega nada. O banco aceitaria a
+  // linha — `combo_itens` é tabela à parte —, e quem comprasse pagaria por
+  // ingresso nenhum.
+  if (itens.length === 0) {
+    falharNoEvento(eventoId, "Escolha ao menos um ingresso para o combo entregar.", "combos");
+  }
+
+  return {
+    eventoId,
+    ...dados.data,
+    valor_centavos: centavosDe(String(formData.get("valor") ?? "")) ?? 0,
+    quantidade: inteiroOuNulo(formData.get("quantidade")),
+    limite_por_cpf: inteiroOuNulo(formData.get("limite_por_cpf")),
+    max_parcelas: inteiroOuNulo(formData.get("max_parcelas")) ?? 1,
+    venda_inicio: quandoOuNulo(formData.get("venda_inicio")),
+    venda_fim: quandoOuNulo(formData.get("venda_fim")),
+    itens,
+  };
+}
+
+export async function criarCombo(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.gerir");
+  const c = camposDoCombo(formData);
+
+  const sql = conexao();
+  try {
+    // ⚠️ Combo e itens na MESMA transação. Criado o combo e falhando os itens,
+    // ficaria no banco um combo que não entrega nada — vendável, e entregando
+    // ingresso nenhum a quem pagasse.
+    await sql.begin(async (tx) => {
+      const [criado] = await tx<{ id: number }[]>`
+        insert into eventos.combos
+          (evento_id, nome, descricao, valor_centavos, quantidade,
+           limite_por_cpf, max_parcelas, venda_inicio, venda_fim)
+        values
+          (${c.eventoId}, ${c.nome}, ${c.descricao}, ${c.valor_centavos}, ${c.quantidade},
+           ${c.limite_por_cpf}, ${c.max_parcelas},
+           ${c.venda_inicio}::timestamp at time zone ${FUSO},
+           ${c.venda_fim}::timestamp at time zone ${FUSO})
+        returning id
+      `;
+      await tx`
+        insert into eventos.combo_itens ${tx(
+          c.itens.map((i) => ({
+            combo_id: criado.id,
+            ingresso_tipo_id: i.tipoId,
+            quantidade: i.quantidade,
+          })),
+          "combo_id", "ingresso_tipo_id", "quantidade"
+        )}
+      `;
+      await registrar({
+        atorId: eu?.id,
+        acao: "eventos.combo.criado",
+        entidade: "eventos.combos",
+        entidadeId: String(criado.id),
+        detalhe: { evento_id: c.eventoId, nome: c.nome, itens: c.itens.length },
+      });
+    });
+  } catch (e) {
+    falharNoEvento(c.eventoId, traduzirCombo(e instanceof Error ? e.message : String(e)), "combos");
+  }
+
+  revalidatePath(rotaDoEvento(c.eventoId, "combos"));
+  redirect(`${rotaDoEvento(c.eventoId, "combos")}&ok=${encodeURIComponent("Combo cadastrado.")}`);
+}
+
+export async function editarCombo(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.gerir");
+  const c = camposDoCombo(formData);
+
+  const id = Number(formData.get("id") ?? 0);
+  if (!id) falharNoEvento(c.eventoId, "Combo não informado.", "combos");
+
+  const sql = conexao();
+  try {
+    await sql.begin(async (tx) => {
+      await tx`
+        update eventos.combos set
+          nome = ${c.nome}, descricao = ${c.descricao},
+          valor_centavos = ${c.valor_centavos}, quantidade = ${c.quantidade},
+          limite_por_cpf = ${c.limite_por_cpf}, max_parcelas = ${c.max_parcelas},
+          venda_inicio = ${c.venda_inicio}::timestamp at time zone ${FUSO},
+          venda_fim = ${c.venda_fim}::timestamp at time zone ${FUSO}
+        where id = ${id} and evento_id = ${c.eventoId}
+      `;
+      // ⚠️ Troca a composição inteira em vez de conciliar item a item. Dentro
+      // da transação, apagar e reinserir é atômico — e conciliar deixaria a
+      // porta aberta para um item órfão quando alguém tirasse o último.
+      // `inscricoes.combo_id` é `on delete set null` e não aponta para o item,
+      // então nenhuma compra antiga se perde nisso.
+      await tx`delete from eventos.combo_itens where combo_id = ${id}`;
+      await tx`
+        insert into eventos.combo_itens ${tx(
+          c.itens.map((i) => ({
+            combo_id: id,
+            ingresso_tipo_id: i.tipoId,
+            quantidade: i.quantidade,
+          })),
+          "combo_id", "ingresso_tipo_id", "quantidade"
+        )}
+      `;
+      await registrar({
+        atorId: eu?.id,
+        acao: "eventos.combo.editado",
+        entidade: "eventos.combos",
+        entidadeId: String(id),
+        detalhe: { evento_id: c.eventoId, nome: c.nome, itens: c.itens.length },
+      });
+    });
+  } catch (e) {
+    falharNoEvento(c.eventoId, traduzirCombo(e instanceof Error ? e.message : String(e)), "combos");
+  }
+
+  revalidatePath(rotaDoEvento(c.eventoId, "combos"));
+  redirect(`${rotaDoEvento(c.eventoId, "combos")}&ok=${encodeURIComponent("Combo salvo.")}`);
+}
+
+/** Desativa em vez de apagar, como o ingresso e o cupom. */
+export async function alternarComboAtivo(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.gerir");
+
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  const id = Number(formData.get("id") ?? 0);
+  const ativo = formData.get("ativo") === "true";
+  if (!eventoId) falhar("Evento não informado.");
+  if (!id) falharNoEvento(eventoId, "Combo não informado.", "combos");
+
+  const sql = conexao();
+  await sql`update eventos.combos set ativo = ${!ativo} where id = ${id} and evento_id = ${eventoId}`;
+  await registrar({
+    atorId: eu?.id,
+    acao: ativo ? "eventos.combo.desativado" : "eventos.combo.reativado",
+    entidade: "eventos.combos",
+    entidadeId: String(id),
+    detalhe: { evento_id: eventoId },
+  });
+
+  revalidatePath(rotaDoEvento(eventoId, "combos"));
+  redirect(
+    `${rotaDoEvento(eventoId, "combos")}&ok=${encodeURIComponent(
+      ativo ? "Combo desativado." : "Combo reativado."
+    )}`
+  );
+}

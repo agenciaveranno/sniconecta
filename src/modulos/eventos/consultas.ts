@@ -870,3 +870,72 @@ export async function catalogoDaComissao(): Promise<CatalogoDaComissao> {
   ]);
   return { setores, funcoes };
 }
+
+// ─── Combos ──────────────────────────────────────────────────────────────────
+
+export type ComboDoEvento = {
+  id: number;
+  nome: string;
+  descricao: string | null;
+  valor_centavos: number;
+  quantidade: number | null;
+  limite_por_cpf: number | null;
+  max_parcelas: number;
+  venda_inicio: string | null;
+  venda_fim: string | null;
+  ativo: boolean;
+  /** Os ingressos que o combo entrega, com quantos de cada. */
+  itens: { ingresso_tipo_id: number; nome: string; quantidade: number; valor_centavos: number }[];
+  /** Soma dos itens pelo preço de tabela — para a tela mostrar o desconto real. */
+  avulso_centavos: number;
+  vendidos: number;
+};
+
+/**
+ * Os combos de um evento, com o que cada um entrega.
+ *
+ * ⚠️ Traz também quanto custaria AVULSO. Um combo sem essa comparação é um
+ * preço solto: quem cadastra não vê se está dando desconto ou cobrando mais
+ * caro que os ingressos separados — e já vi combo sair mais caro que a soma
+ * por erro de digitação em centavos.
+ */
+export async function combosDoEvento(eventoId: number): Promise<ComboDoEvento[]> {
+  const sql = conexao();
+  const combos = await sql<Omit<ComboDoEvento, "itens" | "avulso_centavos">[]>`
+    select
+      c.id, c.nome, c.descricao, c.valor_centavos, c.quantidade,
+      c.limite_por_cpf, c.max_parcelas,
+      to_char(c.venda_inicio at time zone ${FUSO}, 'YYYY-MM-DD"T"HH24:MI') as venda_inicio,
+      to_char(c.venda_fim    at time zone ${FUSO}, 'YYYY-MM-DD"T"HH24:MI') as venda_fim,
+      c.ativo,
+      count(i.id) filter (where i.status <> 'cancelado')::int as vendidos
+    from eventos.combos c
+    left join eventos.inscricoes i on i.combo_id = c.id
+    where c.evento_id = ${eventoId}
+    group by c.id
+    order by c.ativo desc, c.nome
+  `;
+  if (combos.length === 0) return [];
+
+  // ⚠️ UMA consulta para os itens de todos os combos, e não uma por combo:
+  // são duas idas ao banco no total, não uma por linha da tabela.
+  const itens = await sql<{
+    combo_id: number; ingresso_tipo_id: number; nome: string;
+    quantidade: number; valor_centavos: number;
+  }[]>`
+    select ci.combo_id, ci.ingresso_tipo_id, t.nome, ci.quantidade, t.valor_centavos
+      from eventos.combo_itens ci
+      join eventos.ingresso_tipos t on t.id = ci.ingresso_tipo_id
+     where ci.combo_id = any(${combos.map((c) => c.id)})
+     order by t.papel desc, t.nome
+  `;
+
+  return combos.map((c) => {
+    const meus = itens.filter((i) => i.combo_id === c.id);
+    return {
+      ...c,
+      itens: meus.map(({ combo_id: _, ...resto }) => resto),
+      avulso_centavos: meus.reduce((s, i) => s + i.valor_centavos * i.quantidade, 0),
+    };
+  });
+}
