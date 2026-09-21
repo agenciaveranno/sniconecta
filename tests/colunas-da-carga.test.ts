@@ -37,7 +37,7 @@ function colunasDoBanco(): Map<string, Set<string>> {
       mapa.set(tabela, cols);
     }
 
-    for (const m of sql.matchAll(/alter table ([\w.]+) add column (?:if not exists )?([a-z_][a-z0-9_]*)/g)) {
+    for (const m of sql.matchAll(/alter table\s+([\w.]+)\s+add column\s+(?:if not exists\s+)?([a-z_][a-z0-9_]*)/g)) {
       const tabela = m[1].includes(".") ? m[1] : `public.${m[1]}`;
       const cols = mapa.get(tabela) ?? new Set<string>();
       cols.add(m[2]);
