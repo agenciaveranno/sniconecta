@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { exigirCapacidade } from "@/lib/auth";
+import { apagarFoto, definirCapa, guardarFoto } from "@/lib/fotos";
 import { guardarCieloDoFormulario } from "@/lib/credenciais";
 import {
   adicionarChavePix, alternarConta, criarConta, editarConta, removerChavePix,
@@ -482,4 +483,66 @@ export async function encerrarMandato(formData: FormData) {
 
   revalidatePath(volta);
   redirect(`${volta}&ok=${encodeURIComponent("Mandato encerrado.")}`);
+}
+
+// ─── Fotos da unidade ───────────────────────────────────────────────────────
+//
+// ⚠️ A capacidade é `estrutura.gerir`, e não `configuracao.gerir`: a foto da
+// fachada é cadastro da unidade, como o endereço e o telefone — não é decisão
+// sobre por onde o dinheiro entra.
+
+export async function subirFotoDaUnidade(formData: FormData) {
+  const eu = await exigirCapacidade("estrutura.gerir");
+
+  const unidadeId = String(formData.get("unidade_id") ?? "");
+  if (!unidadeId) falhar("Unidade não informada.");
+  const volta = rotaDaUnidade(unidadeId, "fotos");
+
+  const arquivo = formData.get("arquivo");
+  if (!(arquivo instanceof File)) falhar("Escolha uma imagem.", volta);
+
+  const r = await guardarFoto({
+    unidadeId,
+    legenda: String(formData.get("legenda") ?? ""),
+    arquivo,
+    atorId: eu?.id ?? null,
+  });
+  if (!r.ok) falhar(r.erro, volta);
+
+  revalidatePath(volta);
+  redirect(`${volta}&ok=${encodeURIComponent("Foto guardada.")}`);
+}
+
+export async function removerFotoDaUnidade(formData: FormData) {
+  await exigirCapacidade("estrutura.gerir");
+
+  const unidadeId = String(formData.get("unidade_id") ?? "");
+  const id = String(formData.get("id") ?? "");
+  if (!unidadeId || !id) falhar("Foto não informada.");
+  const volta = rotaDaUnidade(unidadeId, "fotos");
+
+  // ⚠️ A unidade vai junto, e não só o id da foto. Quem chega aqui já passou
+  // pela capacidade — mas a escrita usa a chave de serviço, que ignora RLS:
+  // sem amarrar a foto à unidade, bastava trocar o id no formulário para
+  // apagar a foto de outra unidade.
+  const r = await apagarFoto(id, unidadeId);
+  if (!r.ok) falhar(r.erro ?? "Não foi possível apagar a foto.", volta);
+
+  revalidatePath(volta);
+  redirect(`${volta}&ok=${encodeURIComponent("Foto apagada.")}`);
+}
+
+export async function definirCapaDaUnidade(formData: FormData) {
+  await exigirCapacidade("estrutura.gerir");
+
+  const unidadeId = String(formData.get("unidade_id") ?? "");
+  const id = String(formData.get("id") ?? "");
+  if (!unidadeId || !id) falhar("Foto não informada.");
+  const volta = rotaDaUnidade(unidadeId, "fotos");
+
+  const r = await definirCapa(id, unidadeId);
+  if (!r.ok) falhar(r.erro ?? "Não foi possível trocar a capa.", volta);
+
+  revalidatePath(volta);
+  redirect(`${volta}&ok=${encodeURIComponent("Capa trocada.")}`);
 }

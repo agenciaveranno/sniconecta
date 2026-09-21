@@ -1,27 +1,30 @@
 import { notFound } from "next/navigation";
 import {
-  IconCamera, IconCreditCard, IconId, IconPhoto, IconPlus, IconUsersGroup,
+  IconCamera, IconCreditCard, IconId, IconPhoto, IconPlus, IconStar,
+  IconTrash, IconUpload, IconUsersGroup,
 } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import CamposCielo from "@/componentes/CamposCielo";
 import CamposConta from "@/componentes/CamposConta";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
-  Abas, Botao, BotaoLink, Campo, Celula, Etiqueta, Input, Linha, Recado, Select,
-  Tabela, TituloPagina, TituloSecao, Vazio,
+  Abas, Alerta, Badge, Botao, BotaoLink, Campo, Celula, Etiqueta, Input, Linha,
+  Recado, Select, Tabela, TituloPagina, TituloSecao, Vazio,
 } from "@/componentes/ui";
 import { exigirCapacidadeNaPagina, pessoaAtual } from "@/lib/auth";
 import { criarClienteServidor } from "@/lib/supabase/server";
 import { exigir } from "@/lib/supabase/consulta";
 import { contasCieloVisiveis } from "@/lib/credenciais";
 import { contasDaUnidade, descreverConta, TIPOS_CONTA, TIPOS_PIX } from "@/lib/contas";
+import { fotosDaUnidade, MAXIMO_POR_UNIDADE } from "@/lib/fotos";
 import { composicaoDoColegiado, dataBR } from "@/lib/colegiados";
 import type { OrganizacaoRow, TipoUnidadeRow, UnidadeRow } from "@/lib/supabase/tipos";
 import CamposUnidade from "../CamposUnidade";
 import {
   adicionarPix, alternarContaBancaria, criarContaBancaria, darPosse,
-  editarContaBancaria, editarUnidade, encerrarMandato, removerPix,
-  salvarPagamentoUnidade,
+  definirCapaDaUnidade, editarContaBancaria, editarUnidade, encerrarMandato,
+  removerFotoDaUnidade, removerPix, salvarPagamentoUnidade,
+  subirFotoDaUnidade,
 } from "../actions";
 
 /**
@@ -107,6 +110,10 @@ export default async function UnidadePage({
   // são duas idas ao banco.
   const cdor =
     aba === "cdor" && mostraCdor ? await composicaoDoColegiado(supabase, "cdor", id) : null;
+
+  // Mesma razão: as fotos são uma consulta e uma assinatura de URLs que só
+  // esta aba usa. `null` quando a tabela ainda não existe — ver o aviso na aba.
+  const fotos = aba === "fotos" ? await fotosDaUnidade(id) : [];
   const base = `/admin/estrutura/${id}`;
   const voltar = LISTA[unidade.tipo] ?? { href: "/admin/estrutura", texto: "Árvore da instituição" };
 
@@ -158,14 +165,127 @@ export default async function UnidadePage({
         ]}
       />
 
-      {aba === "fotos" && (
-        <Vazio icone={<IconCamera size={28} className="ti" />} titulo="As fotos vêm na próxima etapa">
-          Aqui vão entrar as fotos desta unidade que o site publica — fachada,
-          salão, atividades. Falta combinar quantas, em que proporção e quais
-          delas o site usa em cada lugar, para a tela não virar um depósito de
-          imagem que ninguém sabe onde aparece.
-        </Vazio>
-      )}
+      {aba === "fotos" &&
+        (fotos === null ? (
+          /* ⚠️ A tabela pode ainda não existir. A migração que a cria só
+             aplica depois de alguém aprovar a execução no GitHub, e entre o
+             deploy e a aprovação esta tela abriria com erro 500 sem dizer por
+             quê. Dizer o motivo e onde conferir é o mínimo. */
+          <Alerta tipo="warning">
+            <strong>As fotos ainda não estão disponíveis neste banco.</strong>
+            <p style={{ marginTop: 8 }}>
+              A migração que cria a tabela das fotos foi publicada mas ainda não
+              foi aplicada. Confira em <strong>Configurações → Estado do
+              banco</strong>: se ela aparecer na lista de pendentes, basta
+              aprovar a execução “Migrações do banco” no GitHub.
+            </p>
+          </Alerta>
+        ) : (
+          <>
+            <TituloSecao>Fotos que o site publica</TituloSecao>
+            <p className="hint" style={{ maxWidth: "68ch" }}>
+              Fachada, salão, atividades. Até {MAXIMO_POR_UNIDADE} por unidade.
+              A <strong>capa</strong> é a que aparece na listagem; as outras
+              entram na página da unidade, na ordem em que foram enviadas.
+            </p>
+
+            {fotos.length >= MAXIMO_POR_UNIDADE ? (
+              <Alerta tipo="info">
+                Esta unidade chegou a {MAXIMO_POR_UNIDADE} fotos. Apague uma
+                antes de subir outra — álbum sem limite vira depósito, e
+                depósito ninguém organiza.
+              </Alerta>
+            ) : (
+              <form action={subirFotoDaUnidade} className="sni-form">
+                <input type="hidden" name="unidade_id" value={id} />
+                <div className="form-grid">
+                  <Campo label="Imagem" obrigatorio dica="JPG, PNG, WEBP ou HEIC, até 8 MB.">
+                    <Input
+                      name="arquivo"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/heic"
+                      required
+                    />
+                  </Campo>
+                  <Campo
+                    label="Legenda"
+                    dica="O que a foto mostra. Vai como texto alternativo no site — sem ela, quem usa leitor de tela ouve “imagem” doze vezes."
+                  >
+                    <Input name="legenda" maxLength={200} placeholder="Fachada da sede" />
+                  </Campo>
+                </div>
+                <div className="sni-form-rodape">
+                  <Botao type="submit" icone={<IconUpload size={18} className="ti" />}>
+                    Enviar
+                  </Botao>
+                </div>
+              </form>
+            )}
+
+            {fotos.length === 0 ? (
+              <Vazio icone={<IconCamera size={28} className="ti" />} titulo="Nenhuma foto ainda">
+                A primeira que entrar vira a capa sozinha — unidade com fotos e
+                sem capa faria a listagem do site mostrar um retângulo cinza.
+              </Vazio>
+            ) : (
+              <Tabela cabecalho={["", "Legenda", "Arquivo", ""]}>
+                {fotos.map((f) => (
+                  <Linha key={f.id}>
+                    <Celula>
+                      {/* URL assinada de vida curta, emitida pelo servidor
+                          depois de conferir a capacidade: o navegador nunca
+                          fala com o balde. */}
+                      {f.url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={f.url}
+                          alt={f.legenda ?? ""}
+                          width={96}
+                          height={64}
+                          style={{ objectFit: "cover", borderRadius: "var(--r-sm)" }}
+                        />
+                      ) : (
+                        <span className="hint">sem prévia</span>
+                      )}
+                    </Celula>
+                    <Celula forte>
+                      {f.legenda ?? <span className="hint">sem legenda</span>}
+                      {f.capa && (
+                        <>
+                          {" "}
+                          <Badge tom="success">capa</Badge>
+                        </>
+                      )}
+                    </Celula>
+                    <Celula>
+                      <span className="hint">{f.nome_arquivo}</span>
+                    </Celula>
+                    <Celula alinhar="right">
+                      <span style={{ display: "inline-flex", gap: 4, justifyContent: "flex-end" }}>
+                        {!f.capa && (
+                          <form action={definirCapaDaUnidade}>
+                            <input type="hidden" name="unidade_id" value={id} />
+                            <input type="hidden" name="id" value={f.id} />
+                            <button type="submit" className="sni-acao">
+                              <IconStar size={16} className="ti" /> Usar como capa
+                            </button>
+                          </form>
+                        )}
+                        <form action={removerFotoDaUnidade}>
+                          <input type="hidden" name="unidade_id" value={id} />
+                          <input type="hidden" name="id" value={f.id} />
+                          <button type="submit" className="sni-acao">
+                            <IconTrash size={16} className="ti" /> Apagar
+                          </button>
+                        </form>
+                      </span>
+                    </Celula>
+                  </Linha>
+                ))}
+              </Tabela>
+            )}
+          </>
+        ))}
 
       {aba === "cdor" && mostraCdor && cdor && (
         <>

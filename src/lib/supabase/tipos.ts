@@ -334,6 +334,22 @@ export type PessoaAnexoRow = {
   criado_por: string | null;
 };
 
+/** Foto que o site publica de uma unidade. O arquivo mora no Storage. */
+export type UnidadeFotoRow = {
+  id: string;
+  unidade_id: string;
+  caminho: string;
+  nome_arquivo: string;
+  mime: string | null;
+  tamanho: number | null;
+  legenda: string | null;
+  ordem: number;
+  /** Só uma por unidade — o banco garante com índice único parcial. */
+  capa: boolean;
+  criado_em: string;
+  criado_por: string | null;
+};
+
 export type PapelRow = {
   id: string;
   pessoa_id: string;
@@ -434,6 +450,7 @@ export interface Database {
       notificacoes: Tabela<NotificacaoRow>;
       ceps: Tabela<CepRow>;
       pessoa_anexos: Tabela<PessoaAnexoRow>;
+      unidade_fotos: Tabela<UnidadeFotoRow>;
       secoes: Tabela<SecaoRow>;
       produtos: Tabela<ProdutoRow>;
       colegiados: Tabela<ColegiadoRow>;
