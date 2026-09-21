@@ -142,6 +142,22 @@ Regras completas em `docs/design-system.md`. As que mais se erram:
 
 `npm run typecheck && npm test && npm run build`. Só com tudo verde.
 
+Duas suítes precisam de Postgres e por isso não entram no `npm test`; o CI roda
+as duas, e vale rodá-las à mão ao mexer em SQL:
+
+```
+sudo ./scripts/testar-rls.sh          # RLS e superfície de GRANT
+URL=$(sudo ./scripts/banco-de-teste.sh | tail -1)
+DATABASE_URL="$URL" npx vitest run tests/integracao
+sudo ./scripts/banco-de-teste.sh --parar
+```
+
+⚠️ A segunda existe porque o módulo `eventos` fala Postgres DIRETO, sem cliente
+tipado: `join` trocado, `group by` incompleto e coluna ambígua não quebram
+typecheck, teste unitário nem build — quebram quando alguém ABRE A TELA. Toda
+consulta exportada de `consultas.ts` tem de estar na lista de `tests/integracao`,
+e um teste que roda sem banco reprova quem esquecer.
+
 ## Depois de publicar
 
 **CI verde e PR fechado não são prova de que o código está no ar.** São três
