@@ -106,7 +106,22 @@ export default async function EventoPage({
 
   return (
     <Painel titulo={evento.nome}>
-      <TituloPagina voltar={{ href: "/eventos/admin", texto: "Todos os eventos" }} />
+      <TituloPagina
+        voltar={{ href: "/eventos/admin", texto: "Todos os eventos" }}
+        acao={
+          /* ⚠️ Abre em outra aba porque é a página que vai no cartaz: quem
+             confere quer ver o que o mundo vê e voltar para cá sem perder o
+             que estava editando. */
+          <a
+            href={`/e/${eventoId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="sni-acao"
+          >
+            Ver página pública
+          </a>
+        }
+      />
 
       <Recado erro={erro} ok={ok} />
 
