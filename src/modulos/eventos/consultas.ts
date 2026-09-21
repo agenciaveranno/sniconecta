@@ -2,7 +2,7 @@ import "server-only";
 import { conexao, type Executor } from "@/lib/db";
 import { prepararBusca } from "@/lib/dominio/busca-pessoa";
 import { combosVendidos, type ComboParaVenda } from "@/lib/dominio/combo";
-import type { TipoDeCampo } from "@/lib/dominio/campos";
+import { SEPARADOR_MULTIPLA, type TipoDeCampo } from "@/lib/dominio/campos";
 
 /**
  * Leituras do módulo `eventos`.
@@ -1050,6 +1050,95 @@ export async function perguntasDaInscricao(inscricaoId: number): Promise<{
     `,
   ]);
   return { perguntas, respostas };
+}
+
+export type RespostaNoRelatorio = {
+  campo_id: number;
+  rotulo: string;
+  tipo: TipoDeCampo;
+  ingresso: string;
+  /** Quantas inscrições PAGAS poderiam responder esta pergunta. */
+  alcance: number;
+  /** Tally para escolha e sim/não; lista para texto, número e data. */
+  contagem: { valor: string; quantas: number }[];
+  respostas: { pessoa: string; valor: string }[];
+};
+
+/**
+ * As respostas de um evento, agrupadas por pergunta.
+ *
+ * ⚠️ É para isto que as perguntas existem. Sem este relatório, o #62 é
+ * cadastro sem serventia: a cozinha precisa de "quantos vegetarianos", a
+ * secretaria de "quantas camisetas M", e ninguém vai contar trezentas fichas
+ * uma a uma.
+ *
+ * ⚠️ Conta só quem está PAGO. Inscrição cancelada respondeu e não vai — somar
+ * faria a cozinha preparar refeição para quem desistiu, que é dinheiro jogado
+ * fora no dia.
+ *
+ * ⚠️ E o ALCANCE vem junto: quantos poderiam ter respondido. Sem ele, "12
+ * vegetarianos" não diz nada — 12 de 15 é um cardápio, 12 de 400 é um detalhe.
+ * E a diferença é o que a secretaria ainda precisa perguntar.
+ */
+export async function respostasDoEvento(eventoId: number): Promise<RespostaNoRelatorio[]> {
+  const sql = conexao();
+  const linhas = await sql<{
+    campo_id: number; rotulo: string; tipo: TipoDeCampo; ingresso: string;
+    alcance: number; pessoa: string; valor: string | null;
+  }[]>`
+    select
+      c.id as campo_id, c.rotulo, c.tipo, t.nome as ingresso,
+      (select count(*) from eventos.inscricoes x
+        where x.ingresso_tipo_id = c.ingresso_tipo_id and x.status = 'pago')::int as alcance,
+      p.nome as pessoa, r.valor
+    from eventos.ingresso_campos c
+    join eventos.ingresso_tipos t on t.id = c.ingresso_tipo_id
+    left join eventos.inscricao_respostas r on r.campo_id = c.id
+    left join eventos.inscricoes i on i.id = r.inscricao_id and i.status = 'pago'
+    left join public.pessoas p on p.id = i.pessoa_id
+    where t.evento_id = ${eventoId}
+    order by t.nome, c.ordem, c.id, p.nome
+  `;
+
+  const porPergunta = new Map<number, RespostaNoRelatorio>();
+  for (const l of linhas) {
+    const atual = porPergunta.get(l.campo_id) ?? {
+      campo_id: l.campo_id,
+      rotulo: l.rotulo,
+      tipo: l.tipo,
+      ingresso: l.ingresso,
+      alcance: l.alcance,
+      contagem: [],
+      respostas: [],
+    };
+    // ⚠️ `left join` traz a pergunta mesmo sem resposta, e a linha vem com
+    // `valor` nulo. Ela conta como pergunta existente, não como resposta em
+    // branco: somar nulos faria "0 respostas" virar "1 resposta vazia".
+    if (l.valor !== null && l.pessoa !== null) {
+      atual.respostas.push({ pessoa: l.pessoa, valor: l.valor });
+    }
+    porPergunta.set(l.campo_id, atual);
+  }
+
+  for (const pergunta of porPergunta.values()) {
+    const tally = new Map<string, number>();
+    for (const r of pergunta.respostas) {
+      // ⚠️ "Escolha várias" é UMA linha com as alternativas juntas. Contada
+      // inteira, cada combinação vira uma categoria própria — e o relatório
+      // mostra "Vegetariano; Sem glúten: 1" em vez de somar cada uma.
+      const partes =
+        pergunta.tipo === "multipla" ? r.valor.split(SEPARADOR_MULTIPLA) : [r.valor];
+      for (const parte of partes) {
+        const chave = parte.trim();
+        if (chave) tally.set(chave, (tally.get(chave) ?? 0) + 1);
+      }
+    }
+    pergunta.contagem = [...tally]
+      .map(([valor, quantas]) => ({ valor, quantas }))
+      .sort((a, b) => b.quantas - a.quantas || a.valor.localeCompare(b.valor, "pt-BR"));
+  }
+
+  return [...porPergunta.values()];
 }
 
 export type PerguntaRespondida = {

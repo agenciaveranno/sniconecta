@@ -8,8 +8,10 @@ import { exigirCapacidadeNaPagina } from "@/lib/auth";
 import { dataBR } from "@/lib/dominio/data";
 import { formatarCentavos } from "@/lib/dominio/dinheiro";
 import { ROTULO_FORMA, type FormaBalcao } from "@/lib/dominio/venda";
+import { precisaDeOpcoes } from "@/lib/dominio/campos";
 import {
-  eventosParaVenda, porFormaDePagamento, porTipoDeIngresso, resumoDoEvento,
+  eventosParaVenda, porFormaDePagamento, porTipoDeIngresso, respostasDoEvento,
+  resumoDoEvento,
 } from "@/modulos/eventos/consultas";
 
 export const metadata = { title: "Relatórios" };
@@ -34,13 +36,14 @@ export default async function RelatoriosPage({
   const eventos = await eventosParaVenda();
   const evento = eventos.find((e) => e.id === eventoId) ?? null;
 
-  const [resumo, porTipo, porForma] = evento
+  const [resumo, porTipo, porForma, respostas] = evento
     ? await Promise.all([
         resumoDoEvento(evento.id),
         porTipoDeIngresso(evento.id),
         porFormaDePagamento(evento.id),
+        respostasDoEvento(evento.id),
       ])
-    : [null, [], []];
+    : [null, [], [], []];
 
   const base = "/eventos/relatorios";
 
@@ -135,6 +138,82 @@ export default async function RelatoriosPage({
                 </Linha>
               ))}
             </Tabela>
+          )}
+          {respostas.length > 0 && (
+            <>
+              <TituloSecao>O que as pessoas responderam</TituloSecao>
+              <p className="hint" style={{ maxWidth: "68ch" }}>
+                Só inscrições pagas. É o número que a cozinha e a secretaria
+                usam — quem cancelou respondeu e não vai.
+              </p>
+
+              {respostas.map((p) => {
+                const semResposta = Math.max(p.alcance - p.respostas.length, 0);
+                return (
+                  <div key={p.campo_id} style={{ marginBottom: 24 }}>
+                    <TituloSecao>
+                      {p.rotulo}
+                      {" · "}
+                      <span className="hint">{p.ingresso}</span>
+                    </TituloSecao>
+
+                    {p.respostas.length === 0 ? (
+                      <Vazio
+                        icone={<IconChartBar size={28} className="ti" />}
+                        titulo="Ninguém respondeu ainda"
+                      >
+                        {p.alcance > 0
+                          ? `${p.alcance} inscrição(ões) paga(s) podem responder esta pergunta.`
+                          : "Nenhuma inscrição paga deste ingresso ainda."}
+                      </Vazio>
+                    ) : precisaDeOpcoes(p.tipo) || p.tipo === "booleano" ? (
+                      <Tabela cabecalho={["Resposta", "Quantas", "Do alcance"]}>
+                        {p.contagem.map((c) => (
+                          <Linha key={c.valor}>
+                            <Celula forte>{c.valor}</Celula>
+                            <Celula dado><Num>{c.quantas}</Num></Celula>
+                            <Celula dado>
+                              {/* ⚠️ A porcentagem é do ALCANCE, não do total de
+                                  respostas: "12 vegetarianos" não diz nada — 12
+                                  de 15 é um cardápio, 12 de 400 é um detalhe. */}
+                              {p.alcance > 0
+                                ? `${Math.round((c.quantas / p.alcance) * 100)}%`
+                                : "—"}
+                            </Celula>
+                          </Linha>
+                        ))}
+                        {semResposta > 0 && (
+                          <Linha>
+                            {/* ⚠️ Quem NÃO respondeu aparece na tabela. Sem esta
+                                linha, o relatório parece completo: some a
+                                diferença entre "ninguém é vegetariano" e
+                                "ninguém foi perguntado". */}
+                            <Celula>
+                              <span className="hint">Sem resposta</span>
+                            </Celula>
+                            <Celula dado><Num>{semResposta}</Num></Celula>
+                            <Celula dado>
+                              {`${Math.round((semResposta / p.alcance) * 100)}%`}
+                            </Celula>
+                          </Linha>
+                        )}
+                      </Tabela>
+                    ) : (
+                      /* Texto, número e data não se somam em categorias: cada
+                         resposta é única, e quem lê quer saber DE QUEM. */
+                      <Tabela cabecalho={["Pessoa", "Resposta"]}>
+                        {p.respostas.map((r, i) => (
+                          <Linha key={`${r.pessoa}-${i}`}>
+                            <Celula forte>{r.pessoa}</Celula>
+                            <Celula>{r.valor}</Celula>
+                          </Linha>
+                        ))}
+                      </Tabela>
+                    )}
+                  </div>
+                );
+              })}
+            </>
           )}
         </>
       )}
