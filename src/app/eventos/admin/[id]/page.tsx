@@ -1,5 +1,7 @@
 import { notFound } from "next/navigation";
-import { IconDiscount2, IconId, IconPlus, IconTicket, IconUsersGroup } from "@tabler/icons-react";
+import {
+  IconDiscount2, IconId, IconPackage, IconPlus, IconTicket, IconUsersGroup,
+} from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
 import {
@@ -11,18 +13,20 @@ import { formatarCentavos } from "@/lib/dominio/dinheiro";
 import { porQueNaoVende } from "@/lib/dominio/ingressos";
 import { descreverCupom } from "@/lib/dominio/cupom";
 import {
-  catalogoDaComissao, comissaoDoEvento, cuponsDoEvento, eventoDaPagina,
-  locaisAtivos, opcoesDePromotor, tiposDeIngresso, tiposParaCupom,
+  catalogoDaComissao, combosDoEvento, comissaoDoEvento, cuponsDoEvento,
+  eventoDaPagina, locaisAtivos, opcoesDePromotor, tiposDeIngresso, tiposParaCupom,
 } from "@/modulos/eventos/consultas";
 import {
-  adicionarMembroComissao, alternarCupomAtivo, alternarTipoIngressoAtivo,
-  criarCupom, criarTipoIngresso, editarCupom, editarEvento,
-  editarMembroComissao, editarTipoIngresso, removerMembroComissao,
+  adicionarMembroComissao, alternarComboAtivo, alternarCupomAtivo,
+  alternarTipoIngressoAtivo, criarCombo, criarCupom, criarTipoIngresso,
+  editarCombo, editarCupom, editarEvento, editarMembroComissao,
+  editarTipoIngresso, removerMembroComissao,
 } from "@/modulos/eventos/acoes";
 import CamposEvento from "../CamposEvento";
 import CamposIngresso from "../CamposIngresso";
 import CamposCupom from "../CamposCupom";
 import CamposMembro from "../CamposMembro";
+import CamposCombo from "../CamposCombo";
 
 /**
  * O evento por dentro (decisão 0020).
@@ -75,6 +79,9 @@ export default async function EventoPage({
       ? await Promise.all([comissaoDoEvento(eventoId), catalogoDaComissao()])
       : [[], { setores: [], funcoes: [] }];
 
+  // Mesma razão: os combos são duas consultas que só esta aba usa.
+  const combos = aba === "combos" ? await combosDoEvento(eventoId) : [];
+
   if (!evento) notFound();
 
   const base = `/eventos/admin/${eventoId}`;
@@ -117,6 +124,12 @@ export default async function EventoPage({
             href: `${base}?aba=cupons`,
             contagem: cupons.length,
             icone: <IconDiscount2 size={17} className="ti" />,
+          },
+          {
+            chave: "combos",
+            rotulo: "Combos",
+            href: `${base}?aba=combos`,
+            icone: <IconPackage size={17} className="ti" />,
           },
           {
             chave: "comissao",
@@ -403,6 +416,112 @@ export default async function EventoPage({
               ))}
             </Tabela>
           )}
+        </>
+      )}
+
+      {aba === "combos" && (
+        <>
+          <TituloSecao
+            acao={
+              tipos.length === 0 ? undefined : (
+                <ModalCadastro
+                  rotulo="Novo combo"
+                  icone={<IconPlus size={18} className="ti" />}
+                  titulo="Novo combo"
+                  acao={criarCombo}
+                  rotuloConfirmar="Cadastrar"
+                  largura="lg"
+                >
+                  <CamposCombo eventoId={eventoId} tipos={tipos} />
+                </ModalCadastro>
+              )
+            }
+          >
+            Combos
+          </TituloSecao>
+
+          {/* ⚠️ Sem tipo de ingresso não há combo possível: ele é feito DE
+              ingressos. Oferecer o botão levaria a um formulário que não tem o
+              que oferecer, e o erro só apareceria ao salvar. */}
+          {tipos.length === 0 ? (
+            <Vazio icone={<IconPackage size={34} className="ti" />} titulo="Cadastre ingressos primeiro">
+              Combo é feito de ingressos — junta dois ou três num preço só.
+              Comece pela aba Ingressos.
+            </Vazio>
+          ) : combos.length === 0 ? (
+            <Vazio icone={<IconPackage size={34} className="ti" />} titulo="Nenhum combo">
+              Combo junta ingressos num preço único: entrada mais jantar,
+              inscrição mais transporte.
+            </Vazio>
+          ) : (
+            <Tabela cabecalho={["Combo", "Entrega", "Preço", "Avulso", "Vendidos", "Situação", ""]}>
+              {combos.map((c) => (
+                <Linha key={c.id}>
+                  <Celula forte>{c.nome}</Celula>
+                  <Celula>
+                    {c.itens.length === 0 ? (
+                      // Combo sem item não deveria existir — a tela recusa
+                      // criar um. Se aparecer, veio da carga e precisa de olho.
+                      <Badge tom="danger">não entrega nada</Badge>
+                    ) : (
+                      c.itens.map((i) => `${i.quantidade}× ${i.nome}`).join(", ")
+                    )}
+                  </Celula>
+                  <Celula dado>{formatarCentavos(c.valor_centavos)}</Celula>
+                  <Celula dado>
+                    {/* ⚠️ Quanto custaria separado. Sem a comparação, o preço
+                        do combo é um número solto — e um erro de centavos que
+                        o deixe MAIS CARO que a soma passa despercebido. */}
+                    {formatarCentavos(c.avulso_centavos)}
+                    {c.avulso_centavos > 0 && c.valor_centavos >= c.avulso_centavos && (
+                      <>
+                        {" "}
+                        <Badge tom="warning">sem desconto</Badge>
+                      </>
+                    )}
+                  </Celula>
+                  <Celula dado>
+                    <Num>{c.vendidos}</Num>
+                    {c.quantidade !== null && <span className="hint"> de {c.quantidade}</span>}
+                  </Celula>
+                  <Celula>
+                    <Etiqueta ativo={c.ativo} />
+                  </Celula>
+                  <Celula alinhar="right">
+                    <span style={{ display: "inline-flex", gap: 4, justifyContent: "flex-end" }}>
+                      <ModalCadastro
+                        gatilho="link"
+                        rotulo="Editar"
+                        titulo={`Editar ${c.nome}`}
+                        acao={editarCombo}
+                        largura="lg"
+                      >
+                        <CamposCombo eventoId={eventoId} combo={c} tipos={tipos} />
+                      </ModalCadastro>
+                      <form action={alternarComboAtivo}>
+                        <input type="hidden" name="evento_id" value={eventoId} />
+                        <input type="hidden" name="id" value={c.id} />
+                        <input type="hidden" name="ativo" value={String(c.ativo)} />
+                        <button type="submit" className="sni-acao">
+                          {c.ativo ? "Desativar" : "Reativar"}
+                        </button>
+                      </form>
+                    </span>
+                  </Celula>
+                </Linha>
+              ))}
+            </Tabela>
+          )}
+
+          {/* ⚠️ A tela diz o que ela NÃO faz. Combo cadastrado que o balcão não
+              vende é promessa quebrada em silêncio — melhor a tela avisar do
+              que o operador descobrir com a fila na frente. */}
+          <Alerta tipo="info">
+            A venda de combo ainda não está no balcão: por enquanto ele se
+            cadastra aqui e aparece no relatório, mas quem vende monta os
+            ingressos avulsos. A venda entra numa etapa própria, porque mexe no
+            estoque de vários ingressos de uma vez.
+          </Alerta>
         </>
       )}
     </Painel>
