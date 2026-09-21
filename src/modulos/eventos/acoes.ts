@@ -11,6 +11,10 @@ import { centavosDe, ratear } from "@/lib/dominio/dinheiro";
 import { corDeMarca } from "@/lib/dominio/cor";
 import { BLOCOS_DO_COMPROVANTE } from "@/lib/dominio/comprovante";
 import {
+  conferirResposta, ehTipoDeCampo, normalizarOpcoes, precisaDeOpcoes,
+  type CampoDaPergunta, type TipoDeCampo,
+} from "@/lib/dominio/campos";
+import {
   conferirVenda, FORMAS_BALCAO, tipoDeVenda, totalCobrado, type FormaBalcao,
 } from "@/lib/dominio/venda";
 import { conferirCupom, normalizarCodigo, type Cupom } from "@/lib/dominio/cupom";
@@ -2035,4 +2039,226 @@ export async function salvarMarcaDoComprovante(formData: FormData) {
   redirect(
     `${rotaDoEvento(eventoId, "comprovante")}&ok=${encodeURIComponent("Marca do comprovante guardada.")}`
   );
+}
+
+// ─── As perguntas que o ingresso faz ────────────────────────────────────────
+
+type CamposDaPergunta = {
+  eventoId: number;
+  id: number;
+  ingressoTipoId: number;
+  rotulo: string;
+  tipo: TipoDeCampo;
+  opcoes: string[] | null;
+  obrigatorio: boolean;
+  ordem: number;
+};
+
+function camposDaPergunta(formData: FormData): CamposDaPergunta {
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  const tipoBruto = String(formData.get("tipo") ?? "texto").trim();
+  // ⚠️ Estreita com conferência de verdade, em vez de afirmar `as TipoDeCampo`
+  // antes de olhar: o valor chega de um formulário e pode ser qualquer coisa,
+  // e o `as` calaria o compilador sobre isso. O banco recusaria com uma
+  // mensagem sobre restrição de coluna, que não diz o que fazer.
+  if (!ehTipoDeCampo(tipoBruto)) {
+    falharNoEvento(eventoId, "Escolha um tipo de pergunta válido.", "perguntas");
+  }
+  const tipo = tipoBruto;
+
+  const rotulo = String(formData.get("rotulo") ?? "").trim();
+  if (!rotulo) falharNoEvento(eventoId, "A pergunta precisa de um texto.", "perguntas");
+
+  const opcoes = precisaDeOpcoes(tipo)
+    ? normalizarOpcoes(String(formData.get("opcoes") ?? ""))
+    : null;
+  // ⚠️ Escolha sem alternativa é um seletor vazio: quem responde abre e não há
+  // o que escolher, e a pergunta obrigatória trava a tela para sempre.
+  if (opcoes && opcoes.length === 0) {
+    falharNoEvento(
+      eventoId,
+      "Uma pergunta de escolha precisa de pelo menos uma alternativa, uma por linha.",
+      "perguntas"
+    );
+  }
+
+  return {
+    eventoId,
+    id: Number(formData.get("id") ?? 0),
+    ingressoTipoId: Number(formData.get("ingresso_tipo_id") ?? 0),
+    rotulo: rotulo.slice(0, 200),
+    tipo,
+    opcoes,
+    obrigatorio: formData.get("obrigatorio") !== null,
+    ordem: Number(formData.get("ordem") ?? 0) || 0,
+  };
+}
+
+export async function criarPergunta(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.gerir");
+  const c = camposDaPergunta(formData);
+  if (!c.ingressoTipoId) {
+    falharNoEvento(c.eventoId, "Escolha a que ingresso a pergunta pertence.", "perguntas");
+  }
+
+  const sql = conexao();
+  const [criada] = await sql<{ id: number }[]>`
+    insert into eventos.ingresso_campos
+      (ingresso_tipo_id, rotulo, tipo, opcoes, obrigatorio, ordem)
+    values
+      (${c.ingressoTipoId}, ${c.rotulo}, ${c.tipo},
+       ${c.opcoes ? sql.json(c.opcoes) : null}, ${c.obrigatorio}, ${c.ordem})
+    returning id
+  `;
+  await registrar({
+    atorId: eu?.id,
+    acao: "eventos.pergunta.criada",
+    entidade: "eventos.ingresso_campos",
+    entidadeId: String(criada?.id ?? ""),
+    detalhe: { evento_id: c.eventoId, rotulo: c.rotulo, tipo: c.tipo },
+  });
+
+  revalidatePath(rotaDoEvento(c.eventoId, "perguntas"));
+  redirect(`${rotaDoEvento(c.eventoId, "perguntas")}&ok=${encodeURIComponent("Pergunta cadastrada.")}`);
+}
+
+export async function editarPergunta(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.gerir");
+  const c = camposDaPergunta(formData);
+  if (!c.id) falharNoEvento(c.eventoId, "Pergunta não informada.", "perguntas");
+
+  const sql = conexao();
+  await sql`
+    update eventos.ingresso_campos
+       set rotulo = ${c.rotulo}, tipo = ${c.tipo},
+           opcoes = ${c.opcoes ? sql.json(c.opcoes) : null},
+           obrigatorio = ${c.obrigatorio}, ordem = ${c.ordem}
+     where id = ${c.id}
+  `;
+  await registrar({
+    atorId: eu?.id,
+    acao: "eventos.pergunta.editada",
+    entidade: "eventos.ingresso_campos",
+    entidadeId: String(c.id),
+    detalhe: { evento_id: c.eventoId, rotulo: c.rotulo, tipo: c.tipo },
+  });
+
+  revalidatePath(rotaDoEvento(c.eventoId, "perguntas"));
+  redirect(`${rotaDoEvento(c.eventoId, "perguntas")}&ok=${encodeURIComponent("Pergunta atualizada.")}`);
+}
+
+/**
+ * ⚠️ DESATIVA, não apaga — ao contrário da comissão, e aqui a diferença
+ * importa: `inscricao_respostas.campo_id` é `on delete set null`, então apagar
+ * a pergunta deixaria as respostas órfãs. Elas continuariam no banco com o
+ * rótulo gravado (que é o certo), mas ninguém conseguiria mais agrupá-las por
+ * pergunta num relatório. Desativada, ela some da tela de quem responde e
+ * continua ligada ao que já foi respondido.
+ */
+export async function alternarPerguntaAtiva(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.gerir");
+  const eventoId = Number(formData.get("evento_id") ?? 0);
+  const id = Number(formData.get("id") ?? 0);
+  const ativo = String(formData.get("ativo") ?? "") === "true";
+  if (!id) falharNoEvento(eventoId, "Pergunta não informada.", "perguntas");
+
+  const sql = conexao();
+  await sql`update eventos.ingresso_campos set ativo = ${!ativo} where id = ${id}`;
+  await registrar({
+    atorId: eu?.id,
+    acao: ativo ? "eventos.pergunta.desativada" : "eventos.pergunta.reativada",
+    entidade: "eventos.ingresso_campos",
+    entidadeId: String(id),
+    detalhe: { evento_id: eventoId },
+  });
+
+  revalidatePath(rotaDoEvento(eventoId, "perguntas"));
+  redirect(
+    `${rotaDoEvento(eventoId, "perguntas")}&ok=${encodeURIComponent(
+      ativo ? "Pergunta desativada." : "Pergunta reativada."
+    )}`
+  );
+}
+
+/**
+ * Grava as respostas de uma inscrição.
+ *
+ * ⚠️ TUDO OU NADA, numa transação. Metade das respostas gravadas é pior que
+ * nenhuma: quem abre a ficha depois vê três de cinco perguntas respondidas e
+ * não tem como saber se as outras duas foram deixadas em branco de propósito.
+ *
+ * ⚠️ E o RÓTULO vai junto com a resposta, não só o `campo_id`. É a fotografia
+ * da pergunta no momento em que foi respondida — a fundação escreveu isso na
+ * coluna. Renomear "Tamanho da camiseta" para "Tamanho do uniforme" não pode
+ * fazer as respostas antigas passarem a dizer que respondiam outra coisa.
+ */
+export async function salvarRespostas(formData: FormData) {
+  const eu = await exigirCapacidade("eventos.inscricoes.gerir");
+  const inscricaoId = Number(formData.get("inscricao_id") ?? 0);
+  const voltarPara = String(formData.get("voltar_para") ?? "").trim();
+
+  const volta: (chave: string, mensagem: string) => never = (chave, mensagem) => {
+    const p = new URLSearchParams();
+    if (voltarPara) p.set("pessoa", voltarPara);
+    p.set(chave, mensagem);
+    redirect(`/eventos/pessoas?${p}`);
+  };
+
+  if (!inscricaoId) volta("erro", "Inscrição não informada.");
+
+  const sql = conexao();
+  const perguntas = await sql<
+    (CampoDaPergunta & { opcoes: string[] | null })[]
+  >`
+    select c.id, c.rotulo, c.tipo, c.opcoes, c.obrigatorio
+      from eventos.ingresso_campos c
+      join eventos.inscricoes i on i.ingresso_tipo_id = c.ingresso_tipo_id
+     where i.id = ${inscricaoId} and c.ativo
+     order by c.ordem, c.id
+  `;
+  if (perguntas.length === 0) volta("erro", "Este ingresso não faz perguntas.");
+
+  const aGravar: { campo_id: number; rotulo: string; valor: string | null }[] = [];
+  for (const pergunta of perguntas) {
+    const bruto =
+      pergunta.tipo === "multipla"
+        ? formData.getAll(`campo_${pergunta.id}`).map(String)
+        : String(formData.get(`campo_${pergunta.id}`) ?? "");
+    const veredito = conferirResposta(pergunta, bruto);
+    if (!veredito.vale) volta("erro", veredito.motivo);
+    aGravar.push({ campo_id: pergunta.id, rotulo: pergunta.rotulo, valor: veredito.valor });
+  }
+
+  await sql.begin(async (tx) => {
+    // ⚠️ Apaga e regrava as respostas DESTA inscrição para ESTAS perguntas, em
+    // vez de conciliar uma a uma. Dentro da transação é atômico; conciliar
+    // deixaria a porta aberta para resposta duplicada quando duas telas
+    // gravassem ao mesmo tempo — e a ficha passaria a mostrar a mesma pergunta
+    // duas vezes, com valores diferentes.
+    await tx`
+      delete from eventos.inscricao_respostas
+       where inscricao_id = ${inscricaoId}
+         and campo_id = any(${perguntas.map((p) => p.id)})
+    `;
+    const comValor = aGravar.filter((r) => r.valor !== null);
+    if (comValor.length > 0) {
+      await tx`
+        insert into eventos.inscricao_respostas ${tx(
+          comValor.map((r) => ({ ...r, inscricao_id: inscricaoId })),
+          "inscricao_id", "campo_id", "rotulo", "valor"
+        )}
+      `;
+    }
+  });
+
+  await registrar({
+    atorId: eu?.id,
+    acao: "eventos.inscricao.respostas",
+    entidade: "eventos.inscricoes",
+    entidadeId: String(inscricaoId),
+    detalhe: { respondidas: aGravar.filter((r) => r.valor !== null).length },
+  });
+
+  revalidatePath("/eventos/pessoas");
+  volta("ok", "Respostas guardadas.");
 }

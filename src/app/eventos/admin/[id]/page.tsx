@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import {
-  IconDiscount2, IconFileInvoice, IconId, IconPackage, IconPlus, IconTicket,
-  IconUsersGroup,
+  IconDiscount2, IconFileInvoice, IconId, IconHelpCircle, IconPackage,
+  IconPlus, IconTicket, IconUsersGroup,
 } from "@tabler/icons-react";
 import Painel from "@/componentes/Painel";
 import { ModalCadastro } from "@/componentes/Modal";
@@ -14,9 +14,10 @@ import { formatarCentavos } from "@/lib/dominio/dinheiro";
 import { porQueNaoVende } from "@/lib/dominio/ingressos";
 import { descreverCupom } from "@/lib/dominio/cupom";
 import { BLOCOS_DO_COMPROVANTE } from "@/lib/dominio/comprovante";
+import { ROTULO_TIPO } from "@/lib/dominio/campos";
 import {
   catalogoDaComissao, combosDoEvento, comissaoDoEvento, cuponsDoEvento,
-  marcaDoComprovante,
+  marcaDoComprovante, perguntasDoEvento,
   eventoDaPagina, locaisAtivos, opcoesDePromotor, tiposDeIngresso, tiposParaCupom,
 } from "@/modulos/eventos/consultas";
 import {
@@ -24,12 +25,14 @@ import {
   alternarTipoIngressoAtivo, criarCombo, criarCupom, criarTipoIngresso,
   editarCombo, editarCupom, editarEvento, editarMembroComissao,
   editarTipoIngresso, removerMembroComissao, salvarMarcaDoComprovante,
+  alternarPerguntaAtiva, criarPergunta, editarPergunta,
 } from "@/modulos/eventos/acoes";
 import CamposEvento from "../CamposEvento";
 import CamposIngresso from "../CamposIngresso";
 import CamposCupom from "../CamposCupom";
 import CamposMembro from "../CamposMembro";
 import CamposCombo from "../CamposCombo";
+import CamposPergunta from "../CamposPergunta";
 
 /**
  * O evento por dentro (decisão 0020).
@@ -85,6 +88,7 @@ export default async function EventoPage({
   // Mesma razão: os combos são duas consultas que só esta aba usa.
   const combos = aba === "combos" ? await combosDoEvento(eventoId) : [];
   const marca = aba === "comprovante" ? await marcaDoComprovante(eventoId) : null;
+  const perguntas = aba === "perguntas" ? await perguntasDoEvento(eventoId) : [];
 
   if (!evento) notFound();
 
@@ -134,6 +138,12 @@ export default async function EventoPage({
             rotulo: "Combos",
             href: `${base}?aba=combos`,
             icone: <IconPackage size={17} className="ti" />,
+          },
+          {
+            chave: "perguntas",
+            rotulo: "Perguntas",
+            href: `${base}?aba=perguntas`,
+            icone: <IconHelpCircle size={17} className="ti" />,
           },
           {
             chave: "comprovante",
@@ -426,6 +436,113 @@ export default async function EventoPage({
               ))}
             </Tabela>
           )}
+        </>
+      )}
+
+      {aba === "perguntas" && (
+        <>
+          <TituloSecao
+            acao={
+              tipos.length === 0 ? undefined : (
+                <ModalCadastro
+                  rotulo="Nova pergunta"
+                  icone={<IconPlus size={18} className="ti" />}
+                  titulo="Nova pergunta"
+                  acao={criarPergunta}
+                  rotuloConfirmar="Cadastrar"
+                  largura="lg"
+                >
+                  <CamposPergunta eventoId={eventoId} tipos={tipos} />
+                </ModalCadastro>
+              )
+            }
+          >
+            Perguntas da compra
+          </TituloSecao>
+
+          <p className="hint" style={{ maxWidth: "68ch" }}>
+            O que o evento precisa saber e a inscrição não tem: tamanho de
+            camiseta, restrição alimentar, ponto de embarque. Cada pergunta
+            pertence a um tipo de ingresso.
+          </p>
+
+          {tipos.length === 0 ? (
+            <Vazio icone={<IconHelpCircle size={34} className="ti" />} titulo="Cadastre ingressos primeiro">
+              A pergunta pertence a um tipo de ingresso — comece pela aba
+              Ingressos.
+            </Vazio>
+          ) : perguntas.length === 0 ? (
+            <Vazio icone={<IconHelpCircle size={34} className="ti" />} titulo="Nenhuma pergunta">
+              Sem perguntas, a inscrição guarda só quem é a pessoa e qual o
+              ingresso.
+            </Vazio>
+          ) : (
+            <Tabela
+              cabecalho={["Pergunta", "Ingresso", "Tipo", "Respostas", "Situação", ""]}
+            >
+              {perguntas.map((p) => (
+                <Linha key={p.id}>
+                  <Celula forte>
+                    {p.rotulo}
+                    {p.obrigatorio && (
+                      <>
+                        {" "}
+                        <Badge tom="warning">obrigatória</Badge>
+                      </>
+                    )}
+                    {p.opcoes && p.opcoes.length > 0 && (
+                      <>
+                        <br />
+                        <span className="hint">{p.opcoes.join(" · ")}</span>
+                      </>
+                    )}
+                  </Celula>
+                  <Celula>{p.ingresso}</Celula>
+                  <Celula>{ROTULO_TIPO[p.tipo]}</Celula>
+                  <Celula dado>
+                    {/* ⚠️ Desativar uma pergunta já respondida é decisão
+                        diferente de desativar uma que ninguém respondeu. O
+                        número aparece ANTES, não depois. */}
+                    <Num>{p.respostas}</Num>
+                  </Celula>
+                  <Celula>
+                    <Etiqueta ativo={p.ativo} />
+                  </Celula>
+                  <Celula alinhar="right">
+                    <span style={{ display: "inline-flex", gap: 4, justifyContent: "flex-end" }}>
+                      <ModalCadastro
+                        gatilho="link"
+                        rotulo="Editar"
+                        titulo={`Editar “${p.rotulo}”`}
+                        acao={editarPergunta}
+                        largura="lg"
+                      >
+                        <CamposPergunta eventoId={eventoId} pergunta={p} tipos={tipos} />
+                      </ModalCadastro>
+                      <form action={alternarPerguntaAtiva}>
+                        <input type="hidden" name="evento_id" value={eventoId} />
+                        <input type="hidden" name="id" value={p.id} />
+                        <input type="hidden" name="ativo" value={String(p.ativo)} />
+                        <button type="submit" className="sni-acao">
+                          {p.ativo ? "Desativar" : "Reativar"}
+                        </button>
+                      </form>
+                    </span>
+                  </Celula>
+                </Linha>
+              ))}
+            </Tabela>
+          )}
+
+          {/* ⚠️ A tela diz onde as respostas entram. Perguntas cadastradas sem
+              ninguém saber onde responder é promessa quebrada em silêncio —
+              foi o que o #55 fez com os combos, e o aviso evitou. */}
+          <Alerta tipo="info">
+            As respostas são preenchidas na ficha da pessoa, em Pessoas, e não
+            no balcão: perguntar cinco coisas por ingresso é o que faz a fila
+            parar. Quando o checkout público entrar, quem compra pelo site
+            responde na hora da compra.
+          </Alerta>
         </>
       )}
 

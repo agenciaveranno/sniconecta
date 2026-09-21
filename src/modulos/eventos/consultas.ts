@@ -2,6 +2,7 @@ import "server-only";
 import { conexao, type Executor } from "@/lib/db";
 import { prepararBusca } from "@/lib/dominio/busca-pessoa";
 import { combosVendidos, type ComboParaVenda } from "@/lib/dominio/combo";
+import type { TipoDeCampo } from "@/lib/dominio/campos";
 
 /**
  * Leituras do módulo `eventos`.
@@ -843,6 +844,132 @@ export async function inscricaoParaTransferir(
     where i.id = ${id}
   `;
   return linha ?? null;
+}
+
+export type PerguntaDoIngresso = {
+  id: number;
+  ingresso_tipo_id: number;
+  ingresso: string;
+  rotulo: string;
+  tipo: TipoDeCampo;
+  opcoes: string[] | null;
+  obrigatorio: boolean;
+  ordem: number;
+  ativo: boolean;
+  /** Quantas inscrições já responderam — o que impede apagar sem pensar. */
+  respostas: number;
+};
+
+/**
+ * As perguntas de todos os tipos de ingresso de um evento.
+ *
+ * ⚠️ Traz a CONTAGEM DE RESPOSTAS junto. Apagar uma pergunta que já foi
+ * respondida por trezentas pessoas é decisão diferente de apagar uma que
+ * ninguém respondeu — e a tela precisa mostrar a diferença antes, não depois.
+ */
+export async function perguntasDoEvento(eventoId: number): Promise<PerguntaDoIngresso[]> {
+  const sql = conexao();
+  return sql<PerguntaDoIngresso[]>`
+    select
+      c.id, c.ingresso_tipo_id, t.nome as ingresso,
+      c.rotulo, c.tipo, c.opcoes, c.obrigatorio, c.ordem, c.ativo,
+      (select count(*) from eventos.inscricao_respostas r
+        where r.campo_id = c.id)::int as respostas
+    from eventos.ingresso_campos c
+    join eventos.ingresso_tipos t on t.id = c.ingresso_tipo_id
+    where t.evento_id = ${eventoId}
+    order by t.papel desc, t.nome, c.ordem, c.id
+  `;
+}
+
+export type RespostaDaInscricao = {
+  campo_id: number | null;
+  rotulo: string;
+  valor: string | null;
+};
+
+/**
+ * As perguntas que ESTA inscrição precisa responder, com o que já respondeu.
+ *
+ * ⚠️ Parte do rótulo GRAVADO, e não do atual. `inscricao_respostas.rotulo` é
+ * uma fotografia do momento da compra — a fundação escreveu isso na coluna: "o
+ * campo pode ser renomeado depois, e a resposta precisa continuar dizendo a
+ * que pergunta respondeu". A tela mostra a pergunta de hoje para responder, e
+ * o rótulo de então para as que já existem.
+ */
+export async function perguntasDaInscricao(inscricaoId: number): Promise<{
+  perguntas: PerguntaDoIngresso[];
+  respostas: RespostaDaInscricao[];
+}> {
+  const sql = conexao();
+  const [perguntas, respostas] = await Promise.all([
+    sql<PerguntaDoIngresso[]>`
+      select
+        c.id, c.ingresso_tipo_id, t.nome as ingresso,
+        c.rotulo, c.tipo, c.opcoes, c.obrigatorio, c.ordem, c.ativo, 0 as respostas
+      from eventos.ingresso_campos c
+      join eventos.ingresso_tipos t on t.id = c.ingresso_tipo_id
+      join eventos.inscricoes i on i.ingresso_tipo_id = t.id
+      where i.id = ${inscricaoId} and c.ativo
+      order by c.ordem, c.id
+    `,
+    sql<RespostaDaInscricao[]>`
+      select campo_id, rotulo, valor
+        from eventos.inscricao_respostas
+       where inscricao_id = ${inscricaoId}
+       order by id
+    `,
+  ]);
+  return { perguntas, respostas };
+}
+
+export type PerguntaRespondida = {
+  campo_id: number;
+  rotulo: string;
+  tipo: TipoDeCampo;
+  opcoes: string[] | null;
+  obrigatorio: boolean;
+  valor: string | null;
+};
+
+/**
+ * As perguntas e respostas de VÁRIAS inscrições, numa consulta só.
+ *
+ * ⚠️ Uma consulta, e não uma por linha da ficha. Quem já veio a seis eventos
+ * tem seis inscrições, e uma ida ao banco por inscrição faria a ficha — que é
+ * a tela mais aberta do módulo — pagar seis viagens para mostrar, quase
+ * sempre, nenhuma pergunta.
+ *
+ * ⚠️ `left join` na resposta: a pergunta aparece mesmo sem ninguém ter
+ * respondido, que é o caso normal. Um `join` fechado mostraria só o que já foi
+ * respondido — e a pergunta nova nunca apareceria para ser respondida.
+ */
+export async function perguntasDasInscricoes(
+  ids: number[]
+): Promise<Map<number, PerguntaRespondida[]>> {
+  const mapa = new Map<number, PerguntaRespondida[]>();
+  if (ids.length === 0) return mapa;
+
+  const sql = conexao();
+  const linhas = await sql<(PerguntaRespondida & { inscricao_id: number })[]>`
+    select
+      i.id as inscricao_id,
+      c.id as campo_id, c.rotulo, c.tipo, c.opcoes, c.obrigatorio,
+      r.valor
+    from eventos.inscricoes i
+    join eventos.ingresso_campos c
+      on c.ingresso_tipo_id = i.ingresso_tipo_id and c.ativo
+    left join eventos.inscricao_respostas r
+      on r.inscricao_id = i.id and r.campo_id = c.id
+    where i.id = any(${ids})
+    order by i.id, c.ordem, c.id
+  `;
+  for (const { inscricao_id, ...resto } of linhas) {
+    const lista = mapa.get(inscricao_id) ?? [];
+    lista.push(resto);
+    mapa.set(inscricao_id, lista);
+  }
+  return mapa;
 }
 
 export type MarcaDoComprovante = {
