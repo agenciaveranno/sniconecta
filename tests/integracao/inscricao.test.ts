@@ -248,6 +248,69 @@ describe.skipIf(!temBanco)("o que acontece depois da venda", () => {
     await conexao()`delete from eventos.eventos where id = ${destino.id}`;
   });
 
+  it("o ingresso passa para outra pessoa, e quem era antes fica registrado", async () => {
+    const [nova] = await conexao()<{ id: number }[]>`
+      with i as (
+        insert into eventos.inscricoes
+          (pessoa_id, evento_id, ingresso_tipo_id, status, valor_original_centavos)
+        values ('aaaa0000-0000-0000-0000-000000000004', ${EVENTO}, 9001, 'pago', 10000)
+        returning id
+      ) select id from i
+    `;
+    const volta = await rodar(acoes.trocarTitular, {
+      id: String(nova.id),
+      novo_titular: "39053344705",
+      motivo: "não pôde ir",
+    });
+    expect(volta.searchParams.get("erro")).toBeNull();
+
+    const [linha] = await conexao()<
+      { pessoa_id: string; titular_anterior_id: string | null; titular_troca_motivo: string | null }[]
+    >`
+      select pessoa_id, titular_anterior_id, titular_troca_motivo
+        from eventos.inscricoes where id = ${nova.id}
+    `;
+    expect(linha.pessoa_id).toBe("aaaa0000-0000-0000-0000-000000000001");
+    // ⚠️ Sem isto, quem comprou some do histórico.
+    expect(linha.titular_anterior_id).toBe("aaaa0000-0000-0000-0000-000000000004");
+    expect(linha.titular_troca_motivo).toBe("não pôde ir");
+  });
+
+  it("o estorno é dado por feito com comprovante, e recusado sem", async () => {
+    const [nova] = await conexao()<{ id: number }[]>`
+      with i as (
+        insert into eventos.inscricoes
+          (pessoa_id, evento_id, ingresso_tipo_id, status, valor_original_centavos,
+           estorno_status, estorno)
+        values ('aaaa0000-0000-0000-0000-000000000004', ${EVENTO}, 9001, 'cancelado', 10000,
+                'pendente', jsonb_build_object('valor_centavos', 10000))
+        returning id
+      ) select id from i
+    `;
+
+    // ⚠️ O comprovante é OBRIGATÓRIO no "feito": sem ele a fila esvazia sem
+    // ninguém conseguir provar depois que a devolução aconteceu.
+    const sem = await rodar(acoes.resolverEstorno, {
+      id: String(nova.id), situacao: "feito", forma: "pix",
+    });
+    expect(sem.searchParams.get("erro")).toBeTruthy();
+
+    const com = await rodar(acoes.resolverEstorno, {
+      id: String(nova.id), situacao: "feito", forma: "pix", comprovante: "E1234567",
+    });
+    expect(com.searchParams.get("erro")).toBeNull();
+
+    const [linha] = await conexao()<
+      { estorno_status: string | null; estorno: Record<string, unknown> | null }[]
+    >`
+      select estorno_status, estorno from eventos.inscricoes where id = ${nova.id}
+    `;
+    expect(linha.estorno_status).toBe("feito");
+    expect(linha.estorno?.comprovante).toBe("E1234567");
+    // ⚠️ MESCLADO, não trocado: o valor que já estava lá continua.
+    expect(linha.estorno?.valor_centavos).toBe(10000);
+  });
+
   it("quem já entrou não é transferido nem cancelado", async () => {
     // ⚠️ Apagaria uma presença que aconteceu: o relatório do evento passaria a
     // dizer que entrou menos gente do que entrou.
