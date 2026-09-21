@@ -845,6 +845,72 @@ export async function inscricaoParaTransferir(
   return linha ?? null;
 }
 
+export type ComprovanteDaInscricao = {
+  id: number;
+  qr_code: string | null;
+  numero_convite: string | null;
+  status: "pendente" | "pago" | "cancelado" | "expirado" | "transferido";
+  tipo_venda: string;
+  forma_pagamento: string | null;
+  valor_original_centavos: number;
+  desconto_centavos: number;
+  comprou_legivel: string | null;
+  checkin_em: string | null;
+  pessoa_nome: string;
+  documento: string | null;
+  evento_id: number;
+  evento: string;
+  data_inicial: string;
+  data_final: string;
+  local: string | null;
+  ingresso: string | null;
+  /** Marca do comprovante, por evento. Vem com default na fundação. */
+  voucher_cor_primaria: string;
+  voucher_cor_secundaria: string;
+  voucher_boas_vindas: string | null;
+  voucher_instrucoes: string | null;
+  voucher_rodape: string | null;
+  voucher_mostrar: {
+    participante?: boolean; evento?: boolean; ingresso?: boolean;
+    qrcode?: boolean; pagamento?: boolean;
+  };
+};
+
+/**
+ * Tudo o que sai impresso num comprovante, numa consulta só.
+ *
+ * ⚠️ A marca vem do EVENTO, não de configuração global. Dois eventos da mesma
+ * casa podem ter identidade diferente, e as colunas `voucher_*` existem na
+ * fundação justamente para isso — com default, para que um evento que nunca
+ * foi personalizado imprima com a cor institucional em vez de sem cor nenhuma.
+ */
+export async function comprovanteDaInscricao(
+  id: number
+): Promise<ComprovanteDaInscricao | null> {
+  const sql = conexao();
+  const [linha] = await sql<ComprovanteDaInscricao[]>`
+    select
+      i.id, i.qr_code, i.numero_convite, i.status, i.tipo_venda,
+      i.forma_pagamento, i.valor_original_centavos, i.desconto_centavos,
+      to_char(i.data_compra at time zone ${FUSO}, 'DD/MM/YYYY HH24:MI') as comprou_legivel,
+      i.checkin_em,
+      p.nome as pessoa_nome, coalesce(p.cpf, p.passaporte) as documento,
+      e.id as evento_id, e.nome as evento, e.data_inicial, e.data_final,
+      l.nome as local,
+      t.nome as ingresso,
+      e.voucher_cor_primaria, e.voucher_cor_secundaria,
+      e.voucher_boas_vindas, e.voucher_instrucoes, e.voucher_rodape,
+      e.voucher_mostrar
+    from eventos.inscricoes i
+    join eventos.eventos e on e.id = i.evento_id
+    join public.pessoas p on p.id = i.pessoa_id
+    left join public.locais l on l.id = e.local_id
+    left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
+    where i.id = ${id}
+  `;
+  return linha ?? null;
+}
+
 export type PessoaComInscricoes = PessoaDoBalcao & { inscricoes: number };
 
 /**

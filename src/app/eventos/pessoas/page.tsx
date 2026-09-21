@@ -220,6 +220,17 @@ export default async function PessoasPage({
                     {i.checkin_legivel ?? <span className="hint">—</span>}
                   </Celula>
                   <Celula alinhar="right">
+                    {/* ⚠️ O comprovante aparece para QUALQUER situação, não
+                        só para a paga: quem vem reclamar traz a inscrição
+                        cancelada, e o papel é o que a conversa precisa ter na
+                        mesa. Quem diz que ela não vale é o próprio
+                        comprovante, com faixa no papel. */}
+                    <Link
+                      href={`/eventos/comprovante/${i.id}`}
+                      className="sni-acao"
+                    >
+                      Comprovante
+                    </Link>{" "}
                     {/* ⚠️ Transferir é LINK, não modal: o ingresso de destino
                         depende do evento de destino, e um modal estático não
                         recarrega a lista quando o evento muda. A tela própria
