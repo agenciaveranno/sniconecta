@@ -37,9 +37,25 @@ describe("quem gera o código é o banco", () => {
     // ⚠️ Gerado também em TypeScript, o formato passaria a existir em dois
     // lugares: a venda, a transferência e o checkout teriam cada um a sua
     // cópia, e a primeira que divergisse produziria ingresso ilegível.
-    expect(ACOES, "a ação grava qr_code à mão — o default do banco já faz isso")
-      .not.toMatch(/qr_code\s*:/);
-    expect(ACOES).not.toContain('"qr_code"');
+    //
+    // ⚠️ A asserção olha os COMANDOS DE ESCRITA, e não o arquivo inteiro. A
+    // primeira versão proibia `qr_code:` em qualquer lugar — e passou a
+    // reprovar código correto no dia em que a venda começou a LER o código
+    // para pôr no e-mail. Proibir a leitura nunca foi a regra.
+    const colunasDeInsert = [...ACOES.matchAll(/insert into eventos\.\w+\s*\(([^)]*)\)/g)]
+      .map((m) => m[1]);
+    for (const colunas of colunasDeInsert) {
+      expect(colunas, "insert escreve qr_code à mão").not.toContain("qr_code");
+    }
+
+    const atualizacoes = [...ACOES.matchAll(/update eventos\.\w+([\s\S]*?)`/g)].map((m) => m[1]);
+    for (const corpo of atualizacoes) {
+      expect(corpo, "update escreve qr_code à mão").not.toContain("qr_code");
+    }
+
+    // A lista de colunas do ajudante de inserção em lote (`tx(linhas, "a", "b")`).
+    expect(ACOES, "qr_code na lista de colunas do insert em lote")
+      .not.toContain('"qr_code"');
   });
 
   it("o backfill não reescreve o que já tem código", () => {

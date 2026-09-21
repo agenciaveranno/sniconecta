@@ -7,6 +7,7 @@ import { z } from "zod";
 import { exigirCapacidade } from "@/lib/auth";
 import { conexao } from "@/lib/db";
 import { registrar } from "@/lib/auditoria";
+import { enfileirar } from "@/lib/comunicacao/fila";
 import { centavosDe, ratear } from "@/lib/dominio/dinheiro";
 import { corDeMarca } from "@/lib/dominio/cor";
 import { BLOCOS_DO_COMPROVANTE } from "@/lib/dominio/comprovante";
@@ -20,6 +21,7 @@ import {
 import { conferirCupom, normalizarCodigo, type Cupom } from "@/lib/dominio/cupom";
 import { conferirCombos } from "@/lib/dominio/combo";
 import { prepararBusca } from "@/lib/dominio/busca-pessoa";
+import { dataBR } from "@/lib/dominio/data";
 import { podeEntrar } from "@/lib/dominio/checkin";
 import {
   podeTrocarTitular, type InscricaoParaTrocar,
@@ -460,6 +462,54 @@ function falharNaVenda(params: URLSearchParams, mensagem: string): never {
  * sem mexer nos outros. `compra_grupo_id` é o que reúne as linhas da mesma
  * compra quando alguém quiser estornar tudo.
  */
+/**
+ * Avisa quem comprou, pela fila.
+ *
+ * ⚠️ O E-MAIL LEVA O CÓDIGO EM TEXTO, e não um link. O comprovante com QR mora
+ * numa rota do painel, que exige sessão: um link ali manda a pessoa para a
+ * tela de login de um sistema em que ela não tem conta. O código digitado
+ * entra na porta igual ao lido — é para isso que ele é hexadecimal.
+ *
+ * ⚠️ E a chave única amarra o GRUPO da compra. Sem ela, um segundo clique no
+ * "Registrar venda" que caísse na mesma transação mandaria dois e-mails — e
+ * e-mail repetido é o que faz a pessoa marcar o remetente como spam.
+ */
+async function avisarDaVenda(
+  pessoaId: string,
+  evento: string,
+  codigos: { codigo: string | null; ingresso: string }[],
+  grupo: string
+): Promise<void> {
+  if (codigos.length === 0 || !grupo) return;
+
+  const sql = conexao();
+  const [pessoa] = await sql<{ nome: string; email: string | null }[]>`
+    select nome, email from public.pessoas where id = ${pessoaId}
+  `;
+  // Pessoa sem e-mail é caso previsto (decisão 0004), não erro: quem comprou
+  // no balcão levou o comprovante impresso na mão.
+  if (!pessoa?.email) return;
+
+  const lista = codigos
+    .map((c) => `• ${c.ingresso}${c.codigo ? ` — código ${c.codigo}` : ""}`)
+    .join("\n");
+
+  await enfileirar({
+    canal: "email",
+    destinatario: pessoa.email,
+    pessoaId,
+    chaveUnica: `venda:${grupo}`,
+    assunto: `Sua inscrição em ${evento}`,
+    corpo: [
+      `Olá, ${pessoa.nome}.`,
+      `Sua inscrição em "${evento}" está confirmada.`,
+      lista,
+      "Apresente o código na entrada do evento. Se preferir, leve o comprovante impresso que você recebeu no balcão.",
+      "SEICHO-NO-IE DO BRASIL",
+    ].join("\n\n"),
+  });
+}
+
 export async function venderNoBalcao(formData: FormData) {
   const eu = await exigirCapacidade("eventos.vender");
 
@@ -508,6 +558,9 @@ export async function venderNoBalcao(formData: FormData) {
   let quantasLinhas = 0;
   let quantosCombos = 0;
   let total = 0;
+  let codigos: { codigo: string | null; ingresso: string }[] = [];
+  let nomeDoEvento = "";
+  let grupoDaVenda = "";
 
   try {
     await sql.begin(async (tx) => {
@@ -659,6 +712,7 @@ export async function venderNoBalcao(formData: FormData) {
       // um todo — o estorno teria de achar "as inscrições feitas no mesmo
       // segundo", que é adivinhação.
       const grupo = randomUUID();
+      grupoDaVenda = grupo;
 
       // UMA linha por ingresso: cada uma tem o seu QR, entra sozinha no
       // check-in e se estorna sem mexer nas outras. As de combo carregam
@@ -737,6 +791,10 @@ export async function venderNoBalcao(formData: FormData) {
       quantasLinhas = linhas.length;
       quantosCombos = conferidoCombo.escolhidos.reduce((s, e) => s + e.quantidade, 0);
 
+      // ⚠️ `returning qr_code` porque quem gera o código é o BANCO (decisão
+      // 0021): sem trazer de volta, o aviso por e-mail sairia sem o número que
+      // a porta lê, e a pessoa teria um comprovante impresso e um e-mail que
+      // não conferem.
       await tx`
         insert into eventos.inscricoes ${tx(
           linhas,
@@ -747,6 +805,25 @@ export async function venderNoBalcao(formData: FormData) {
           "observacao", "data_compra"
         )}
       `;
+
+      // ⚠️ Relê pelo GRUPO em vez de usar `returning` no mesmo comando: o
+      // ajudante que monta o insert em lote não devolve tipo, e um `as` aqui
+      // calaria o compilador sobre a forma do que volta — numa leitura cujo
+      // resultado vira o e-mail que a pessoa recebe.
+      const gravadas = await tx<{ qr_code: string | null; ingresso_tipo_id: number }[]>`
+        select qr_code, ingresso_tipo_id
+          from eventos.inscricoes
+         where compra_grupo_id = ${grupo}
+         order by id
+      `;
+      codigos = gravadas.map((g) => ({
+        codigo: g.qr_code,
+        ingresso: porTipo.get(g.ingresso_tipo_id)?.nome ?? "Ingresso",
+      }));
+      const [nomeEvento] = await tx<{ nome: string }[]>`
+        select nome from eventos.eventos where id = ${eventoId}
+      `;
+      nomeDoEvento = nomeEvento?.nome ?? "";
     });
   } catch (e) {
     // ⚠️ A recusa vira EXCEÇÃO dentro da transação, e o `redirect` acontece só
@@ -761,6 +838,11 @@ export async function venderNoBalcao(formData: FormData) {
         : traduzirIngresso(e instanceof Error ? e.message : String(e));
     falharNaVenda(volta, mensagem);
   }
+
+  // ⚠️ ENFILEIRA, não envia. Um SMTP lento faria o botão "Registrar venda"
+  // girar com a fila na frente do operador, e um SMTP fora do ar faria a venda
+  // — que já foi paga — parecer que falhou. `enfileirar` nunca lança.
+  await avisarDaVenda(pessoaId, nomeDoEvento, codigos, grupoDaVenda);
 
   await registrar({
     atorId: eu?.id,
@@ -1740,6 +1822,46 @@ const ROTA_TRANSFERIR = "/eventos/transferir";
  * invariante: `valor_original − desconto` da linha nova é exatamente o que
  * entrou no caixa por ela. Ver `dominio/transferencia.ts`.
  */
+/**
+ * Avisa quem teve o ingresso movido de evento.
+ *
+ * ⚠️ É o aviso mais importante do módulo. Sem ele a pessoa pode aparecer no
+ * evento errado, no dia errado, com um comprovante que não vale mais — e
+ * descobrir na porta, que é o pior lugar para descobrir qualquer coisa.
+ */
+async function avisarDaTransferencia(inscricaoId: number): Promise<void> {
+  if (!inscricaoId) return;
+
+  const sql = conexao();
+  const [linha] = await sql<{
+    nome: string; email: string | null; evento: string;
+    ingresso: string | null; qr_code: string | null; data_inicial: string;
+  }[]>`
+    select p.nome, p.email, e.nome as evento, t.nome as ingresso,
+           i.qr_code, e.data_inicial
+      from eventos.inscricoes i
+      join public.pessoas p on p.id = i.pessoa_id
+      join eventos.eventos e on e.id = i.evento_id
+      left join eventos.ingresso_tipos t on t.id = i.ingresso_tipo_id
+     where i.id = ${inscricaoId}
+  `;
+  if (!linha?.email) return;
+
+  await enfileirar({
+    canal: "email",
+    destinatario: linha.email,
+    chaveUnica: `transferencia:${inscricaoId}`,
+    assunto: `Seu ingresso agora é do evento ${linha.evento}`,
+    corpo: [
+      `Olá, ${linha.nome}.`,
+      `Seu ingresso foi transferido para "${linha.evento}", em ${dataBR(linha.data_inicial)}.`,
+      `${linha.ingresso ?? "Ingresso"}${linha.qr_code ? ` — código ${linha.qr_code}` : ""}`,
+      "⚠️ O comprovante anterior não vale mais. Apresente este código na entrada.",
+      "SEICHO-NO-IE DO BRASIL",
+    ].join("\n\n"),
+  });
+}
+
 export async function transferirEntreEventos(formData: FormData) {
   const eu = await exigirCapacidade("eventos.inscricoes.gerir");
 
@@ -1773,6 +1895,7 @@ export async function transferirEntreEventos(formData: FormData) {
 
   const sql = conexao();
   let resumo = "";
+  let inscricaoTransferida = 0;
 
   try {
     await sql.begin(async (tx) => {
@@ -1930,6 +2053,7 @@ export async function transferirEntreEventos(formData: FormData) {
         );
       }
 
+      inscricaoTransferida = nova.id;
       resumo =
         acerto.estornoCentavos > 0
           ? `${linha.pessoa_nome} passou para "${destino.nome}". Estorno de ${formatarReais(acerto.estornoCentavos)} aberto na fila.`
@@ -1960,6 +2084,11 @@ export async function transferirEntreEventos(formData: FormData) {
         : traduzirIngresso(e instanceof Error ? e.message : String(e));
     volta("erro", mensagem);
   }
+
+  // ⚠️ Quem teve o ingresso movido PRECISA saber, e é o aviso mais importante
+  // do módulo: a pessoa pode chegar no evento errado, no dia errado, com um
+  // comprovante que não vale mais. Pela fila, como todos os outros.
+  await avisarDaTransferencia(inscricaoTransferida);
 
   revalidatePath(ROTA_TRANSFERIR);
   revalidatePath("/eventos/pessoas");
